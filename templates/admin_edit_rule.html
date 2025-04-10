@@ -1,0 +1,41 @@
+{# Phải có dòng extends ở đầu tiên #}
+{% extends "admin_base.html" %}
+
+{# Bắt đầu khối nội dung #}
+{% block content %}
+
+{# Phần tiêu đề H1 có thể giữ lại hoặc bỏ đi tùy ý vì base đã có thể có rồi #}
+{# <h1>{{ title }}</h1> #}
+
+{# Toàn bộ nội dung form của bạn nằm ở đây #}
+<form method="POST">
+    <label for="keywords">Keywords (phân cách bằng dấu phẩy):</label><br>
+    <input type="text" id="keywords" name="keywords" value="{{ rule.trigger_keywords }}"><br><br>
+
+    <label for="category">Category:</label><br>
+    <input type="text" id="category" name="category" value="{{ rule.category | default('') }}"><br><br> {# Thêm
+    default('') #}
+
+    <label for="template_ref">Template:</label><br>
+    <select name="template_ref" id="template_ref">
+        <option value="">-- Chọn Template (hoặc để trống) --</option>
+        {% for tpl in templates %}
+        <option value="{{ tpl.template_ref }}" {% if rule.response_template_ref==tpl.template_ref %}selected{% endif %}>
+            {{ tpl.template_ref }}
+        </option>
+        {% endfor %}
+    </select><br><br>
+
+    <label for="priority">Priority:</label><br>
+    <input type="number" id="priority" name="priority" value="{{ rule.priority | default(0) }}"><br><br>
+
+    <label for="notes">Notes:</label><br>
+    <textarea id="notes" name="notes" rows="3" style="width: 80%;">{{ rule.notes | default('') }}</textarea><br><br> {#
+    Thêm default('') #}
+
+    <button type="submit">Lưu Thay đổi</button>
+    <a href="{{ url_for('admin.view_rules') }}">Hủy</a>
+</form>
+
+{# Thẻ đóng khối nội dung phải ở cuối cùng #}
+{% endblock %}

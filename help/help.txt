@@ -1,0 +1,13 @@
+Your_PC_Server_Project/
+├── venv/                   <-- Thư mục môi trường ảo Python
+├── static/                 <-- (Cho Web UI) Chứa file CSS, JavaScript tĩnh
+├── templates/              <-- (Cho Web UI) Chứa file HTML (nếu dùng Flask/Jinja2)
+├── config.py               <-- Lưu trữ cấu hình (DB, API Keys...)
+├── database.py             <-- Xử lý kết nối và truy vấn CSDL (PostgreSQL)
+├── nlp_utils.py            <-- Các hàm xử lý ngôn ngữ tự nhiên (tách từ, khớp luật...)
+├── ai_service.py           <-- Các hàm tương tác với LLM API (Gemini, GPT...)
+├── kb_manager.py           <-- (Nâng cao) Logic quản lý Cơ sở Tri thức (duyệt đề xuất...)
+├── routes.py               <-- Định nghĩa các API endpoints (@app.route) - Có thể chia nhỏ hơn nữa dùng Blueprints
+├── run.py                  <-- File chính để khởi chạy ứng dụng Flask/FastAPI
+├── requirements.txt        <-- Liệt kê các thư viện Python cần cài đặt
+└── ... (Các file khác nếu cần) ...

@@ -1,0 +1,51 @@
+<html lang="en">
+{# templates/admin/admin_rules.html #}
+{% extends "admin_base.html" %} {# Giả sử bạn có base template #}
+
+{% block content %}
+<h1>{{ title }}</h1>
+<p><a href="{{ url_for('admin.add_rule_form') }}">Thêm Luật Mới</a></p> {# Nút thêm mới #}
+
+{% if rules is not none and rules|length > 0 %} {# Kiểm tra rules tồn tại và không rỗng #}
+<table border="1">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Keywords</th>
+            <th>Category</th>
+            <th>Template Ref</th>
+            <th>Priority</th>
+            <th>Notes</th>
+            <th>Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {# Vòng lặp bắt đầu #}
+        {% for rule in rules %}
+        <tr>
+            <td>{{ rule.rule_id }}</td>
+            <td>{{ rule.trigger_keywords }}</td>
+            <td>{{ rule.category }}</td>
+            <td>{{ rule.response_template_ref }}</td>
+            <td>{{ rule.priority }}</td>
+            <td>{{ rule.notes }}</td>
+            <td>
+                {# Các link/form sử dụng 'rule' phải nằm BÊN TRONG vòng lặp này #}
+                <a href="{{ url_for('admin.edit_rule_form', rule_id=rule.rule_id) }}">Sửa</a>
+                <form action="{{ url_for('admin.delete_rule', rule_id=rule.rule_id) }}" method="POST"
+                    style="display:inline;" onsubmit="return confirm('Xóa luật #{{ rule.rule_id }}?');">
+                    <button type="submit">Xóa</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %} {# Vòng lặp kết thúc #}
+    </tbody>
+</table>
+{% elif rules is none %}
+<p style="color: red;">Không thể tải danh sách luật (Lỗi CSDL?).</p>
+{% else %}
+<p>Chưa có luật nào được định nghĩa.</p>
+{% endif %}
+{% endblock %}
+
+</html>

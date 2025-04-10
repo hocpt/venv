@@ -1,0 +1,20 @@
+{% extends "admin_base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+{# stage được truyền từ route #}
+<form method="POST">
+    <label for="stage_id">Stage ID:</label><br>
+    <input type="text" id="stage_id_display" value="{{ stage.stage_id }}" disabled><br><br>
+
+    <label for="description">Description:</label><br>
+    <textarea id="description" name="description" rows="2"
+        style="width: 80%;">{{ stage.description | default('') }}</textarea><br><br>
+
+    <label for="stage_order">Order:</label><br>
+    <input type="number" id="stage_order" name="stage_order" value="{{ stage.stage_order | default(0) }}"><br><br>
+
+    <button type="submit">Lưu Thay Đổi</button>
+    {# Quay về trang chi tiết strategy #}
+    <a href="{{ url_for('admin.view_strategy_stages', strategy_id=stage.strategy_id) }}">Hủy</a>
+</form>
+{% endblock %}

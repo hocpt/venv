@@ -1,0 +1,24 @@
+{% extends "admin_base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<form method="POST">
+    {# Gửi kèm strategy_id để route POST biết #}
+    <input type="hidden" name="strategy_id" value="{{ strategy_id }}">
+
+    <label for="stage_id">Stage ID (mã định danh duy nhất cho stage - bắt buộc):</label><br>
+    <input type="text" id="stage_id" name="stage_id" required
+        value="{{ current_data.stage_id if current_data else '' }}"><br><br>
+
+    <label for="description">Description (mô tả stage):</label><br>
+    <textarea id="description" name="description" rows="2"
+        style="width: 80%;">{{ current_data.description if current_data else '' }}</textarea><br><br>
+
+    <label for="stage_order">Order (thứ tự hiển thị/logic, số nhỏ trước, mặc định 0):</label><br>
+    <input type="number" id="stage_order" name="stage_order"
+        value="{{ current_data.stage_order if current_data else 0 }}"><br><br>
+
+    <button type="submit">Thêm Stage</button>
+    {# Quay về trang chi tiết strategy #}
+    <a href="{{ url_for('admin.view_strategy_stages', strategy_id=strategy_id) }}">Hủy</a>
+</form>
+{% endblock %}

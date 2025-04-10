@@ -1,0 +1,65 @@
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+
+{# Form sẽ POST về chính URL hiện tại (route edit_account) #}
+<form method="POST">
+    <label for="account_id">Account ID:</label><br>
+    {# Hiển thị ID nhưng không cho sửa #}
+    <input type="text" id="account_id" name="account_id_display" value="{{ account.account_id }}" disabled><br><br>
+    {# Có thể thêm input ẩn nếu cần gửi account_id trong form body,
+    nhưng vì nó đã có trong URL nên route Flask có thể lấy được #}
+    {# <input type="hidden" name="account_id" value="{{ account.account_id }}"> #}
+
+    <label for="platform">Platform (bắt buộc):</label><br>
+    <select name="platform" id="platform" required>
+        <option value="">-- Chọn Platform --</option>
+        {% for pform in valid_platforms %}
+        <option value="{{ pform }}" {% if account.platform==pform %}selected{% endif %}>
+            {{ pform.capitalize() }}
+        </option>
+        {% endfor %}
+    </select><br><br>
+
+    <label for="username">Username (bắt buộc):</label><br>
+    <input type="text" id="username" name="username" required value="{{ account.username }}"><br><br>
+
+    <label for="status">Status:</label><br>
+    <select name="status" id="status">
+        {# Chọn giá trị hiện tại của account #}
+        <option value="active" {% if account.status=='active' %}selected{% endif %}>Active</option>
+        <option value="inactive" {% if account.status=='inactive' %}selected{% endif %}>Inactive</option>
+        <option value="error" {% if account.status=='error' %}selected{% endif %}>Error</option>
+        <option value="limited" {% if account.status=='limited' %}selected{% endif %}>Limited</option>
+    </select><br><br>
+
+    <label for="goal">Goal (mục tiêu):</label><br>
+    <select name="goal" id="goal">
+        <option value="">-- Chọn Goal (tùy chọn) --</option>
+        {% for g in valid_goals %}
+        <option value="{{ g }}" {% if account.goal==g %}selected{% endif %}>
+            {{ g.replace('_', ' ').capitalize() }}
+        </option>
+        {% endfor %}
+    </select><br><br>
+
+    <label for="default_strategy_id">Default Strategy:</label><br>
+    <select name="default_strategy_id" id="default_strategy_id">
+        <option value="">-- Không chọn --</option>
+        {% for strat in strategies %}
+        {# Chọn giá trị hiện tại của account #}
+        <option value="{{ strat.strategy_id }}" {% if account.default_strategy_id==strat.strategy_id %}selected{% endif
+            %}>
+            {{ strat.name | default(strat.strategy_id) }}
+        </option>
+        {% endfor %}
+    </select><br><br>
+
+    <label for="notes">Notes (ghi chú):</label><br>
+    <textarea id="notes" name="notes" rows="3" style="width: 80%;">{{ account.notes | default('') }}</textarea><br><br>
+
+    <button type="submit">Lưu Thay Đổi</button>
+    <a href="{{ url_for('admin.view_accounts') }}">Hủy</a>
+</form>
+{% endblock %}

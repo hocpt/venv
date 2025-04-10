@@ -1,0 +1,48 @@
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+{# TODO: Add filters/search form here #}
+
+{% if history %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%; font-size: 0.9em;">
+    <thead>
+        <tr>
+            <th>Timestamp</th>
+            <th>Account ID</th>
+            <th>App</th>
+            <th>Thread ID</th>
+            <th>Stage ID</th>
+            <th>Intent</th>
+            <th>Received Text</th>
+            <th>Sent Text</th>
+            <th>Status</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in history %}
+        {# Giả sử history là list of dicts với các key như trong ainteraction_history table #}
+        <tr>
+            <td style="white-space: nowrap;">{{ item.timestamp.strftime('%Y-%m-%d %H:%M:%S') if item.timestamp else
+                'N/A' }}</td>
+            <td>{{ item.account_id | default('') }}</td>
+            <td>{{ item.app | default('') }}</td>
+            <td>{{ item.thread_id | default('') }}</td>
+            <td>{{ item.stage_id | default('') }}</td>
+            <td>{{ item.detected_user_intent | default('') }}</td>
+            <td>
+                <pre>{{ item.received_text | default('') | escape | truncate(150) }}</pre>
+            </td>
+            <td>
+                <pre>{{ item.sent_text | default('') | escape | truncate(150) }}</pre>
+            </td>
+            <td>{{ item.status | default('') }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{# TODO: Add pagination links here if implementing pagination #}
+{% else %}
+<p>Không có dữ liệu lịch sử.</p>
+{% endif %}
+{% endblock %}

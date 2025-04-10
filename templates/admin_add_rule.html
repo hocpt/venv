@@ -1,0 +1,39 @@
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+
+<form method="POST">
+    <label for="keywords">Keywords (phân cách bằng dấu phẩy, bắt buộc):</label><br>
+    <textarea id="keywords" name="keywords" rows="3" style="width: 80%;"
+        required>{{ current_data.keywords if current_data }}</textarea><br><br>
+
+    <label for="category">Category (ví dụ: hoi_gia, chao_hoi):</label><br>
+    <input type="text" id="category" name="category" value="{{ current_data.category if current_data }}"><br><br>
+
+    <label for="template_ref">Template (bắt buộc):</label><br>
+    <select name="template_ref" id="template_ref" required>
+        <option value="">-- Chọn Template --</option>
+        {% for tpl in templates %}
+        {# Giả sử templates là list of dicts [{'template_ref': 'ref1'}, ...] #}
+        <option value="{{ tpl.template_ref }}" {% if current_data and current_data.template_ref==tpl.template_ref
+            %}selected{% endif %}>
+            {{ tpl.template_ref }}
+        </option>
+        {% endfor %}
+    </select>
+    <small><a href="{{ url_for('admin.add_template') }}" target="_blank">(Thêm Template mới)</a></small>
+    <br><br>
+
+    <label for="priority">Priority (số càng cao ưu tiên càng lớn, mặc định 0):</label><br>
+    <input type="number" id="priority" name="priority"
+        value="{{ current_data.priority if current_data else 0 }}"><br><br>
+
+    <label for="notes">Notes (ghi chú):</label><br>
+    <textarea id="notes" name="notes" rows="2"
+        style="width: 80%;">{{ current_data.notes if current_data }}</textarea><br><br>
+
+    <button type="submit">Thêm Luật</button>
+    <a href="{{ url_for('admin.view_rules') }}">Hủy</a>
+</form>
+{% endblock %}

@@ -1,0 +1,36 @@
+{# === Trong file backup/templates/admin_template_variations.html === #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+<p><strong>Description:</strong> {{ template_details.description | default('N/A') }}</p>
+<p><strong>Category:</strong> {{ template_details.category | default('N/A') }}</p>
+<hr>
+
+<h2>Variations hiện có0</h2>
+{% if variations %}
+<ul>
+    {% for var in variations %} {# Giả sử var có 'variation_id' và 'variation_text' #}
+    <li>
+        <pre>{{ var.variation_text | escape }}</pre>
+        <form action="{{ url_for('admin.delete_template_variation', variation_id=var.variation_id) }}" method="POST"
+            style="display:inline;" onsubmit="return confirm('Xác nhận xóa variation này?');">
+            {# Gửi kèm template_ref để redirect về đúng trang sau khi xóa #}
+            <input type="hidden" name="template_ref_redirect" value="{{ template_ref }}">
+            <button type="submit">Xóa Variation</button>
+        </form>
+        {# TODO: Add Edit button #}
+    </li>
+    {% endfor %}
+</ul>
+{% else %}
+<p>Chưa có variation nào cho template này.</p>
+{% endif %}
+
+<hr>
+<h2>Thêm Variation Mớil</h2>
+{# ... Form thêm variation giữ nguyên ... #}
+
+<br>
+<a href="{{ url_for('admin.view_templates') }}">Quay lại danh sách Templates</a>
+{% endblock %}

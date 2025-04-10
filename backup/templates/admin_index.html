@@ -1,0 +1,38 @@
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title | default('Admin') }} - Automation Control</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+    {% extends "admin_base.html" %}
+
+    {% block content %}
+    <h1>Chào mừng đến với Flask</h1>
+    <nav>
+        {# Phần điều hướng chung cho trang admin #}
+        <ul>
+            <li><a href="{{ url_for('admin.index') }}">Dashboard</a></li>
+            <li><a href="{{ url_for('admin.view_rules') }}">Quản lý Luật</a></li>
+            <li><a href="{{ url_for('admin.view_suggestions') }}">Đề xuất AI</a></li>
+            {# Thêm các link khác #}
+        </ul>
+    </nav>
+    <hr>
+    {% endblock %}
+    <main>
+        {# Hiển thị Flash messages nếu có #}
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <ul class=flashes>
+            {% for category, message in messages %}
+            <li class="{{ category }}">{{ message }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+        {% endwith %}  
+
+</html>

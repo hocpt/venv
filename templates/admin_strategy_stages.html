@@ -1,0 +1,134 @@
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+{% if strategy %}
+<p><strong>ID:</strong> {{ strategy.strategy_id }}</p>
+<p><strong>Description:</strong> {{ strategy.description | default('N/A') }}</p>
+<p><strong>Initial Stage:</strong> {{ strategy.initial_stage_id }}</p>
+{% endif %}
+<hr>
+
+{# === Phần Stages === #}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+    <h2>Stages thuộc Chiến lược này</h2>
+    {# Nút thêm Stage mới cho Strategy này #}
+    <a href="{{ url_for('admin.add_stage', strategy_id=strategy.strategy_id) }}" class="button">Thêm Stage Mới</a>
+</div>
+{% if strategy_stages %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%;">
+    <thead>
+        <tr>
+            <th>Stage ID</th>
+            <th>Description</th>
+            <th>Order</th>
+            <th>Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for stage in strategy_stages %}
+        <tr>
+            <td>{{ stage.stage_id }}</td>
+            <td>{{ stage.description | default('') }}</td>
+            <td>{{ stage.stage_order | default(0) }}</td>
+            <td style="white-space: nowrap;">
+                {# Link sửa stage #}
+                <a href="{{ url_for('admin.edit_stage', stage_id=stage.stage_id) }}">Sửa</a>
+                {# Form xóa stage #}
+                <form action="{{ url_for('admin.delete_stage', stage_id=stage.stage_id) }}" method="POST"
+                    style="display:inline;"
+                    onsubmit="return confirm('Xác nhận xóa stage \'{{ stage.stage_id }}\'? Transitions bắt đầu từ stage này sẽ bị xóa, transitions trỏ đến stage này sẽ bị cập nhật (SET NULL), strategy dùng stage này làm initial sẽ bị cập nhật (SET NULL).');">
+                    <button type="submit"
+                        style="color: red; background: none; border: none; padding: 0; font: inherit; cursor: pointer; text-decoration: underline; margin-left: 10px;">Xóa</button>
+                </form>
+                {# Nút thêm transition bắt đầu từ stage này #}
+                <a href="{{ url_for('admin.add_transition', strategy_id=strategy.strategy_id, current_stage_id=stage.stage_id) }}"
+                    style="margin-left: 10px;">+ Transition</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>Chiến lược này chưa có stage nào.</p>
+{% endif %}
+
+<hr>
+
+{# === Phần Transitions === #}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+    <h2>Transitions bắt đầu từ các Stage của Chiến lược này</h2>
+    {# Nút thêm transition chung cho strategy này #}
+    <a href="{{ url_for('admin.add_transition', strategy_id=strategy.strategy_id) }}" class="button">Thêm Transition
+        Mới</a>
+</div>
+{% if transitions %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%;">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Current Stage</th>
+            <th>User Intent</th>
+            <th>Next Stage</th>
+            <th>Action Suggest</th>
+            <th>Template Ref</th>
+            <th>Priority</th>
+            <th>Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for trans in transitions %}
+        <tr>
+            <td>{{ trans.transition_id }}</td>
+            <td>{{ trans.current_stage_id }}</td>
+            <td>{{ trans.user_intent }}</td>
+            <td>{{ trans.next_stage_id | default('N/A') }}</td>
+            <td>{{ trans.action_to_suggest | default('N/A') }}</td>
+            <td>{{ trans.response_template_ref | default('N/A') }}</td>
+            <td>{{ trans.priority | default(0) }}</td>
+            <td style="white-space: nowrap;">
+                {# Link sửa transition #}
+                <a href="{{ url_for('admin.edit_transition', transition_id=trans.transition_id) }}">Sửa</a>
+                {# Form xóa transition #}
+                <form action="{{ url_for('admin.delete_transition', transition_id=trans.transition_id) }}" method="POST"
+                    style="display:inline;"
+                    onsubmit="return confirm('Xác nhận xóa transition ID {{ trans.transition_id }}?');">
+                    {# Gửi kèm strategy_id để redirect nếu cần, hoặc route tự lấy từ DB #}
+                    {# <input type="hidden" name="strategy_id_redirect" value="{{ strategy.strategy_id }}"> #}
+                    <button type="submit"
+                        style="color: red; background: none; border: none; padding: 0; font: inherit; cursor: pointer; text-decoration: underline; margin-left: 10px;">Xóa</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>Không tìm thấy transition nào bắt đầu từ các stage của chiến lược này.</p>
+{% endif %}
+
+<br>
+<a href="{{ url_for('admin.view_strategies') }}">Quay lại danh sách Chiến lược</a>
+
+{% endblock %}
+
+{# Optional: Thêm CSS cho class 'button' nếu muốn nút đẹp hơn #}
+{% block styles %}
+{{ super() }}
+<style>
+    .button {
+        display: inline-block;
+        padding: 5px 10px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    .button:hover {
+        background-color: #0056b3;
+    }
+</style>
+{% endblock %}

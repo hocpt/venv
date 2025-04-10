@@ -1,0 +1,25 @@
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+
+<form method="POST">
+    <label for="template_ref">Template Ref (mã định danh, vd: welcome_msg, price_reply - bắt buộc):</label><br>
+    <input type="text" id="template_ref" name="template_ref" required
+        value="{{ current_data.template_ref if current_data }}"><br><br>
+
+    <label for="description">Description (mô tả ngắn):</label><br>
+    <input type="text" id="description" name="description"
+        value="{{ current_data.description if current_data }}"><br><br>
+
+    <label for="category">Category (nhóm):</label><br>
+    <input type="text" id="category" name="category" value="{{ current_data.category if current_data }}"><br><br>
+
+    <label for="variation_text">Variation đầu tiên (nội dung mẫu - bắt buộc):</label><br>
+    <textarea id="variation_text" name="variation_text" rows="4" style="width: 80%;"
+        required>{{ current_data.variation_text if current_data }}</textarea><br><br>
+
+    <button type="submit">Thêm Template</button>
+    <a href="{{ url_for('admin.view_templates') }}">Hủy</a>
+</form>
+{% endblock %}

@@ -1,0 +1,62 @@
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+
+<form method="POST">
+    <label for="account_id">Account ID (Định danh duy nhất - bắt buộc):</label><br>
+    <input type="text" id="account_id" name="account_id" required
+        value="{{ current_data.account_id if current_data }}"><br><br>
+
+    <label for="platform">Platform (bắt buộc):</label><br>
+    <select name="platform" id="platform" required>
+        <option value="">-- Chọn Platform --</option>
+        {% for pform in valid_platforms %}
+        <option value="{{ pform }}" {% if current_data and current_data.platform==pform %}selected{% endif %}>
+            {{ pform.capitalize() }} {# Hiển thị chữ hoa đầu #}
+        </option>
+        {% endfor %}
+    </select><br><br>
+
+    <label for="username">Username (bắt buộc):</label><br>
+    <input type="text" id="username" name="username" required
+        value="{{ current_data.username if current_data }}"><br><br>
+
+    <label for="status">Status:</label><br>
+    <select name="status" id="status">
+        <option value="active" {% if not current_data or current_data.status=='active' %}selected{% endif %}>Active
+        </option>
+        <option value="inactive" {% if current_data and current_data.status=='inactive' %}selected{% endif %}>Inactive
+        </option>
+    </select><br><br>
+
+    <label for="goal">Goal (mục tiêu):</label><br>
+    <select name="goal" id="goal">
+        <option value="">-- Chọn Goal (tùy chọn) --</option>
+        {% for g in valid_goals %}
+        <option value="{{ g }}" {% if current_data and current_data.goal==g %}selected{% endif %}>
+            {{ g.replace('_', ' ').capitalize() }} {# Hiển thị dễ đọc hơn #}
+        </option>
+        {% endfor %}
+    </select><br><br>
+
+    <label for="default_strategy_id">Default Strategy:</label><br>
+    <select name="default_strategy_id" id="default_strategy_id">
+        <option value="">-- Không chọn --</option>
+        {% for strat in strategies %}
+        {# Giả sử strategies là list of dicts [{'strategy_id': 's1', 'name': 'Strategy 1'}, ...] #}
+        <option value="{{ strat.strategy_id }}" {% if current_data and
+            current_data.default_strategy_id==strat.strategy_id %}selected{% endif %}>
+            {{ strat.name | default(strat.strategy_id) }}
+        </option>
+        {% endfor %}
+    </select><br><br>
+
+    <label for="notes">Notes (ghi chú):</label><br>
+    <textarea id="notes" name="notes" rows="3"
+        style="width: 80%;">{{ current_data.notes if current_data }}</textarea><br><br>
+
+    <button type="submit">Thêm Tài khoản</button>
+    <a href="{{ url_for('admin.view_accounts') }}">Hủy</a>
+</form>
+{% endblock %}

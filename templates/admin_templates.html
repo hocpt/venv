@@ -1,0 +1,45 @@
+{# === Trong file backup/templates/admin_templates.html === #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+<p><a href="{{ url_for('admin.add_template') }}">Thêm Template Mới</a></p>
+
+{% if templates %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%;">
+    <thead>
+        <tr>
+            <th>Template Ref</th>
+            <th>Description</th>
+            <th>Category</th>
+            <th>Variations Count</th>
+            <th>Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for tpl in templates %}
+        <tr>
+            <td>{{ tpl.template_ref }}</td>
+            <td>{{ tpl.description | default('') }}</td>
+            <td>{{ tpl.category | default('') }}</td>
+            <td style="text-align:center;">{{ tpl.variation_count | default('N/A') }}</td>
+            <td>
+                <a href="{{ url_for('admin.view_template_variations', template_ref=tpl.template_ref) }}">Xem/Sửa
+                    Variations</a>
+                {# <a href="#">Sửa Ref</a> TODO #}
+
+                {# <<< THÊM FORM XÓA TEMPLATE REF>>> #}
+                    <form action="{{ url_for('admin.delete_template', template_ref=tpl.template_ref) }}" method="POST"
+                        style="display:inline;"
+                        onsubmit="return confirm('Xác nhận xóa Template Ref \'{{ tpl.template_ref }}\'? TOÀN BỘ variations của nó cũng sẽ bị xóa! Hành động này không thể hoàn tác và sẽ thất bại nếu template đang được sử dụng bởi Rules hoặc Transitions.');">
+                        <button type="submit">Xóa Template</button>
+                    </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>Chưa có template nào.</p>
+{% endif %}
+{% endblock %}

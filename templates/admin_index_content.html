@@ -1,0 +1,17 @@
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+<p>Chào mừng bạn đến với Bảng điều khiển Tự động hóa.</p>
+<p>Sử dụng menu bên trái để quản lý các thành phần của hệ thống.</p>
+{# Thêm các số liệu thống kê hoặc thông tin nhanh tại đây nếu muốn #}
+
+{# Ví dụ:
+<h2>Thống kê nhanh</h2>
+<ul>
+    <li>Số tài khoản: {{ stats.accounts_count | default('N/A') }}</li>
+    <li>Số luật: {{ stats.rules_count | default('N/A') }}</li>
+    <li>Đề xuất đang chờ: {{ stats.pending_suggestions_count | default('N/A') }}</li>
+</ul>
+#}
+{% endblock %}

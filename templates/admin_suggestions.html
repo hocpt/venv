@@ -1,0 +1,58 @@
+<html lang="en">
+{# templates/admin/admin_suggestions.html #}
+{% extends "admin_base.html" %} {# Kế thừa từ layout admin cơ sở #}
+
+{% block content %}
+<h1>{{ title }}</h1> {# Hiển thị title "Luật Đề xuất bởi AI" #}
+
+{% if suggestions %}
+<p>Dưới đây là các luật được AI đề xuất dựa trên lịch sử tương tác. Hãy xem xét và phê duyệt nếu phù hợp.</p>
+<table border="1" cellpadding="5" cellspacing="0">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Keywords Đề xuất</th>
+            <th>Template Đề xuất</th>
+            <th>Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for sugg in suggestions %}
+        <tr>
+            <td>{{ sugg.suggestion_id }}</td>
+            <td>{{ sugg.suggested_keywords }}</td>
+            {# Hiển thị an toàn, escape HTML nếu cần #}
+            <td>
+                <pre>{{ sugg.suggested_template_text | escape }}</pre>
+            </td>
+            <td>
+                {# Form Phê duyệt - Cần có input ẩn/hiện cho template_ref, category... #}
+                <form action="{{ url_for('admin.approve_suggestion', suggestion_id=sugg.suggestion_id) }}" method="POST"
+                    style="display:inline;">
+                    <input type="text" name="template_ref" placeholder="Template Ref (vd: ai_{{sugg.suggestion_id}})"
+                        required>
+                    <button type="submit">Phê duyệt</button>
+                </form>
+                {# Form Từ chối #}
+                <form action="{{ url_for('admin.reject_suggestion', suggestion_id=sugg.suggestion_id) }}" method="POST"
+                    style="display:inline;">
+                    <button type="submit">Từ chối</button>
+                </form>
+                {# Link Sửa & Phê duyệt (tạo sau) #}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% elif suggestions is none %}
+<p style="color: red;">Có lỗi xảy ra khi tải danh sách đề xuất.</p>
+{% else %}
+<p>Hiện tại không có đề xuất nào đang chờ phê duyệt.</p>
+{% endif %}
+
+<br>
+<a href="{{ url_for('admin.index') }}">Quay lại Dashboard</a>
+
+{% endblock %}
+
+</html>
