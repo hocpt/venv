@@ -1,0 +1,18 @@
+{% extends "admin_base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<form method="POST">
+    <label for="template_ref_display">Template Ref:</label><br>
+    <input type="text" id="template_ref_display" value="{{ template.template_ref }}" disabled><br><br>
+
+    <label for="description">Description:</label><br>
+    <textarea id="description" name="description" rows="3"
+        style="width: 80%;">{{ template.description | default('') }}</textarea><br><br>
+
+    <label for="category">Category:</label><br>
+    <input type="text" id="category" name="category" value="{{ template.category | default('') }}"><br><br>
+
+    <button type="submit">Lưu Thay Đổi</button>
+    <a href="{{ url_for('admin.view_templates') }}">Hủy</a>
+</form>
+{% endblock %}

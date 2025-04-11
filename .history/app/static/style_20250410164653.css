@@ -1,0 +1,134 @@
+/* === File: backup/static/style.css === */
+
+/* ... CSS cũ của bạn ... */
+
+/* === CSS cho Menu Tab Ngang (Kiểu mới) === */
+.tab-nav {
+    background-color: #f8f9fa;
+    /* Màu nền xám rất nhạt cho thanh nav */
+    border-bottom: 1px solid #dee2e6;
+    /* Đường kẻ mỏng phân cách với content */
+    width: 100%;
+    /* Chiếm toàn bộ chiều ngang */
+}
+
+.tab-list {
+    display: flex;
+    /* Sắp xếp các mục li nằm ngang */
+    list-style: none;
+    /* Bỏ dấu chấm đầu dòng của ul */
+    margin: 0;
+    padding: 0 15px;
+    /* Padding ngang cho list (thay vì 10px) */
+    overflow-x: auto;
+    /* Cho phép cuộn ngang nếu không đủ chỗ */
+    white-space: nowrap;
+    /* Ngăn các mục xuống dòng */
+}
+
+.tab-item {
+    margin: 0;
+    /* Bỏ margin mặc định của li */
+}
+
+.tab-link {
+    display: inline-block;
+    /* Để có thể set padding và border */
+    padding: 14px 16px;
+    /* Padding trên dưới và trái phải cho mỗi tab */
+    color: #495057;
+    /* Màu chữ hơi xám */
+    text-decoration: none;
+    /* Bỏ gạch chân */
+    border: none;
+    /* Bỏ border mặc định nếu có */
+    border-bottom: 3px solid transparent;
+    /* Quan trọng: Tạo khoảng trống cho border active mà không làm thay đổi layout */
+    transition: color 0.2s ease, border-color 0.2s ease;
+    /* Hiệu ứng chuyển đổi màu */
+    font-size: 0.95em;
+    /* Kích thước chữ */
+    font-weight: 500;
+    /* Độ đậm vừa phải */
+}
+
+/* Hiệu ứng khi rê chuột qua tab */
+.tab-link:hover {
+    color: #0056b3;
+    /* Đổi màu chữ khi hover */
+    background-color: transparent;
+    /* Không đổi màu nền khi hover */
+}
+
+/* Kiểu dáng cho tab đang active */
+.tab-item.active .tab-link {
+    color: #0d6efd;
+    /* Màu chữ xanh dương cho tab active */
+    border-bottom-color: #0d6efd;
+    /* Đường gạch chân màu xanh dương */
+    font-weight: 600;
+    /* Đậm hơn một chút */
+}
+
+/* Đảm bảo content không bị che lấp */
+main {
+    padding: 20px;
+    /* Giữ padding cho content */
+}
+
+/* --- CSS cho nút bấm (giữ nguyên) --- */
+.button {
+    display: inline-block;
+    padding: 5px 10px;
+    background-color: #007bff;
+    color: white !important;
+    border: none;
+    border-radius: 4px;
+    text-decoration: none;
+    cursor: pointer;
+    font-size: 0.9em;
+    margin-left: 5px;
+}
+
+.button:hover {
+    background-color: #0056b3;
+    text-decoration: none;
+}
+
+/* --- CSS cơ bản cho flash messages (giữ nguyên hoặc di chuyển vào đây) --- */
+.flashes {
+    list-style-type: none;
+    padding: 15px;
+    margin: 0 0 15px 0;
+}
+
+/* Thêm margin bottom */
+.flashes li {
+    padding: 10px 15px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+}
+
+.flashes li.success {
+    background-color: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.flashes li.error {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.flashes li.warning {
+    background-color: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeeba;
+}
+
+.flashes li.info {
+    background-color: #d1ecf1;
+    color: #0c5460;
+    border: 1px solid #bee5eb;
+}

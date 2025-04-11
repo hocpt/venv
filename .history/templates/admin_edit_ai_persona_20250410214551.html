@@ -1,0 +1,36 @@
+{% extends "admin_base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+{# persona được truyền từ route #}
+<form method="POST">
+    <label for="persona_id">Persona ID:</label><br>
+    <input type="text" value="{{ persona.persona_id }}" disabled><br><br>
+
+    <label for="name">Name (bắt buộc):</label><br>
+    {# Sử dụng current_data nếu có lỗi POST, nếu không dùng data từ persona #}
+    <input type="text" id="name" name="name" required
+        value="{{ current_data.name if current_data is defined else persona.name }}" maxlength="100"><br><br>
+
+    <label for="description">Description:</label><br>
+    <textarea id="description" name="description" rows="2"
+        style="width: 80%;">{{ current_data.description if current_data is defined else persona.description | default('') }}</textarea><br><br>
+
+    <label for="base_prompt">Base Prompt (bắt buộc):</label><br>
+    <textarea id="base_prompt" name="base_prompt" rows="8" style="width: 80%;"
+        required>{{ current_data.base_prompt if current_data is defined else persona.base_prompt }}</textarea><br><br>
+
+    <label for="model_name">Model Name:</label><br>
+    <input type="text" id="model_name" name="model_name"
+        value="{{ current_data.model_name if current_data is defined else persona.model_name | default('') }}"
+        maxlength="100"><br><br>
+
+    <label for="generation_config">Generation Config (JSON hoặc trống):</label><br>
+    {# Hiển thị dạng chuỗi đã được format từ route #}
+    <textarea id="generation_config" name="generation_config" rows="4"
+        style="width: 80%; font-family: monospace;">{{ current_data.generation_config if current_data is defined else persona.generation_config_str | default('') }}</textarea><br>
+    <small>Ví dụ: <code>{"temperature": 0.7, "max_output_tokens": 500}</code></small><br><br>
+
+    <button type="submit">Lưu Thay Đổi</button>
+    <a href="{{ url_for('admin.view_personas') }}">Hủy</a>
+</form>
+{% endblock %}

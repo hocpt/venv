@@ -1,0 +1,366 @@
+{% extends "admin_base.html" %}
+
+{% block content %}
+{# Container chính sử dụng Flexbox column và dark theme class #}
+<div class="ai-playground-container ai-playground-dark-theme">
+
+    {# Khu vực hiển thị chat/kết quả - tự động co giãn và cuộn #}
+    <div class="chat-display-area" id="chat-display">
+        {# Hiển thị lỗi nếu có #}
+        {% if error_message %}
+        <div class="chat-message error-message">
+            <strong>Đã xảy ra lỗi:</strong><br>
+            <pre>{{ error_message }}</pre>
+        </div>
+        {% endif %}
+
+        {# Hiển thị prompt người dùng đã gửi (nếu có từ lần POST trước) #}
+        {% if user_prompt %}
+        <div class="chat-message user-message">
+            <strong>Bạn:</strong>
+            <pre>{{ user_prompt }}</pre>
+        </div>
+        {% endif %}
+
+        {# Hiển thị kết quả AI (nếu có), nếu không hiển thị text mặc định #}
+        <div class="chat-message ai-message">
+            <strong>AI:</strong>
+            {# Dùng if để kiểm tra tường minh thay vì chỉ default #}
+            <pre
+                id="ai-response">{% if ai_response is not none and ai_response|string != 'None' %}{{ ai_response }}{% else %}Nhập yêu cầu của bạn vào khung bên dưới và nhấn "Gửi".{% endif %}</pre>
+        </div>
+
+        {# Thêm một div trống ở cuối để đảm bảo cuộn xuống hết #}
+        <div style="height: 10px;"></div>
+
+    </div> {# End chat-display-area #}
+
+    {# Khu vực nhập liệu và nút bấm - cố định ở dưới cùng (trong container) #}
+    <div class="input-area">
+        {# Form POST về chính route này #}
+        <form method="POST" id="playground-form" action="{{ url_for('admin.ai_playground') }}">
+            <div class="input-controls">
+                {# Dropdown chọn Persona #}
+                <div class="control-group persona-selector">
+                    <label for="persona_id" style="font-size: 0.9em; margin-bottom: 3px; display:block;">Sử dụng
+                        Persona:</label>
+                    <select name="persona_id" id="persona_id">
+                        <option value="">-- Mặc định --</option>
+                        {% for p in personas %}
+                        <option value="{{ p.persona_id }}" {% if selected_persona_id==p.persona_id %}selected{% endif
+                            %}>
+                            {{ p.name }} ({{ p.persona_id }})
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                {# Textarea nhập prompt #}
+                <div class="control-group prompt-input">
+                    <label for="user_prompt" style="font-size: 0.9em; margin-bottom: 3px; display:block;">Yêu cầu /
+                        Prompt:</label>
+                    <textarea id="user_prompt" name="user_prompt" rows="3" style="resize: vertical;"
+                        placeholder="Nhập yêu cầu cho AI...">{{ user_prompt }}</textarea> {# Giữ lại user_prompt sau khi
+                    gửi #}
+                </div>
+            </div>
+
+            {# Các nút bấm chức năng #}
+            <div class="input-actions">
+                <button type="submit" class="button">Gửi</button>
+                <button type="button" class="button secondary-button" onclick="clearPlayground();">Xóa</button>
+                <a href="{{ url_for('admin.ai_playground') }}" class="button secondary-button">Tải lại</a>
+            </div>
+        </form>
+    </div> {# End input-area #}
+
+</div> {# End ai-playground-container #}
+{% endblock %}
+
+
+{# Block chứa JavaScript riêng của trang này #}
+{% block scripts %}
+{{ super() }} {# Giữ lại script từ base template nếu có #}
+<script>
+    function clearPlayground() {
+        // Xóa nội dung ô nhập liệu
+        const userPromptElement = document.getElementById('user_prompt');
+        if (userPromptElement) {
+            userPromptElement.value = '';
+        }
+
+        // Đặt lại nội dung ô hiển thị AI về mặc định
+        const aiResponseElement = document.getElementById('ai-response');
+        if (aiResponseElement) {
+            aiResponseElement.textContent = 'Nhập yêu cầu của bạn vào khung bên dưới và nhấn "Gửi".';
+        }
+
+        // Xóa các message cũ của người dùng và lỗi (nếu có) khỏi khu vực hiển thị
+        const chatDisplay = document.getElementById('chat-display');
+        if (chatDisplay) {
+            const userMessages = chatDisplay.querySelectorAll('.user-message');
+            userMessages.forEach(msg => msg.remove());
+            const errorMessages = chatDisplay.querySelectorAll('.error-message');
+            errorMessages.forEach(msg => msg.remove());
+        }
+
+        // Reset lựa chọn persona về mặc định
+        const personaSelect = document.getElementById('persona_id');
+        if (personaSelect) {
+            personaSelect.value = '';
+        }
+    }
+
+    // Hàm tự động cuộn xuống dưới cùng
+    function scrollToBottom() {
+        const chatDisplay = document.getElementById('chat-display');
+        if (chatDisplay) {
+            // Đặt timeout nhỏ để trình duyệt có thời gian render nội dung mới trước khi cuộn
+            setTimeout(() => { chatDisplay.scrollTop = chatDisplay.scrollHeight; }, 0);
+        }
+    }
+
+    // Gọi khi trang tải xong lần đầu
+    document.addEventListener('DOMContentLoaded', scrollToBottom);
+
+    // Gọi lại sau mỗi lần trang được render lại (ví dụ sau POST)
+    // Vì Flask render lại toàn bộ trang, DOMContentLoaded sẽ được kích hoạt lại.
+    // Nếu sau này dùng AJAX, bạn sẽ cần gọi scrollToBottom() sau khi thêm message mới.
+
+</script>
+{% endblock %}
+
+
+{# Block chứa CSS riêng của trang này (chỉ nên đặt ở đây HOẶC trong style.css) #}
+{% block styles %}
+{{ super() }} {# Giữ lại style từ base template nếu có #}
+<style>
+    /* === CSS cho AI Playground Dark Theme === */
+    /* Container chính */
+    .ai-playground-dark-theme {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 180px);
+        min-height: 500px;
+        border: 1px solid #5f6368;
+        border-radius: 5px;
+        overflow: hidden;
+        background-color: #1e1f20;
+        color: #e8eaed;
+        font-family: Roboto, "Segoe UI", Arial, sans-serif;
+    }
+
+    /* Khu vực hiển thị chat */
+    .ai-playground-dark-theme .chat-display-area {
+        flex-grow: 1;
+        overflow-y: auto;
+        padding: 15px;
+        background-color: #1e1f20;
+        scrollbar-color: #5f6368 #1e1f20;
+        /* <<< THÊM CÁC THUỘC TÍNH SAU >>> */
+        max-width: 900px;
+        /* Giới hạn chiều rộng tối đa */
+        width: 100%;
+        /* Đảm bảo nó vẫn chiếm hết nếu màn hình hẹp */
+        margin-left: auto;
+        /* Căn giữa */
+        margin-right: auto;
+        /* Căn giữa */
+        box-sizing: border-box;
+        /* Để padding không làm tăng kích thước */
+    }
+
+    .ai-playground-dark-theme .chat-display-area::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    .ai-playground-dark-theme .chat-display-area::-webkit-scrollbar-track {
+        background: #202124;
+    }
+
+    .ai-playground-dark-theme .chat-display-area::-webkit-scrollbar-thumb {
+        background-color: #5f6368;
+        border-radius: 4px;
+        border: 2px solid #202124;
+    }
+
+    /* Định dạng chung cho các message */
+    .ai-playground-dark-theme .chat-message {
+        margin-bottom: 15px;
+        padding: 10px 15px;
+        border-radius: 8px;
+        max-width: 90%;
+        border: 1px solid transparent;
+    }
+
+    .ai-playground-dark-theme .chat-message strong {
+        display: block;
+        margin-bottom: 5px;
+        font-size: 0.9em;
+        color: #bdc1c6;
+    }
+
+    .ai-playground-dark-theme .chat-message pre {
+        color: #e8eaed;
+        font-family: "Roboto Mono", monospace;
+        background: none !important;
+        border: none !important;
+        margin: 0;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        font-size: 1em;
+        padding: 0;
+    }
+
+    /* Message của người dùng */
+    .ai-playground-dark-theme .user-message {
+        background-color: #303134;
+        border-bottom-right-radius: 0;
+        margin-left: auto;
+    }
+
+    /* Đẩy sang phải */
+    /* Message của AI */
+    .ai-playground-dark-theme .ai-message {
+        background-color: #202124;
+        border-bottom-left-radius: 0;
+        margin-right: auto;
+    }
+
+    /* Đẩy sang trái */
+    /* Message lỗi */
+    .ai-playground-dark-theme .error-message {
+        background-color: #4d1f1c;
+        border: 1px solid #e57373;
+        color: #ffcdd2;
+        margin-right: auto;
+        max-width: 100%;
+    }
+
+    .ai-playground-dark-theme .error-message pre {
+        color: #ffcdd2;
+    }
+
+    .ai-playground-dark-theme .error-message strong {
+        color: #ffcdd2;
+    }
+
+    /* Khu vực nhập liệu */
+    .ai-playground-dark-theme .input-area {
+        flex-shrink: 0;
+        padding: 15px;
+        border-top: 1px solid #5f6368;
+        background-color: #202124;
+        /* <<< THÊM CÁC THUỘC TÍNH SAU >>> */
+        max-width: 900px;
+        /* Giới hạn chiều rộng tối đa - khớp với chat area */
+        width: 100%;
+        /* Đảm bảo nó vẫn chiếm hết nếu màn hình hẹp */
+        margin-left: auto;
+        /* Căn giữa */
+        margin-right: auto;
+        /* Căn giữa */
+        box-sizing: border-box;
+        /* Để padding không làm tăng kích thước */
+    }
+
+    .ai-playground-dark-theme .input-area form {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .ai-playground-dark-theme .input-controls {
+        display: flex;
+        gap: 15px;
+        align-items: flex-end;
+    }
+
+    .ai-playground-dark-theme .control-group {
+        flex-grow: 1;
+    }
+
+    .ai-playground-dark-theme .persona-selector {
+        flex-grow: 0;
+        flex-basis: 250px;
+    }
+
+    .ai-playground-dark-theme .prompt-input textarea {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    /* Các control trong khu vực nhập liệu */
+    .ai-playground-dark-theme .control-group label {
+        color: #bdc1c6;
+    }
+
+    .ai-playground-dark-theme select,
+    .ai-playground-dark-theme textarea {
+        background-color: #3c4043;
+        color: #e8eaed;
+        border: 1px solid #5f6368;
+        border-radius: 4px;
+        padding: 8px 10px;
+    }
+
+    .ai-playground-dark-theme textarea {
+        min-height: 60px;
+        resize: vertical;
+    }
+
+    /* Cho phép resize dọc */
+    /* Placeholder text */
+    .ai-playground-dark-theme ::placeholder {
+        color: #9aa0a6;
+        opacity: 1;
+    }
+
+    .ai-playground-dark-theme :-ms-input-placeholder {
+        color: #9aa0a6;
+    }
+
+    .ai-playground-dark-theme ::-ms-input-placeholder {
+        color: #9aa0a6;
+    }
+
+    /* Các nút bấm chức năng */
+    .ai-playground-dark-theme .input-actions {
+        text-align: right;
+        margin-top: 5px;
+    }
+
+    .ai-playground-dark-theme .input-actions .button {
+        margin-left: 8px;
+    }
+
+    .ai-playground-dark-theme .button {
+        background-color: #8ab4f8;
+        color: #202124 !important;
+        border: none;
+        font-weight: 500;
+    }
+
+    .ai-playground-dark-theme .button:hover {
+        background-color: #aecbfa;
+    }
+
+    .ai-playground-dark-theme .secondary-button {
+        background-color: #5f6368;
+        color: #e8eaed !important;
+    }
+
+    .ai-playground-dark-theme .secondary-button:hover {
+        background-color: #70757a;
+    }
+
+    .ai-playground-dark-theme a.button {
+        color: #202124 !important;
+    }
+
+    .ai-playground-dark-theme a.secondary-button {
+        color: #e8eaed !important;
+    }
+</style>
+{% endblock %}

@@ -1,0 +1,242 @@
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+
+{# --- Form Bộ lọc --- #}
+<form method="GET" action="{{ url_for('admin.view_history') }}" class="filter-form">
+    <fieldset>
+        <legend>Bộ lọc</legend>
+        <div class="filter-row">
+            <div class="filter-group">
+                <label for="account_id">Account ID:</label>
+                <input type="text" id="account_id" name="account_id" value="{{ filters.account_id | default('') }}">
+            </div>
+            <div class="filter-group">
+                <label for="thread_id">Thread ID (chứa):</label>
+                <input type="text" id="thread_id" name="thread_id" value="{{ filters.thread_id | default('') }}">
+            </div>
+            <div class="filter-group">
+                <label for="status">Status:</label>
+                <select id="status" name="status">
+                    <option value="">-- Tất cả --</option>
+                    {% for stat in possible_statuses %}
+                    <option value="{{ stat }}" {% if filters.status==stat %}selected{% endif %}>{{ stat }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="filter-row">
+            <div class="filter-group">
+                <label for="date_from">Từ ngày:</label>
+                <input type="date" id="date_from" name="date_from" value="{{ filters.date_from | default('') }}">
+            </div>
+            <div class="filter-group">
+                <label for="date_to">Đến ngày:</label>
+                <input type="date" id="date_to" name="date_to" value="{{ filters.date_to | default('') }}">
+            </div>
+        </div>
+        <div class="filter-actions">
+            <button type="submit">Lọc</button>
+            <a href="{{ url_for('admin.view_history') }}">Xóa lọc</a> {# Link về trang gốc để xóa filter #}
+        </div>
+    </fieldset>
+</form>
+
+{# --- Bảng hiển thị dữ liệu --- #}
+<p>Tổng số: {{ pagination.total_items }} bản ghi. Trang {{ pagination.page }} / {{ pagination.total_pages }}</p>
+{% if history %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%; font-size: 0.9em; table-layout: fixed;"> {# Thêm
+    table-layout: fixed #}
+    <thead>
+        <tr style="background-color: #f2f2f2;">
+            <th style="width: 12%;">Timestamp</th>
+            <th style="width: 10%;">Account ID</th>
+            <th style="width: 7%;">App</th>
+            <th style="width: 10%;">Thread ID</th>
+            <th style="width: 8%;">Stage ID</th>
+            <th style="width: 8%;">Intent</th>
+            <th style="width: 15%;">Received Text</th>
+            <th style="width: 15%;">Sent Text</th>
+            <th style="width: 10%;">Status</th>
+            {# <th style="width: 5%;">ID</th> #}
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in history %}
+        <tr>
+            <td style="white-space: nowrap;">{{ item.timestamp.strftime('%Y-%m-%d %H:%M:%S') if item.timestamp else
+                'N/A' }}</td>
+            <td>{{ item.account_id | default('') }}</td>
+            <td>{{ item.app | default('') }}</td>
+            <td style="word-wrap: break-word;">{{ item.thread_id | default('') }}</td>
+            <td>{{ item.stage_id | default('') }}</td>
+            <td>{{ item.detected_user_intent | default('') }}</td>
+            <td>
+                <pre
+                    style="margin:0; max-height: 100px; overflow-y: auto;">{{ item.received_text | default('') | escape }}</pre>
+            </td>
+            <td>
+                <pre
+                    style="margin:0; max-height: 100px; overflow-y: auto;">{{ item.sent_text | default('') | escape }}</pre>
+            </td>
+            <td>{{ item.status | default('') }}</td>
+            {# <td>{{ item.history_id }}</td> #}
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{# --- Điều hướng Phân trang --- #}
+<div class="pagination">
+    {# Link trang trước #}
+    {% if pagination.has_prev %}
+    {# Nối filters vào URL #}
+    <a href="{{ url_for('admin.view_history', page=pagination.prev_num, **filters) }}">&laquo; Trang trước</a>
+    {% else %}
+    <span class="disabled">&laquo; Trang trước</span>
+    {% endif %}
+
+    {# Hiển thị thông tin trang #}
+    <span> Trang {{ pagination.page }} / {{ pagination.total_pages }} </span>
+
+    {# Link trang sau #}
+    {% if pagination.has_next %}
+    {# Nối filters vào URL #}
+    <a href="{{ url_for('admin.view_history', page=pagination.next_num, **filters) }}">Trang sau &raquo;</a>
+    {% else %}
+    <span class="disabled">Trang sau &raquo;</span>
+    {% endif %}
+</div>
+
+{% elif filters %}
+<p>Không tìm thấy bản ghi nào khớp với bộ lọc của bạn.</p>
+{% else %}
+<p>Không có dữ liệu lịch sử.</p>
+{% endif %}
+
+{% endblock %}
+
+{# Optional: Thêm CSS cho filter form và pagination #}
+{% block styles %}
+{{ super() }}
+<style>
+    .filter-form fieldset {
+        border: 1px solid #ccc;
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 5px;
+    }
+
+    .filter-form legend {
+        font-weight: bold;
+        padding: 0 10px;
+    }
+
+    .filter-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        margin-bottom: 10px;
+    }
+
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .filter-group label {
+        margin-bottom: 5px;
+        font-size: 0.9em;
+        color: #555;
+    }
+
+    .filter-group input[type="text"],
+    .filter-group input[type="date"],
+    .filter-group select {
+        padding: 6px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+
+    .filter-actions {
+        margin-top: 15px;
+    }
+
+    .filter-actions button {
+        /* Style nút Lọc giống class .button */
+        display: inline-block;
+        padding: 5px 10px;
+        background-color: #007bff;
+        color: white !important;
+        border: none;
+        border-radius: 4px;
+        text-decoration: none;
+        cursor: pointer;
+        font-size: 0.9em;
+    }
+
+    .filter-actions button:hover {
+        background-color: #0056b3;
+    }
+
+    .filter-actions a {
+        margin-left: 10px;
+    }
+
+    .pagination {
+        margin-top: 20px;
+        text-align: center;
+    }
+
+    .pagination a,
+    .pagination span {
+        display: inline-block;
+        padding: 5px 10px;
+        margin: 0 2px;
+        border: 1px solid #ddd;
+        color: #007bff;
+        text-decoration: none;
+        border-radius: 4px;
+    }
+
+    .pagination span.disabled {
+        color: #aaa;
+        border-color: #eee;
+    }
+
+    .pagination a:hover {
+        background-color: #f0f0f0;
+    }
+
+    /* Style cho <pre> trong bảng */
+    td pre {
+        white-space: pre-wrap;
+        /* Giữ xuống dòng */
+        word-wrap: break-word;
+        /* Tự động ngắt từ dài */
+        font-size: 0.9em;
+        /* Chữ nhỏ hơn chút */
+        background-color: #f9f9f9;
+        padding: 5px;
+        border: 1px solid #eee;
+        max-height: 100px;
+        /* Giới hạn chiều cao */
+        overflow-y: auto;
+        /* Thêm thanh cuộn dọc nếu cần */
+    }
+
+    /* Fix table layout */
+    table {
+        table-layout: fixed;
+        width: 100%;
+    }
+
+    th,
+    td {
+        word-wrap: break-word;
+    }
+
+    /* Cho phép ngắt từ trong ô */
+</style>
+{% endblock %}

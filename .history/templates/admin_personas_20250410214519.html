@@ -1,0 +1,56 @@
+{% extends "admin_base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p><a href="{{ url_for('admin.add_persona') }}" class="button">Thêm Persona Mới</a></p>
+
+{% if personas %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%;">
+    <thead>
+        <tr>
+            <th>Persona ID</th>
+            <th>Name</th>
+            <th>Description</th>
+            <th>Model Name</th>
+            <th>Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for p in personas %}
+        <tr>
+            <td>{{ p.persona_id }}</td>
+            <td>{{ p.name }}</td>
+            <td>{{ p.description | default('') | truncate(80) }}</td>
+            <td>{{ p.model_name | default('Default') }}</td>
+            <td style="white-space: nowrap;">
+                <a href="{{ url_for('admin.edit_persona', persona_id=p.persona_id) }}">Sửa</a>
+                <form action="{{ url_for('admin.delete_persona', persona_id=p.persona_id) }}" method="POST"
+                    style="display:inline;"
+                    onsubmit="return confirm('Xác nhận xóa persona \'{{ p.name }}\'? Các tài khoản đang dùng persona này sẽ chuyển về mặc định (NULL).');">
+                    <button type="submit" class="link-button delete-button">Xóa</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>Chưa có AI persona nào được định nghĩa.</p>
+{% endif %}
+{% endblock %}
+
+{% block styles %}
+{{ super() }}
+<style>
+    /* Style cho nút xóa dạng link */
+    .link-button.delete-button {
+        color: red;
+        background: none;
+        border: none;
+        padding: 0;
+        font: inherit;
+        cursor: pointer;
+        text-decoration: underline;
+        margin-left: 10px;
+    }
+</style>
+{% endblock %}

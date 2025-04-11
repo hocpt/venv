@@ -1,0 +1,69 @@
+{# === Trong file backup/templates/admin_ai_playground.html === #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+{# <<< THÊM CLASS "ai-playground-dark-theme" VÀO ĐÂY>>> #}
+    <div class="ai-playground-container ai-playground-dark-theme">
+
+        {# Khu vực hiển thị chat/kết quả - tự động co giãn và cuộn #}
+        <div class="chat-display-area" id="chat-display">
+            {# ... (Nội dung hiển thị chat như cũ) ... #}
+            {% if error_message %}
+            <div class="chat-message error-message">
+                <strong>Đã xảy ra lỗi:</strong><br>
+                <pre>{{ error_message }}</pre>
+            </div>
+            {% endif %}
+            {% if user_prompt %}
+            <div class="chat-message user-message">
+                <strong>Bạn:</strong>
+                <pre>{{ user_prompt }}</pre>
+            </div>
+            {% endif %}
+            <div class="chat-message ai-message">
+                <strong>AI:</strong>
+                <pre
+                    id="ai-response">{{ ai_response | default('Nhập yêu cầu của bạn vào khung bên dưới và nhấn "Gửi".') }}</pre>
+            </div>
+            <div style="height: 10px;"></div>
+        </div> {# End chat-display-area #}
+
+        {# Khu vực nhập liệu và nút bấm #}
+        <div class="input-area">
+            {# ... (Form nhập liệu và các nút như cũ) ... #}
+            <form method="POST" id="playground-form">
+                <div class="input-controls">
+                    <div class="control-group persona-selector">
+                        <label for="persona_id" style="font-size: 0.9em; margin-bottom: 3px; display:block;">Sử dụng
+                            Persona:</label>
+                        <select name="persona_id" id="persona_id">
+                            <option value="">-- Mặc định --</option>
+                            {% for p in personas %}
+                            <option value="{{ p.persona_id }}" {% if selected_persona_id==p.persona_id %}selected{%
+                                endif %}>
+                                {{ p.name }} ({{ p.persona_id }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="control-group prompt-input">
+                        <label for="user_prompt" style="font-size: 0.9em; margin-bottom: 3px; display:block;">Yêu cầu /
+                            Prompt:</label>
+                        <textarea id="user_prompt" name="user_prompt" rows="3" style="resize: vertical;"
+                            placeholder="Nhập yêu cầu cho AI...">{{ user_prompt }}</textarea>
+                    </div>
+                </div>
+                <div class="input-actions">
+                    <button type="submit" class="button">Gửi</button>
+                    <button type="button" class="button secondary-button" onclick="clearPlayground();">Xóa</button>
+                    <a href="{{ url_for('admin.ai_playground') }}" class="button secondary-button">Tải lại</a>
+                </div>
+            </form>
+        </div> {# End input-area #}
+
+    </div> {# End ai-playground-container #}
+    {% endblock %}
+
+    {# ... (Block styles và scripts giữ nguyên như trước) ... #}
+    {% block styles %} ... {% endblock %}
+    {% block scripts %} ... {% endblock %}

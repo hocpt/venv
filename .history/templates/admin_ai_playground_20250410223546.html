@@ -1,0 +1,63 @@
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+<p>Nhập yêu cầu hoặc prompt bạn muốn gửi cho AI (Gemini) và xem kết quả trả về.</p>
+<p><small>Hữu ích để thử nghiệm prompt, tạo nội dung cho Personas, Templates...</small></p>
+
+<form method="POST" id="playground-form">
+    <div class="form-group">
+        <label for="persona_id">Sử dụng Persona:</label>
+        <select name="persona_id" id="persona_id" style="margin-bottom: 10px;">
+            <option value="">-- Mặc định (Không Persona) --</option>
+            {% for p in personas %}
+            <option value="{{ p.persona_id }}" {% if selected_persona_id==p.persona_id %}selected{% endif %}>
+                {{ p.name }} (ID: {{ p.persona_id }})
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label for="user_prompt">Yêu cầu / Prompt của bạn:</label><br>
+        <textarea id="user_prompt" name="user_prompt" rows="8" style="width: 95%; font-family: monospace;"
+            placeholder="Ví dụ: Tạo base prompt cho một AI persona là nam giới, 30 tuổi, làm nghề tư vấn tài chính, phong cách lịch sự và chuyên nghiệp.">{{ user_prompt }}</textarea>
+    </div>
+
+    <div class="form-actions" style="margin-top: 15px;">
+        <button type="submit">Gửi Yêu cầu cho AI</button>
+        {# Nút Clear dùng JavaScript để xóa cả input và output #}
+        <button type="button" onclick="clearPlayground();" style="margin-left: 10px;">Xóa Nội dung</button>
+        {# Nút tải lại trang đơn giản #}
+        <a href="{{ url_for('admin.ai_playground') }}" style="margin-left: 10px;">Tải lại Trang</a>
+    </div>
+</form>
+
+<hr style="margin-top: 25px; margin-bottom: 25px;">
+
+<h2>Kết quả từ AI:</h2>
+{% if error_message %}
+<div style="color: red; border: 1px solid red; padding: 10px; background-color: #fdd; margin-bottom: 15px;">
+    <strong>Đã xảy ra lỗi:</strong><br>
+    <pre>{{ error_message }}</pre>
+</div>
+{% endif %}
+
+{# Hiển thị kết quả AI trong thẻ pre để giữ định dạng #}
+<pre id="ai-response"
+    style="background-color: #f0f0f0; border: 1px solid #ccc; padding: 15px; min-height: 100px; white-space: pre-wrap; word-wrap: break-word;">{{ ai_response | default('Chưa có kết quả...') }}</pre>
+
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{# JavaScript đơn giản để xóa nội dung #}
+<script>
+    function clearPlayground() {
+        document.getElementById('user_prompt').value = '';
+        document.getElementById('ai-response').textContent = 'Chưa có kết quả...';
+        // Optional: reset persona dropdown
+        // document.getElementById('persona_id').value = '';
+    }
+</script>
+{% endblock %}

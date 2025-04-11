@@ -1,0 +1,32 @@
+{% extends "admin_base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+{# template được truyền từ route #}
+<form method="POST">
+    <label for="prompt_template_id">Template ID:</label><br>
+    <input type="text" value="{{ template.prompt_template_id }}" disabled><br><br>
+
+    <label for="name">Name (bắt buộc):</label><br>
+    <input type="text" id="name" name="name" required
+        value="{{ current_data.name if current_data is defined else template.name }}" maxlength="100"><br><br>
+
+    <label for="task_type">Task Type (bắt buộc):</label><br>
+    <select name="task_type" id="task_type" required>
+        <option value="">-- Chọn Loại Tác Vụ --</option>
+        {% set current_type = current_data.task_type if current_data is defined else template.task_type %}
+        {% for type in task_types %}
+        <option value="{{ type }}" {% if current_type==type %}selected{% endif %}>{{ type }}</option>
+        {% endfor %}
+    </select><br><br>
+
+    <label for="template_content">Template Content (bắt buộc):</label><br>
+    <textarea id="template_content" name="template_content" rows="15" style="width: 80%; font-family: monospace;"
+        required>{{ current_data.template_content if current_data is defined else template.template_content }}</textarea><br>
+    <small>Bạn có thể dùng biến Jinja/F-string như <code>{{ base_prompt }}</code>, <code>{{ received_text }}</code>,
+        etc.</small><br><br>
+
+
+    <button type="submit">Lưu Thay Đổi</button>
+    <a href="{{ url_for('admin.view_prompt_templates') }}">Hủy</a>
+</form>
+{% endblock %}

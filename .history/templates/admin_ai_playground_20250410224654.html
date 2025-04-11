@@ -1,0 +1,273 @@
+{% extends "admin_base.html" %}
+
+{% block content %}
+{# Container chính sử dụng Flexbox column #}
+<div class="ai-playground-container">
+
+    {# Khu vực hiển thị chat/kết quả - tự động co giãn và cuộn #}
+    <div class="chat-display-area" id="chat-display">
+        {# Hiển thị lỗi nếu có #}
+        {% if error_message %}
+        <div class="chat-message error-message">
+            <strong>Đã xảy ra lỗi:</strong><br>
+            <pre>{{ error_message }}</pre>
+        </div>
+        {% endif %}
+
+        {# Hiển thị prompt người dùng đã gửi (nếu có từ lần POST trước) #}
+        {% if user_prompt %}
+        <div class="chat-message user-message">
+            <strong>Bạn:</strong>
+            <pre>{{ user_prompt }}</pre>
+        </div>
+        {% endif %}
+
+        {# Hiển thị kết quả AI (nếu có) #}
+        <div class="chat-message ai-message">
+            <strong>AI:</strong>
+            <pre
+                id="ai-response">{{ ai_response | default('Nhập yêu cầu của bạn vào khung bên dưới và nhấn "Gửi".') }}</pre>
+        </div>
+
+        {# Thêm một div trống ở cuối để đảm bảo cuộn xuống hết #}
+        <div style="height: 10px;"></div>
+
+    </div> {# End chat-display-area #}
+
+    {# Khu vực nhập liệu và nút bấm - cố định ở dưới cùng (trong container) #}
+    <div class="input-area">
+        <form method="POST" id="playground-form">
+            <div class="input-controls">
+                {# Dropdown chọn Persona #}
+                <div class="control-group persona-selector">
+                    <label for="persona_id" style="font-size: 0.9em; margin-bottom: 3px; display:block;">Sử dụng
+                        Persona:</label>
+                    <select name="persona_id" id="persona_id">
+                        <option value="">-- Mặc định --</option>
+                        {% for p in personas %}
+                        <option value="{{ p.persona_id }}" {% if selected_persona_id==p.persona_id %}selected{% endif
+                            %}>
+                            {{ p.name }} ({{ p.persona_id }})
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                {# Textarea nhập prompt #}
+                <div class="control-group prompt-input">
+                    <label for="user_prompt" style="font-size: 0.9em; margin-bottom: 3px; display:block;">Yêu cầu /
+                        Prompt:</label>
+                    <textarea id="user_prompt" name="user_prompt" rows="3"
+                        style="width: 100%; font-family: monospace; resize: vertical;"
+                        placeholder="Nhập yêu cầu cho AI...">{{ user_prompt }}</textarea>
+                </div>
+            </div>
+
+            {# Các nút bấm chức năng #}
+            <div class="input-actions">
+                <button type="submit" class="button">Gửi</button>
+                <button type="button" class="button secondary-button" onclick="clearPlayground();">Xóa</button>
+                <a href="{{ url_for('admin.ai_playground') }}" class="button secondary-button">Tải lại</a>
+            </div>
+        </form>
+    </div> {# End input-area #}
+
+</div> {# End ai-playground-container #}
+{% endblock %}
+
+
+{% block styles %}
+{{ super() }}
+{# Thêm CSS cho layout chat mới #}
+<style>
+    /* Container chính */
+    .ai-playground-container {
+        display: flex;
+        flex-direction: column;
+        /* Chiều cao chiếm gần hết phần còn lại của màn hình */
+        /* Điều chỉnh giá trị 80vh hoặc dùng calc() nếu biết chiều cao header/nav */
+        height: calc(100vh - 180px);
+        /* Giả sử header+nav+footer+padding khoảng 180px */
+        min-height: 500px;
+        /* Chiều cao tối thiểu */
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        overflow: hidden;
+        /* Ẩn phần tràn ra khỏi container chính */
+    }
+
+    /* Khu vực hiển thị chat */
+    .chat-display-area {
+        flex-grow: 1;
+        /* Chiếm hết không gian dọc còn lại */
+        overflow-y: auto;
+        /* Cho phép cuộn dọc */
+        padding: 15px;
+        background-color: #fff;
+        /* Nền trắng cho khu vực chat */
+    }
+
+    /* Định dạng chung cho các message */
+    .chat-message {
+        margin-bottom: 15px;
+        padding: 10px 15px;
+        border-radius: 8px;
+        max-width: 90%;
+        /* Chiều rộng tối đa của message */
+    }
+
+    .chat-message strong {
+        display: block;
+        margin-bottom: 5px;
+        font-size: 0.9em;
+        color: #555;
+    }
+
+    .chat-message pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        font-family: inherit;
+        /* Dùng font của trang */
+        font-size: 1em;
+        background: none;
+        /* Bỏ nền mặc định của pre */
+        padding: 0;
+        border: none;
+    }
+
+    /* Message của người dùng */
+    .user-message {
+        background-color: #e7f0ff;
+        /* Màu nền xanh nhạt */
+        margin-left: auto;
+        /* Đẩy sang phải */
+        border-bottom-right-radius: 0;
+        /* Bo góc */
+    }
+
+    /* Message của AI */
+    .ai-message {
+        background-color: #f1f3f5;
+        /* Màu nền xám nhạt */
+        margin-right: auto;
+        /* Đẩy sang trái */
+        border-bottom-left-radius: 0;
+        /* Bo góc */
+    }
+
+    /* Message lỗi */
+    .error-message {
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        color: #721c24;
+        margin-right: auto;
+        max-width: 100%;
+        /* Lỗi có thể chiếm hết chiều rộng */
+    }
+
+    .error-message pre {
+        color: #721c24;
+    }
+
+    /* Khu vực nhập liệu */
+    .input-area {
+        flex-shrink: 0;
+        /* Không co lại */
+        padding: 15px;
+        border-top: 1px solid #ccc;
+        background-color: #f8f9fa;
+        /* Nền hơi xám */
+    }
+
+    .input-area form {
+        display: flex;
+        flex-direction: column;
+        /* Sắp xếp các nhóm control và actions theo cột */
+        gap: 10px;
+        /* Khoảng cách giữa các phần */
+    }
+
+    .input-controls {
+        display: flex;
+        gap: 15px;
+        /* Khoảng cách giữa chọn persona và ô nhập prompt */
+        align-items: flex-end;
+        /* Căn dưới cùng */
+    }
+
+    .control-group {
+        flex-grow: 1;
+    }
+
+    /* Cho phép các group co giãn */
+    .persona-selector {
+        flex-grow: 0;
+        flex-basis: 250px;
+    }
+
+    /* Độ rộng cố định cho persona selector */
+    .prompt-input textarea {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    /* Cho textarea chiếm hết chỗ */
+
+    /* Các nút bấm chức năng */
+    .input-actions {
+        text-align: right;
+        /* Đẩy nút sang phải */
+    }
+
+    .input-actions .button {
+        margin-left: 8px;
+    }
+
+    .secondary-button {
+        background-color: #6c757d;
+    }
+
+    .secondary-button:hover {
+        background-color: #5a6268;
+    }
+</style>
+{% endblock %}
+
+
+{% block scripts %}
+{{ super() }}
+{# JavaScript để xóa nội dung và cuộn xuống dưới #}
+<script>
+    function clearPlayground() {
+        document.getElementById('user_prompt').value = '';
+        const aiResponseElement = document.getElementById('ai-response');
+        if (aiResponseElement) {
+            aiResponseElement.textContent = 'Nhập yêu cầu của bạn vào khung bên dưới và nhấn "Gửi".';
+        }
+        // Xóa các message cũ khác nếu cần
+        const chatDisplay = document.getElementById('chat-display');
+        const userMessages = chatDisplay.querySelectorAll('.user-message');
+        userMessages.forEach(msg => msg.remove());
+        const errorMessages = chatDisplay.querySelectorAll('.error-message');
+        errorMessages.forEach(msg => msg.remove());
+    }
+
+    // Tự động cuộn xuống dưới cùng của khu vực chat khi trang tải hoặc có kết quả mới
+    function scrollToBottom() {
+        const chatDisplay = document.getElementById('chat-display');
+        if (chatDisplay) {
+            chatDisplay.scrollTop = chatDisplay.scrollHeight;
+        }
+    }
+
+    // Gọi khi trang tải xong
+    document.addEventListener('DOMContentLoaded', scrollToBottom);
+
+    // Nếu bạn muốn cuộn xuống sau khi form submit và trang render lại (có kết quả mới)
+    // thì chỉ cần gọi lại scrollToBottom() là đủ vì nó được gọi khi DOM load xong.
+    // Nếu dùng AJAX sau này thì cần gọi sau khi nhận và hiển thị kết quả.
+
+</script>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "admin_base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<form method="POST">
+    <label for="template_ref_display">Template Ref:</label><br>
+    <input type="text" id="template_ref_display" value="{{ template.template_ref }}" disabled><br><br>
+
+    <label for="description">Description:</label><br>
+    <textarea id="description" name="description" rows="3"
+        style="width: 80%;">{{ template.description | default('') }}</textarea><br><br>
+
+    {# <<< THAY INPUT CATEGORY BẰNG INPUT + DATALIST>>> #}
+        <label for="category">Category (Nhập hoặc chọn):</label><br>
+        <input type="text" id="category" name="category" list="category-list"
+            value="{{ template.category | default('') }}" placeholder="Nhập category mới hoặc chọn...">
+        <datalist id="category-list">
+            {% for cat in distinct_categories %}
+            <option value="{{ cat }}">
+                {% endfor %}
+        </datalist>
+        <br><br>
+
+        <button type="submit">Lưu Thay Đổi</button>
+        <a href="{{ url_for('admin.view_templates') }}">Hủy</a>
+</form>
+{% endblock %}

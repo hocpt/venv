@@ -1,0 +1,115 @@
+{% extends "admin_base.html" %}
+
+{% block content %}
+{# Container chính sử dụng Flexbox column #}
+<div class="ai-playground-container ai-playground-dark-theme">
+
+    {# Khu vực hiển thị chat/kết quả - tự động co giãn và cuộn #}
+    <div class="chat-display-area" id="chat-display">
+        {# Hiển thị lỗi nếu có #}
+        {% if error_message %}
+        <div class="chat-message error-message">
+            <strong>Đã xảy ra lỗi:</strong><br>
+            <pre>{{ error_message }}</pre>
+        </div>
+        {% endif %}
+
+        {# Hiển thị prompt người dùng đã gửi (nếu có từ lần POST trước) #}
+        {% if user_prompt %}
+        <div class="chat-message user-message">
+            <strong>Bạn:</strong>
+            <pre>{{ user_prompt }}</pre>
+        </div>
+        {% endif %}
+
+        {# Hiển thị kết quả AI (nếu có) #}
+        <div class="chat-message ai-message">
+            <strong>AI:</strong>
+            <pre
+                id="ai-response">{{ ai_response | default('Nhập yêu cầu của bạn vào khung bên dưới và nhấn "Gửi".') }}</pre>
+        </div>
+
+        {# Thêm một div trống ở cuối để đảm bảo cuộn xuống hết #}
+        <div style="height: 10px;"></div>
+
+    </div> {# End chat-display-area #}
+
+    {# Khu vực nhập liệu và nút bấm - cố định ở dưới cùng (trong container) #}
+    <div class="input-area">
+        <form method="POST" id="playground-form">
+            <div class="input-controls">
+                {# Dropdown chọn Persona #}
+                <div class="control-group persona-selector">
+                    <label for="persona_id" style="font-size: 0.9em; margin-bottom: 3px; display:block;">Sử dụng
+                        Persona:</label>
+                    <select name="persona_id" id="persona_id">
+                        <option value="">-- Mặc định --</option>
+                        {% for p in personas %}
+                        <option value="{{ p.persona_id }}" {% if selected_persona_id==p.persona_id %}selected{% endif
+                            %}>
+                            {{ p.name }} ({{ p.persona_id }})
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                {# Textarea nhập prompt #}
+                <div class="control-group prompt-input">
+                    <label for="user_prompt" style="font-size: 0.9em; margin-bottom: 3px; display:block;">Yêu cầu /
+                        Prompt:</label>
+                    <textarea id="user_prompt" name="user_prompt" rows="3"
+                        style="width: 100%; font-family: monospace; resize: vertical;"
+                        placeholder="Nhập yêu cầu cho AI...">{{ user_prompt }}</textarea>
+                </div>
+            </div>
+
+            {# Các nút bấm chức năng #}
+            <div class="input-actions">
+                <button type="submit" class="button">Gửi</button>
+                <button type="button" class="button secondary-button" onclick="clearPlayground();">Xóa</button>
+                <a href="{{ url_for('admin.ai_playground') }}" class="button secondary-button">Tải lại</a>
+            </div>
+        </form>
+    </div> {# End input-area #}
+
+</div> {# End ai-playground-container #}
+{% endblock %} {# Đóng block content ở đây #}
+
+
+
+
+{# Đặt script vào trong block scripts #}
+{% block scripts %}
+{{ super() }} {# Giữ lại script từ base template nếu có #}
+<script>
+    function clearPlayground() {
+        document.getElementById('user_prompt').value = '';
+        const aiResponseElement = document.getElementById('ai-response');
+        if (aiResponseElement) {
+            aiResponseElement.textContent = 'Nhập yêu cầu của bạn vào khung bên dưới và nhấn "Gửi".';
+        }
+        // Xóa các message cũ khác nếu cần
+        const chatDisplay = document.getElementById('chat-display');
+        const userMessages = chatDisplay.querySelectorAll('.user-message');
+        userMessages.forEach(msg => msg.remove());
+        const errorMessages = chatDisplay.querySelectorAll('.error-message');
+        errorMessages.forEach(msg => msg.remove());
+    }
+
+    // Tự động cuộn xuống dưới cùng của khu vực chat khi trang tải hoặc có kết quả mới
+    function scrollToBottom() {
+        const chatDisplay = document.getElementById('chat-display');
+        if (chatDisplay) {
+            chatDisplay.scrollTop = chatDisplay.scrollHeight;
+        }
+    }
+
+    // Gọi khi trang tải xong
+    document.addEventListener('DOMContentLoaded', scrollToBottom);
+
+    // Nếu bạn muốn cuộn xuống sau khi form submit và trang render lại (có kết quả mới)
+    // thì chỉ cần gọi lại scrollToBottom() là đủ vì nó được gọi khi DOM load xong.
+    // Nếu dùng AJAX sau này thì cần gọi sau khi nhận và hiển thị kết quả.
+
+</script>
+{% endblock %} {# Đóng block scripts #}

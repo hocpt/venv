@@ -1,0 +1,17 @@
+{% extends "admin_base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+{# variation được truyền từ route #}
+<form method="POST">
+    <p><strong>Template Ref:</strong> {{ variation.template_ref }}</p>
+    <p><strong>Variation ID:</strong> {{ variation.variation_id }}</p>
+
+    <label for="variation_text">Nội dung Variation (bắt buộc):</label><br>
+    <textarea id="variation_text" name="variation_text" rows="5" style="width: 80%;"
+        required>{{ variation.variation_text }}</textarea><br><br>
+
+    <button type="submit">Lưu Thay Đổi</button>
+    {# Link Hủy quay về trang xem variations của template gốc #}
+    <a href="{{ url_for('admin.view_template_variations', template_ref=variation.template_ref) }}">Hủy</a>
+</form>
+{% endblock %}
