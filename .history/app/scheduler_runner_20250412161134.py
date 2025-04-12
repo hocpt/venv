@@ -17,7 +17,7 @@ from apscheduler.executors.pool import ThreadPoolExecutor # Hoặc ProcessPoolEx
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
-from dotenv import load_dotenv
+
 # Biến toàn cục giữ instance scheduler đang chạy
 live_scheduler = None
 live_scheduler = APScheduler()

@@ -8,14 +8,6 @@
 {% if suggestions %} {# Nếu list không rỗng #}
 <p>Dưới đây là các luật/template được AI đề xuất dựa trên lịch sử tương tác. Hãy xem xét, chỉnh sửa (nếu cần) và phê
     duyệt nếu phù hợp.</p>
-<div style="margin-bottom: 15px;">
-    <form action="{{ url_for('admin.start_approve_all_job') }}" method="POST" style="display: inline;"
-        onsubmit="return confirm('Bạn có chắc muốn yêu cầu hệ thống tự động phê duyệt TẤT CẢ các đề xuất đang chờ không? Quá trình này sẽ chạy ngầm và không thể hoàn tác dễ dàng.');">
-        <button type="submit" class="button">Duyệt tất cả các đề xuất đang chờ (Chạy ngầm)</button>
-    </form>
-    <small style="margin-left: 10px;">(Hệ thống sẽ cố gắng tạo rule/template cho từng đề xuất. Theo dõi log server để
-        xem tiến trình.)</small>
-</div>
 <table border="1" cellpadding="5" cellspacing="0" style="width: 100%; border-collapse: collapse; table-layout: fixed;">
     <thead>
         <tr style="background-color: #f2f2f2;">
@@ -47,25 +39,27 @@
                             style="max-height: 100px; overflow-y: auto;">{{ sugg.suggested_template_text | default('(Không có)') | escape }}</pre>
                     </td>
                     <td style="white-space: nowrap; text-align: center; vertical-align: middle;">
-                        {# Form Phê duyệt trực tiếp #}
-                        <form
-                            action="{{ url_for('admin.approve_suggestion_direct', suggestion_id=sugg.suggestion_id) }}"
-                            method="POST" style="display:inline-block; margin-right: 5px;"
-                            onsubmit="return confirm('Phê duyệt đề xuất này và tạo rule/template ngay lập tức?');">
-                            <button type="submit" class="button small">Phê duyệt</button>
-                        </form>
-
-                        {# Link Sửa #}
-                        <a href="{{ url_for('admin.edit_suggestion', suggestion_id=sugg.suggestion_id) }}"
-                            class="button small secondary-button" style="margin-right: 5px;">Sửa</a>
-
-                        {# Form Từ chối #}
-                        <form action="{{ url_for('admin.reject_suggestion', suggestion_id=sugg.suggestion_id) }}"
-                            method="POST" style="display:inline-block;"
-                            onsubmit="return confirm('Xác nhận từ chối đề xuất #{{sugg.suggestion_id}}?');">
-                            <button type="submit" class="button small secondary-button"
-                                style="background-color:#dc3545;">Từ chối</button>
-                        </form>
+                        {# <<< THAY NÚT PHÊ DUYỆT BẰNG LINK SỬA & PHÊ DUYỆT>>> #}
+                            <form
+                                action="{{ url_for('admin.approve_suggestion_direct', suggestion_id=sugg.suggestion_id) }}"
+                                method="POST" style="display:inline-block; margin-bottom: 5px;">
+                                <button type="submit" class="button small"
+                                    onclick="return confirm('Phê duyệt đề xuất này và tạo rule/template ngay lập tức?');">Phê
+                                    duyệt</button>
+                            </form>
+                            <br> {# Xuống dòng cho rõ #}
+                            {# <<< LINK ĐỂ SỬA>>> #}
+                                <a href="{{ url_for('admin.edit_suggestion', suggestion_id=sugg.suggestion_id) }}"
+                                    class="button small secondary-button"
+                                    style="margin-bottom: 5px; display: inline-block;">Sửa</a>
+                                <br> {# Xuống dòng cho rõ #}
+                                {# <<< FORM TỪ CHỐI (Giữ nguyên)>>> #}
+                                    <form
+                                        action="{{ url_for('admin.reject_suggestion', suggestion_id=sugg.suggestion_id) }}"
+                                        method="POST" style="display:inline-block;">
+                                        <button type="submit" class="button small secondary-button"
+                                            style="background-color:#dc3545;">Từ chối</button> {# Đổi màu nút từ chối #}
+                                    </form>
                     </td>
         </tr>
         {% endfor %} {# Kết thúc vòng lặp #}

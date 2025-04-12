@@ -1,7 +1,7 @@
 # app/admin_routes.py
 import traceback
-from flask import Blueprint, Flask, render_template, request, redirect, url_for, flash,current_app 
-from datetime import datetime, timedelta 
+from flask import Blueprint, render_template, request, redirect, url_for, flash,current_app 
+from datetime import datetime
 import psycopg2
 import math
 import json
@@ -9,11 +9,6 @@ import importlib # Để kiểm tra function path (tùy chọn)
 from flask import (
     Blueprint, render_template, request, redirect, url_for, flash, current_app
 )
-try:
-    from app.scheduler_runner import live_scheduler
-except ImportError:
-    print("CRITICAL WARNING (admin_routes): Could not import live_scheduler from app.scheduler_runner! Live control will fail.")
-    live_scheduler = None
 try:
     from . import ai_service
 except ImportError:
@@ -523,42 +518,6 @@ def approve_suggestion_direct(suggestion_id):
         flash(f"Phê duyệt trực tiếp thất bại: {approval_error}", "error")
 
     return redirect(url_for('admin.view_suggestions'))
-
-@admin_bp.route('/suggestions/approve-all-start-job', methods=['POST'])
-def start_approve_all_job():
-    """Kích hoạt job chạy nền để phê duyệt tất cả suggestions."""
-    job_id = f"approve_all_suggestions_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-    run_time = datetime.now() + timedelta(seconds=5) # Chạy sau 5 giây
-
-    if not live_scheduler:
-        flash("Lỗi: Scheduler không khả dụng để chạy tác vụ nền.", "error")
-        return redirect(url_for('admin.view_suggestions'))
-
-    try:
-        # Import hàm tác vụ nền approve_all... (sẽ tạo ở bước sau)
-        from app.background_tasks import approve_all_suggestions_task
-
-        live_scheduler.add_job(
-            id=job_id,
-            func=approve_all_suggestions_task,
-            trigger='date', # Chạy 1 lần
-            run_date=run_time,
-            replace_existing=False, # Không ghi đè job khác
-            misfire_grace_time=60 # Cho phép trễ 60s nếu scheduler bận
-        )
-        flash(f"Đã yêu cầu phê duyệt hàng loạt. Tác vụ sẽ bắt đầu chạy ngầm sau vài giây (Job ID: {job_id}). Theo dõi log server.", "info")
-        print(f"INFO: Scheduled background job '{job_id}' to run at {run_time}")
-    except (ImportError, AttributeError) as ie:
-         flash(f"Lỗi: Không tìm thấy hàm tác vụ nền 'approve_all_suggestions_task': {ie}", "error")
-         print(f"ERROR: Could not import/find background task function: {ie}")
-    except Exception as e:
-        flash(f"Lỗi khi lên lịch tác vụ phê duyệt hàng loạt: {e}", "error")
-        print(f"ERROR: Failed to schedule approve_all job: {e}")
-        print(traceback.format_exc())
-
-    return redirect(url_for('admin.view_suggestions'))
-
-
 
 # =============================================
 # === CÁC ROUTE MỚI THÊM VÀO ===

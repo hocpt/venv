@@ -1,0 +1,100 @@
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+<p>Xem lại đề xuất từ AI và chỉnh sửa nếu cần trước khi phê duyệt để tạo Rule và Template mới.</p>
+
+{# suggestion là dữ liệu gốc từ DB, current_data là dữ liệu từ form nếu POST bị lỗi validation #}
+<form method="POST">
+    <div class="form-group">
+        <label>ID Đề xuất:</label>
+        <p><strong>{{ suggestion.suggestion_id }}</strong></p>
+    </div>
+
+    <div class="form-group">
+        <label for="keywords">Suggested Keywords (Có thể sửa):</label><br>
+        <textarea id="keywords" name="keywords" rows="3" style="width: 90%;"
+            required>{{ current_data.keywords if current_data is defined else suggestion.suggested_keywords | default('') }}</textarea><br>
+        <small>Các từ khóa để kích hoạt rule này.</small>
+    </div>
+
+    <div class="form-group">
+        <label for="category">Suggested Category (Có thể sửa):</label><br>
+        <input type="text" id="category" name="category"
+            value="{{ current_data.category if current_data is defined else suggestion.suggested_category | default('') }}"
+            placeholder="vd: price_query, greeting..."> <br>
+        <small>Phân loại cho rule/template.</small>
+    </div>
+
+    <div class="form-group">
+        <label for="template_ref">Suggested Template Ref (Có thể sửa - phải là duy nhất):</label><br>
+        <input type="text" id="template_ref" name="template_ref" required
+            value="{{ current_data.template_ref if current_data is defined else suggestion.suggested_template_ref | default('') }}"
+            placeholder="vd: reply_greeting_v1..."> <br>
+        <small>Mã tham chiếu cho template mới sẽ được tạo.</small>
+    </div>
+
+    <div class="form-group">
+        <label for="template_text">Suggested Template Text (Có thể sửa - nội dung variation đầu tiên):</label><br>
+        <textarea id="template_text" name="template_text" rows="5" style="width: 90%;"
+            required>{{ current_data.template_text if current_data is defined else suggestion.suggested_template_text | default('') }}</textarea><br>
+        <small>Nội dung câu trả lời mẫu.</small>
+    </div>
+
+    <div class="form-group">
+        <label for="priority">Priority (Ưu tiên cho Rule mới):</label><br>
+        <input type="number" id="priority" name="priority"
+            value="{{ current_data.priority if current_data is defined else 0 }}"><br>
+        <small>Số càng cao, ưu tiên càng lớn.</small>
+    </div>
+
+    {# Hiển thị thêm thông tin nguồn gốc nếu muốn #}
+    {% if suggestion.source_examples and suggestion.source_examples.history_ids %}
+    <div class="form-group">
+        <label>Nguồn gốc:</label>
+        <p><small>Dựa trên interaction ID(s): {{ suggestion.source_examples.history_ids | join(', ') }}</small></p>
+    </div>
+    {% endif %}
+
+
+    <div class="form-actions" style="margin-top: 20px;">
+        <button type="submit" class="button">Phê duyệt & Lưu Rule/Template</button>
+        <a href="{{ url_for('admin.view_suggestions') }}">Hủy</a>
+    </div>
+</form>
+{% endblock %}
+
+{% block styles %}
+{{ super() }}
+<style>
+    .form-group {
+        margin-bottom: 15px;
+    }
+
+    .form-group label {
+        font-weight: bold;
+        display: block;
+        margin-bottom: 5px;
+    }
+
+    .form-group input[type="text"],
+    .form-group input[type="number"],
+    .form-group textarea {
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        width: 60%;
+        /* Điều chỉnh độ rộng nếu cần */
+    }
+
+    textarea {
+        vertical-align: top;
+    }
+
+    code {
+        background-color: #eee;
+        padding: 2px 4px;
+        border-radius: 3px;
+    }
+</style>
+{% endblock %}

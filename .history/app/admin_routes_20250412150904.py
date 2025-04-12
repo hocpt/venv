@@ -1,7 +1,7 @@
 # app/admin_routes.py
 import traceback
 from flask import Blueprint, Flask, render_template, request, redirect, url_for, flash,current_app 
-from datetime import datetime, timedelta 
+from datetime import datetime
 import psycopg2
 import math
 import json
@@ -9,11 +9,6 @@ import importlib # Để kiểm tra function path (tùy chọn)
 from flask import (
     Blueprint, render_template, request, redirect, url_for, flash, current_app
 )
-try:
-    from app.scheduler_runner import live_scheduler
-except ImportError:
-    print("CRITICAL WARNING (admin_routes): Could not import live_scheduler from app.scheduler_runner! Live control will fail.")
-    live_scheduler = None
 try:
     from . import ai_service
 except ImportError:
@@ -530,7 +525,7 @@ def start_approve_all_job():
     job_id = f"approve_all_suggestions_{datetime.now().strftime('%Y%m%d%H%M%S')}"
     run_time = datetime.now() + timedelta(seconds=5) # Chạy sau 5 giây
 
-    if not live_scheduler:
+    if not scheduler:
         flash("Lỗi: Scheduler không khả dụng để chạy tác vụ nền.", "error")
         return redirect(url_for('admin.view_suggestions'))
 
@@ -538,7 +533,7 @@ def start_approve_all_job():
         # Import hàm tác vụ nền approve_all... (sẽ tạo ở bước sau)
         from app.background_tasks import approve_all_suggestions_task
 
-        live_scheduler.add_job(
+        scheduler.add_job(
             id=job_id,
             func=approve_all_suggestions_task,
             trigger='date', # Chạy 1 lần
@@ -558,7 +553,100 @@ def start_approve_all_job():
 
     return redirect(url_for('admin.view_suggestions'))
 
+def approve_all_suggestions_task(app: Flask):
+    """
+    Tác vụ nền để tự động phê duyệt tất cả suggestions đang ở trạng thái 'pending'.
+    """
+    job_id_log = f"approve_all_task_{datetime.now().strftime('%H%M%S')}"
+    print(f"\n--- Starting background task: {job_id_log} --- ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
 
+    with app.app_context():
+        approved_count = 0
+        failed_count = 0
+        skipped_count = 0
+        pending_suggestions = []
+
+        try:
+            # 1. Lấy tất cả pending suggestions
+            pending_suggestions = db.get_pending_suggestions()
+
+            if pending_suggestions is None:
+                print(f"ERROR (Approve All Task): Failed to fetch pending suggestions from DB.")
+                return
+            if not pending_suggestions:
+                print(f"INFO (Approve All Task): No pending suggestions found to approve.")
+                print(f"--- Finishing background task: {job_id_log} (No data) ---")
+                return
+
+            print(f"INFO (Approve All Task): Found {len(pending_suggestions)} suggestions to process.")
+
+            # 2. Lặp qua và phê duyệt từng cái
+            for suggestion in pending_suggestions:
+                suggestion_id = suggestion.get('suggestion_id')
+                print(f"DEBUG (Approve All Task): Processing suggestion ID: {suggestion_id}")
+
+                # Lấy dữ liệu đề xuất gốc
+                keywords = suggestion.get('suggested_keywords')
+                category = suggestion.get('suggested_category')
+                template_ref = suggestion.get('suggested_template_ref')
+                template_text = suggestion.get('suggested_template_text')
+                priority = 0 # Priority mặc định khi duyệt hàng loạt
+                notes = f"Bulk Approved from AI suggestion #{suggestion_id}."
+
+                # Validate dữ liệu tối thiểu
+                if not keywords or not template_ref or not template_text:
+                    print(f"WARNING (Approve All Task): Skipping suggestion {suggestion_id} due to missing required fields (keywords, ref, text).")
+                    skipped_count += 1
+                    # Cập nhật status thành lỗi hoặc bỏ qua? Tạm thời bỏ qua
+                    # db.update_suggestion_status(suggestion_id, 'error_missing_data')
+                    continue
+
+                # Thực hiện phê duyệt (trong try-except cho từng cái)
+                try:
+                    # a. Thêm Template + Variation
+                    added_template_ref = db.add_new_template(
+                        template_ref=template_ref,
+                        first_variation_text=template_text,
+                        description=f"AI suggested, bulk approval #{suggestion_id}",
+                        category=category if category else None
+                    )
+                    if not added_template_ref:
+                         raise Exception(f"Failed to add template/variation for ref '{template_ref}'")
+
+                    # b. Thêm Rule
+                    rule_added = db.add_new_rule(
+                        keywords=keywords, category=category if category else None,
+                        template_ref=added_template_ref, priority=priority, notes=notes
+                    )
+                    if not rule_added:
+                         raise Exception(f"Failed to add rule for template ref '{added_template_ref}'")
+
+                    # c. Cập nhật Status
+                    status_updated = db.update_suggestion_status(suggestion_id, 'approved')
+                    if not status_updated:
+                         # Lỗi không nghiêm trọng lắm, ghi log
+                         print(f"WARNING (Approve All Task): Rule/Template created for suggestion {suggestion_id}, but failed to update suggestion status.")
+
+                    print(f"INFO (Approve All Task): Successfully approved suggestion {suggestion_id}.")
+                    approved_count += 1
+
+                except Exception as approve_err:
+                     # Nếu có lỗi khi phê duyệt 1 suggestion -> ghi log lỗi và tiếp tục cái khác
+                     print(f"ERROR (Approve All Task): Failed to approve suggestion {suggestion_id}: {approve_err}")
+                     # Cập nhật status thành error để không thử lại?
+                     # db.update_suggestion_status(suggestion_id, f'error_bulk_approve: {str(approve_err)[:50]}')
+                     failed_count += 1
+                     # Không rollback transaction chung, chỉ rollback cho cái bị lỗi nếu hàm DB có xử lý
+                     continue # Đi tiếp suggestion khác
+
+            # 3. Ghi log tổng kết
+            print(f"INFO (Approve All Task): Processing complete. Approved: {approved_count}, Failed: {failed_count}, Skipped: {skipped_count}.")
+
+        except Exception as e:
+            print(f"CRITICAL ERROR during background task {job_id_log}: {e}")
+            print(traceback.format_exc())
+
+        print(f"--- Finishing background task: {job_id_log} ---")
 
 # =============================================
 # === CÁC ROUTE MỚI THÊM VÀO ===

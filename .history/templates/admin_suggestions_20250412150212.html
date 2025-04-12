@@ -8,14 +8,6 @@
 {% if suggestions %} {# Nếu list không rỗng #}
 <p>Dưới đây là các luật/template được AI đề xuất dựa trên lịch sử tương tác. Hãy xem xét, chỉnh sửa (nếu cần) và phê
     duyệt nếu phù hợp.</p>
-<div style="margin-bottom: 15px;">
-    <form action="{{ url_for('admin.start_approve_all_job') }}" method="POST" style="display: inline;"
-        onsubmit="return confirm('Bạn có chắc muốn yêu cầu hệ thống tự động phê duyệt TẤT CẢ các đề xuất đang chờ không? Quá trình này sẽ chạy ngầm và không thể hoàn tác dễ dàng.');">
-        <button type="submit" class="button">Duyệt tất cả các đề xuất đang chờ (Chạy ngầm)</button>
-    </form>
-    <small style="margin-left: 10px;">(Hệ thống sẽ cố gắng tạo rule/template cho từng đề xuất. Theo dõi log server để
-        xem tiến trình.)</small>
-</div>
 <table border="1" cellpadding="5" cellspacing="0" style="width: 100%; border-collapse: collapse; table-layout: fixed;">
     <thead>
         <tr style="background-color: #f2f2f2;">

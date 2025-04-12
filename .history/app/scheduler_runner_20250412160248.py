@@ -17,7 +17,7 @@ from apscheduler.executors.pool import ThreadPoolExecutor # Hoặc ProcessPoolEx
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
-from dotenv import load_dotenv
+
 # Biến toàn cục giữ instance scheduler đang chạy
 live_scheduler = None
 live_scheduler = APScheduler()
@@ -151,61 +151,88 @@ def load_scheduled_jobs_standalone(scheduler: BackgroundScheduler, db_config: di
 
 # <<< HÀM run_scheduler KHÔNG NHẬN app NỮA >>>
 def run_scheduler():
+    """
+    Hàm chính chạy trong thread riêng, khởi tạo và chạy BackgroundScheduler.
+    Đã thêm log debug chi tiết.
+    """
     global live_scheduler
+    print("--- THREAD SCHEDULER: Starting run_scheduler function ---") # Log ngay khi vào hàm
 
-    # Nạp biến môi trường từ .env nếu có
-    env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
-    if os.path.exists(env_path):
-        load_dotenv(env_path)
-
-    # Cấu hình logger
-    logging.basicConfig(level=logging.DEBUG,
-        format='%(asctime)s %(levelname)-8s %(name)-25s %(threadName)s : %(message)s')
-
-    # Lấy URL DB cho JobStore từ biến môi trường
-    db_url = os.environ.get("SQLALCHEMY_DATABASE_URI")
-    if not db_url:
-        db_user = os.environ.get("DB_USER")
-        db_password = os.environ.get("DB_PASSWORD")
-        db_host = os.environ.get("DB_HOST", "localhost")
-        db_port = os.environ.get("DB_PORT", "5432")
-        db_name = os.environ.get("DB_NAME")
-        db_url = f"postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
-
-    jobstores = {
-        'default': SQLAlchemyJobStore(url=db_url)
-    }
-    executors = {
-        'default': {'type': 'processpool', 'max_workers': 5}
-    }
-    job_defaults = {
-        'coalesce': False,
-        'max_instances': 3
-    }
-
-    scheduler = BackgroundScheduler(jobstores=jobstores,
-                                    executors=executors,
-                                    job_defaults=job_defaults,
-                                    timezone='UTC')
-
-    # Load job (ví dụ hardcode job)
     try:
-        scheduler.add_job(
-            id='suggestion_job',
-            func='app.background_tasks.analyze_interactions_and_suggest',
-            trigger='interval',
-            seconds=20,
-            replace_existing=True
+        print("DEBUG (scheduler_runner): Reading DB config from environment...")
+        # --- Đọc cấu hình CSDL ---
+        db_config = {
+            "host": os.environ.get("DB_HOST", "localhost"),
+            "port": os.environ.get("DB_PORT", "5432"),
+            "dbname": os.environ.get("DB_NAME"),
+            "user": os.environ.get("DB_USER"),
+            "password": os.environ.get("DB_PASSWORD")
+        }
+        if not all(db_config.values()):
+            print("CRITICAL ERROR (scheduler_runner): Missing Database configuration environment variables. Scheduler thread stopping.")
+            return
+
+        db_uri = f"postgresql+psycopg2://{db_config['user']}:{db_config['password']}@{db_config['host']}:{db_config['port']}/{db_config['dbname']}"
+        print(f"DEBUG (scheduler_runner): Database URI for JobStore: {db_uri.replace(db_config['password'],'***')}")
+
+        # --- Cấu hình Jobstore và Executor ---
+        print("DEBUG (scheduler_runner): Configuring jobstore (SQLAlchemy)...")
+        jobstores = { 'default': SQLAlchemyJobStore(url=db_uri) }
+        print("DEBUG (scheduler_runner): Configuring executor (ThreadPool)...")
+        executors = { 'default': ThreadPoolExecutor(max_workers=10) } # Lấy max_workers từ config app nếu muốn
+        job_defaults = {'coalesce': False, 'max_instances': 1}
+        timezone = 'Asia/Ho_Chi_Minh' # Hoặc timezone từ config
+        print(f"DEBUG (scheduler_runner): Jobstore, Executor, Defaults, Timezone configured.")
+
+        # --- Khởi tạo BackgroundScheduler ---
+        print("DEBUG (scheduler_runner): Initializing BackgroundScheduler...")
+        scheduler = BackgroundScheduler(
+            jobstores=jobstores,
+            executors=executors,
+            job_defaults=job_defaults,
+            timezone=timezone
         )
-        logging.info("✅ Đã thêm job suggestion_job vào scheduler.")
-    except Exception as e:
-        logging.error(f"❌ Lỗi khi thêm job: {e}")
+        print("DEBUG (scheduler_runner): BackgroundScheduler initialized object created.")
 
-    try:
-        scheduler.start()
+        # Gán vào biến toàn cục
         live_scheduler = scheduler
-        logging.info("✅ APScheduler đã khởi động.")
+        print(f"INFO (scheduler_runner): BackgroundScheduler instance assigned to 'live_scheduler'.")
+
+        # Load jobs từ DB
+        print("DEBUG (scheduler_runner): Calling load_scheduled_jobs_standalone...")
+        # Hàm này cần db_config để kết nối DB trực tiếp
+        load_scheduled_jobs_standalone(live_scheduler, db_config)
+        print("DEBUG (scheduler_runner): Finished call to load_scheduled_jobs_standalone.")
+
+        # Bắt đầu chạy scheduler
+        print("INFO (scheduler_runner): Starting BackgroundScheduler loop...")
+        try:
+            live_scheduler.start()
+            print("✅ Scheduler started.")
+        except Exception as e:
+            print(f"❌ Scheduler failed to start: {e}")
+        print("SUCCESS (scheduler_runner): BackgroundScheduler started successfully in separate thread.")
+
+        # Giữ thread sống
+        print("INFO (scheduler_runner): Entering keep-alive loop (sleep 1 hour)...")
+        while True:
+            time.sleep(3600)
+
+    except (KeyboardInterrupt, SystemExit):
+         print("INFO (scheduler_runner): Shutdown signal received in main loop...")
+         # Việc shutdown sẽ được xử lý trong finally
+
     except Exception as e:
-        logging.error(f"❌ Lỗi khởi động scheduler: {e}")
-        live_scheduler = None
+        # Bắt tất cả lỗi xảy ra trong quá trình khởi tạo/chạy scheduler
+        print(f"CRITICAL ERROR initializing or running the scheduler in thread: {e}")
+        print(traceback.format_exc())
+        live_scheduler = None # Đặt lại là None nếu lỗi nghiêm trọng
+    finally:
+        # Dọn dẹp khi thread kết thúc
+        print("INFO (scheduler_runner): Entering finally block...")
+        if live_scheduler and live_scheduler.running:
+            print("INFO (scheduler_runner): Shutting down scheduler...")
+            live_scheduler.shutdown()
+            print("INFO (scheduler_runner): Scheduler shut down.")
+        print("--- THREAD SCHEDULER: Exiting run_scheduler function ---")
 # --- Kết thúc file app/scheduler_runner.py ---

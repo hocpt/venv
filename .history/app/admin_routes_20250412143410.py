@@ -1,7 +1,7 @@
 # app/admin_routes.py
 import traceback
-from flask import Blueprint, Flask, render_template, request, redirect, url_for, flash,current_app 
-from datetime import datetime, timedelta 
+from flask import Blueprint, render_template, request, redirect, url_for, flash,current_app 
+from datetime import datetime
 import psycopg2
 import math
 import json
@@ -9,11 +9,6 @@ import importlib # Để kiểm tra function path (tùy chọn)
 from flask import (
     Blueprint, render_template, request, redirect, url_for, flash, current_app
 )
-try:
-    from app.scheduler_runner import live_scheduler
-except ImportError:
-    print("CRITICAL WARNING (admin_routes): Could not import live_scheduler from app.scheduler_runner! Live control will fail.")
-    live_scheduler = None
 try:
     from . import ai_service
 except ImportError:
@@ -447,117 +442,6 @@ def reject_suggestion(suggestion_id):
         print(f"Lỗi nghiêm trọng khi từ chối đề xuất: {e}")
         flash(f"Đã xảy ra lỗi không mong muốn khi từ chối: {e}", "error")
     return redirect(url_for('admin.view_suggestions'))
-
-@admin_bp.route('/suggestions/<int:suggestion_id>/approve-direct', methods=['POST'])
-def approve_suggestion_direct(suggestion_id):
-    """Xử lý phê duyệt trực tiếp suggestion mà không cần sửa đổi."""
-    if not db:
-        flash("Lỗi nghiêm trọng: Database module chưa sẵn sàng.", "error")
-        return redirect(url_for('admin.view_suggestions'))
-
-    # 1. Lấy thông tin suggestion gốc từ DB
-    suggestion = db.get_suggestion_by_id(suggestion_id)
-    if not suggestion:
-        flash(f"Không tìm thấy đề xuất ID {suggestion_id}.", "error")
-        return redirect(url_for('admin.view_suggestions'))
-    if suggestion.get('status') != 'pending':
-        flash(f"Đề xuất ID {suggestion_id} không ở trạng thái 'pending'.", "warning")
-        return redirect(url_for('admin.view_suggestions'))
-
-    # 2. Lấy các giá trị AI đã đề xuất (KHÔNG lấy từ form)
-    keywords = suggestion.get('suggested_keywords')
-    category = suggestion.get('suggested_category') # Lấy category AI đề xuất
-    template_ref = suggestion.get('suggested_template_ref') # Lấy ref AI đề xuất
-    template_text = suggestion.get('suggested_template_text')
-    priority = 0 # Hoặc bạn có thể đặt một priority mặc định khác
-    notes = f"Approved directly from AI suggestion #{suggestion_id}."
-
-    # Validate dữ liệu đề xuất tối thiểu
-    if not keywords or not template_ref or not template_text:
-        flash(f"Đề xuất ID {suggestion_id} thiếu thông tin Keywords, Template Ref hoặc Template Text. Không thể phê duyệt trực tiếp.", "error")
-        # Có thể nên chuyển suggestion này sang status 'error' hoặc 'needs_edit'
-        # db.update_suggestion_status(suggestion_id, 'error_missing_data')
-        return redirect(url_for('admin.view_suggestions'))
-
-    # ----- Thực hiện logic phê duyệt -----
-    approval_error = None
-    try:
-        # 1. Thêm Template và Variation mới
-        added_template_ref = db.add_new_template(
-            template_ref=template_ref,
-            first_variation_text=template_text,
-            description=f"AI suggested, direct approval #{suggestion_id}", # Mô tả tự động
-            category=category if category else None # Dùng category AI đề xuất
-        )
-
-        if added_template_ref:
-            # 2. Thêm Rule mới
-            rule_added = db.add_new_rule(
-                keywords=keywords,
-                category=category if category else None,
-                template_ref=added_template_ref, # Dùng ref có thể đã tồn tại hoặc mới tạo
-                priority=priority,
-                notes=notes
-            )
-
-            if rule_added:
-                # 3. Cập nhật trạng thái suggestion thành 'approved'
-                status_updated = db.update_suggestion_status(suggestion_id, 'approved')
-                if status_updated:
-                    flash(f"Đã phê duyệt trực tiếp đề xuất #{suggestion_id} và tạo rule/template.", "success")
-                else:
-                    flash(f"Đã tạo rule/template cho đề xuất #{suggestion_id}, nhưng lỗi cập nhật trạng thái đề xuất.", "warning")
-                return redirect(url_for('admin.view_suggestions'))
-            else:
-                approval_error = "Đã thêm template/variation nhưng thêm rule thất bại."
-        else:
-            approval_error = "Thêm template/variation mới thất bại (Template Ref có thể bị lỗi?)."
-
-    except Exception as e:
-        approval_error = f"Lỗi không mong muốn khi phê duyệt trực tiếp: {e}"
-        print(f"Lỗi nghiêm trọng khi phê duyệt trực tiếp suggestion {suggestion_id}: {e}")
-        print(traceback.format_exc())
-
-    # Nếu có lỗi trong quá trình phê duyệt
-    if approval_error:
-        flash(f"Phê duyệt trực tiếp thất bại: {approval_error}", "error")
-
-    return redirect(url_for('admin.view_suggestions'))
-
-@admin_bp.route('/suggestions/approve-all-start-job', methods=['POST'])
-def start_approve_all_job():
-    """Kích hoạt job chạy nền để phê duyệt tất cả suggestions."""
-    job_id = f"approve_all_suggestions_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-    run_time = datetime.now() + timedelta(seconds=5) # Chạy sau 5 giây
-
-    if not live_scheduler:
-        flash("Lỗi: Scheduler không khả dụng để chạy tác vụ nền.", "error")
-        return redirect(url_for('admin.view_suggestions'))
-
-    try:
-        # Import hàm tác vụ nền approve_all... (sẽ tạo ở bước sau)
-        from app.background_tasks import approve_all_suggestions_task
-
-        live_scheduler.add_job(
-            id=job_id,
-            func=approve_all_suggestions_task,
-            trigger='date', # Chạy 1 lần
-            run_date=run_time,
-            replace_existing=False, # Không ghi đè job khác
-            misfire_grace_time=60 # Cho phép trễ 60s nếu scheduler bận
-        )
-        flash(f"Đã yêu cầu phê duyệt hàng loạt. Tác vụ sẽ bắt đầu chạy ngầm sau vài giây (Job ID: {job_id}). Theo dõi log server.", "info")
-        print(f"INFO: Scheduled background job '{job_id}' to run at {run_time}")
-    except (ImportError, AttributeError) as ie:
-         flash(f"Lỗi: Không tìm thấy hàm tác vụ nền 'approve_all_suggestions_task': {ie}", "error")
-         print(f"ERROR: Could not import/find background task function: {ie}")
-    except Exception as e:
-        flash(f"Lỗi khi lên lịch tác vụ phê duyệt hàng loạt: {e}", "error")
-        print(f"ERROR: Failed to schedule approve_all job: {e}")
-        print(traceback.format_exc())
-
-    return redirect(url_for('admin.view_suggestions'))
-
 
 
 # =============================================
