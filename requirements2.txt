@@ -1,0 +1,31 @@
+# --- Core Framework ---
+Flask>=2.3,<3.1   # Hoặc phiên bản Flask cụ thể bạn đang dùng
+
+# --- Database ---
+psycopg2-binary   # Driver để kết nối PostgreSQL (dạng binary dễ cài đặt hơn)
+Flask-SQLAlchemy>=3.0,<3.2 # Cần cho SQLAlchemyJobStore của APScheduler và quản lý session DB nếu dùng
+
+# --- Scheduler ---
+APScheduler[sqlalchemy]>=3.9,<4.0 # APScheduler và phần phụ thuộc cho SQLAlchemy Job Store
+# Lưu ý: Nếu dùng APScheduler v4+ thì API có thể khác biệt nhẹ
+
+# --- AI Service ---
+google-generativeai # Thư viện chính thức của Google cho Gemini API
+
+# --- NLP (Vietnamese) ---
+underthesea       # Thư viện xử lý ngôn ngữ tự nhiên tiếng Việt
+
+# --- Environment & Server ---
+python-dotenv     # Để đọc biến môi trường từ file .env
+waitress          # WSGI server chúng ta đang dùng để chạy thay Flask dev server
+
+# --- Các thư viện phụ thuộc khác mà các thư viện trên cần ---
+# pip sẽ tự động cài đặt chúng, nhưng liệt kê ở đây nếu muốn rõ ràng hơn (tùy chọn)
+# Jinja2 (thường đi kèm Flask)
+# Werkzeug (thường đi kèm Flask)
+# SQLAlchemy (thường đi kèm Flask-SQLAlchemy hoặc APScheduler[sqlalchemy])
+# click (thường đi kèm Flask)
+# itsdangerous (thường đi kèm Flask)
+# tzlocal (thường đi kèm APScheduler)
+# pytz (thường đi kèm APScheduler)
+# six (thường đi kèm APScheduler)

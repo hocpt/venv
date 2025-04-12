@@ -25,7 +25,7 @@ def analyze_interactions_and_suggest():
     """
     Tác vụ nền... Tự tạo app instance và context khi chạy.
     """
-    print(f"\n--- Starting background task analyze: {JOB_ID} --- ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
+    print(f"\n--- Starting background task: {JOB_ID} --- ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
     # --- TẠO APP INSTANCE VÀ APP CONTEXT TẠM THỜI ---
     # Điều này đảm bảo job có môi trường Flask đầy đủ để chạy
     # mà không cần truyền app object (gây lỗi pickle)
@@ -157,117 +157,7 @@ def analyze_interactions_and_suggest():
     # <<< Kết thúc with app.app_context() >>>
 
     
-def approve_all_suggestions_task(): # <<< KHÔNG CÒN THAM SỐ 'app' >>>
-    """
-    Tác vụ nền để tự động phê duyệt tất cả suggestions đang ở trạng thái 'pending'.
-    Tự tạo app context khi chạy.
-    """
-    task_id_log = f"approve_all_task_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-    print(f"\n--- Starting background task approve_all: {task_id_log} --- ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
-
-    # --- Tạo App Context ---
-    try:
-        print(f"DEBUG ({task_id_log}): Creating temporary app instance for context...")
-        temp_app = create_app()
-        if not temp_app:
-             raise Exception("Failed to create temporary Flask app instance.")
-        print(f"DEBUG ({task_id_log}): Temporary app instance created.")
-    except Exception as creation_err:
-        print(f"CRITICAL ERROR ({task_id_log}): Cannot create temporary Flask app for context: {creation_err}")
-        print(traceback.format_exc())
-        return # Không thể chạy nếu thiếu context
-
-    # Chạy logic bên trong context
-    with temp_app.app_context():
-        print(f"DEBUG ({task_id_log}): Entered temporary app context.")
-        approved_count = 0
-        failed_count = 0
-        skipped_count = 0
-        pending_suggestions = []
-
-        try:
-            # 1. Lấy tất cả pending suggestions
-            print(f"DEBUG ({task_id_log}): Fetching all pending suggestions...")
-            pending_suggestions = db.get_pending_suggestions() # Hàm này dùng current_app nội bộ
-
-            if pending_suggestions is None:
-                print(f"ERROR ({task_id_log}): Failed to fetch pending suggestions from DB.")
-                return
-            if not pending_suggestions:
-                print(f"INFO ({task_id_log}): No pending suggestions found to approve.")
-                print(f"--- Finishing background task: {task_id_log} (No data) ---")
-                return
-
-            print(f"INFO ({task_id_log}): Found {len(pending_suggestions)} suggestions to process.")
-
-            # 2. Lặp qua và phê duyệt từng cái
-            for suggestion in pending_suggestions:
-                suggestion_id = suggestion.get('suggestion_id')
-                print(f"DEBUG ({task_id_log}): Processing suggestion ID: {suggestion_id}")
-
-                # Lấy dữ liệu đề xuất gốc
-                keywords = suggestion.get('suggested_keywords')
-                category = suggestion.get('suggested_category')
-                template_ref = suggestion.get('suggested_template_ref')
-                template_text = suggestion.get('suggested_template_text')
-                priority = 0 # Priority mặc định khi duyệt hàng loạt
-                notes = f"Bulk Approved from AI suggestion #{suggestion_id}."
-
-                # Validate dữ liệu tối thiểu
-                if not keywords or not template_ref or not template_text:
-                    print(f"WARNING ({task_id_log}): Skipping suggestion {suggestion_id} due to missing required fields.")
-                    skipped_count += 1
-                    # Có thể cập nhật status lỗi ở đây nếu muốn:
-                    # db.update_suggestion_status(suggestion_id, 'error_missing_data')
-                    continue
-
-                # Thực hiện phê duyệt (trong try-except cho từng cái)
-                try:
-                    # a. Thêm Template + Variation
-                    # Sử dụng các giá trị AI đề xuất trực tiếp
-                    added_template_ref = db.add_new_template(
-                        template_ref=template_ref,
-                        first_variation_text=template_text,
-                        description=f"AI suggested, bulk approval #{suggestion_id}",
-                        category=category if category else None
-                    )
-                    if not added_template_ref:
-                         raise Exception(f"Failed to add template/variation for ref '{template_ref}'")
-
-                    # b. Thêm Rule
-                    rule_added = db.add_new_rule(
-                        keywords=keywords, category=category if category else None,
-                        template_ref=added_template_ref, priority=priority, notes=notes
-                    )
-                    if not rule_added:
-                         raise Exception(f"Failed to add rule for template ref '{added_template_ref}'")
-
-                    # c. Cập nhật Status suggestion thành approved
-                    status_updated = db.update_suggestion_status(suggestion_id, 'approved')
-                    if not status_updated:
-                         print(f"WARNING ({task_id_log}): Rule/Template created for suggestion {suggestion_id}, but failed to update suggestion status.")
-
-                    print(f"INFO ({task_id_log}): Successfully approved suggestion {suggestion_id}.")
-                    approved_count += 1
-
-                except Exception as approve_err:
-                     # Nếu có lỗi khi phê duyệt 1 suggestion -> ghi log lỗi và tiếp tục cái khác
-                     print(f"ERROR ({task_id_log}): Failed to approve suggestion {suggestion_id}: {approve_err}")
-                     print(traceback.format_exc())
-                     # Cập nhật status thành error để không thử lại?
-                     db.update_suggestion_status(suggestion_id, f'error_bulk_approve')
-                     failed_count += 1
-                     continue # Đi tiếp suggestion khác
-
-            # 3. Ghi log tổng kết
-            print(f"INFO ({task_id_log}): Processing complete. Approved: {approved_count}, Failed: {failed_count}, Skipped: {skipped_count}.")
-
-        except Exception as e:
-            print(f"CRITICAL ERROR during background task {task_id_log}: {e}")
-            print(traceback.format_exc())
-
-        print(f"--- Finishing background task: {task_id_log} ---")
-    # <<< Kết thúc with app.app_context() >>>
+def approve_all_suggestions_task(app: Flask):
     from app import create_app
     job_id_log = f"approve_all_task_{datetime.now().strftime('%H%M%S')}"
     print(f"\n--- Starting background task: {job_id_log} --- ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")

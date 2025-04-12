@@ -539,12 +539,11 @@ def start_approve_all_job():
         from app.background_tasks import approve_all_suggestions_task
 
         live_scheduler.add_job(
-            id=job_id,
-            func=approve_all_suggestions_task,
-            trigger='date', # Chạy 1 lần
-            run_date=run_time,
-            replace_existing=True, # Không ghi đè job khác
-            misfire_grace_time=60 # Cho phép trễ 60s nếu scheduler bận
+            id="approve_all_job",
+            func='app.background_tasks.approve_all_suggestions_task',  # dùng string path
+            trigger='date',
+            run_date=datetime.now() + timedelta(seconds=5),
+            replace_existing=True,
         )
         flash(f"Đã yêu cầu phê duyệt hàng loạt. Tác vụ sẽ bắt đầu chạy ngầm sau vài giây (Job ID: {job_id}). Theo dõi log server.", "info")
         print(f"INFO: Scheduled background job '{job_id}' to run at {run_time}")

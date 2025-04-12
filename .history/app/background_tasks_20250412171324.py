@@ -25,7 +25,7 @@ def analyze_interactions_and_suggest():
     """
     Tác vụ nền... Tự tạo app instance và context khi chạy.
     """
-    print(f"\n--- Starting background task analyze: {JOB_ID} --- ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
+    print(f"\n--- Starting background task: {JOB_ID} --- ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
     # --- TẠO APP INSTANCE VÀ APP CONTEXT TẠM THỜI ---
     # Điều này đảm bảo job có môi trường Flask đầy đủ để chạy
     # mà không cần truyền app object (gây lỗi pickle)
