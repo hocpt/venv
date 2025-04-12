@@ -1,0 +1,40 @@
+{% extends "admin_base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+{# job được truyền từ route #}
+<form method="POST">
+    <label for="job_id">Job ID:</label><br>
+    <input type="text" value="{{ job.job_id }}" disabled><br><br>
+
+    <label for="job_function_path">Function Path:</label><br>
+    <input type="text" value="{{ job.job_function_path }}" disabled style="width: 80%;"><br><br>
+
+    <label for="trigger_type">Trigger Type (bắt buộc):</label><br>
+    <select name="trigger_type" id="trigger_type" required>
+        <option value="">-- Chọn Loại Trigger --</option>
+        {% set current_type = current_data.trigger_type if current_data is defined else job.trigger_type %}
+        {% for type in trigger_types %}
+        <option value="{{ type }}" {% if current_type==type %}selected{% endif %}>{{ type }}</option>
+        {% endfor %}
+    </select><br><br>
+
+    <label for="trigger_args">Trigger Args (JSON - bắt buộc):</label><br>
+    {# job.trigger_args_str đã được chuẩn bị từ route #}
+    <textarea id="trigger_args" name="trigger_args" rows="5" style="width: 80%; font-family: monospace;"
+        required>{{ current_data.trigger_args if current_data is defined else job.trigger_args_str }}</textarea><br>
+    <small>Xem tài liệu APScheduler cho các tham số của 'interval', 'cron', 'date'.</small><br><br>
+
+    <label for="description">Description:</label><br>
+    <textarea id="description" name="description" rows="2"
+        style="width: 80%;">{{ current_data.description if current_data is defined else job.description | default('') }}</textarea><br><br>
+
+    <label for="is_enabled">Enabled:</label>
+    {% set current_enabled = current_data.is_enabled if current_data is defined else ('on' if job.is_enabled else '') %}
+    <input type="checkbox" id="is_enabled" name="is_enabled" value="on" {% if current_enabled=='on' %}checked{% endif
+        %}>
+    <br><br>
+
+    <button type="submit">Lưu Thay Đổi</button>
+    <a href="{{ url_for('admin.view_scheduled_jobs') }}">Hủy</a>
+</form>
+{% endblock %}

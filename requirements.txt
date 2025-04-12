@@ -1,1 +1,39 @@
 Flask-APScheduler
+Flask-SQLAlchemy "APScheduler[sqlalchemy]"
+waitress
+flask flask_sqlalchemy Flask-APScheduler
+# === Web Framework ===
+Flask
+
+# === PostgreSQL Database Driver ===
+psycopg2-binary
+# Hoặc dùng psycopg nếu bạn thích phiên bản mới hơn và xử lý async tốt hơn:
+# psycopg[binary]
+
+# === Đọc file .env ===
+python-dotenv
+
+# === Google Generative AI (Gemini) ===
+google-generativeai
+
+# === Vietnamese NLP (Cơ bản) ===
+underthesea
+# Bạn có thể thêm các thư viện NLP khác nếu dùng:
+# pyvi
+# VnTokenizer
+
+# === HTTP Requests (Thường cần thiết, Gemini lib có thể đã dùng rồi) ===
+requests
+
+# === (Tùy chọn) Thư viện nâng cao cho các giai đoạn sau ===
+# Nếu bạn dùng SQLAlchemy ORM:
+# SQLAlchemy
+# Nếu bạn muốn tạo Admin UI tự động bằng Flask-Admin:
+# Flask-Admin
+# Nếu bạn muốn xử lý NLP/ML nâng cao hơn tại local:
+# scikit-learn
+# spacy
+# sentence-transformers
+# Nếu muốn tính toán lịch âm:
+# pyluach
+# Hoặc: lunardate

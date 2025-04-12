@@ -1,0 +1,55 @@
+{% extends "admin_base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<form method="POST">
+    <label for="job_id">Job ID (Định danh duy nhất - bắt buộc):</label><br>
+    <input type="text" id="job_id" name="job_id" required value="{{ current_data.job_id if current_data else '' }}"
+        maxlength="100"><br><br>
+
+    <label for="job_function_path">Function Path (Đường dẫn hàm thực thi - bắt buộc):</label><br>
+    <input type="text" id="job_function_path" name="job_function_path" required
+        value="{{ current_data.job_function_path if current_data else 'app.background_tasks.function_name' }}"
+        style="width: 80%;"><br>
+    <small>Ví dụ: <code>app.background_tasks.analyze_interactions_and_suggest</code></small><br><br>
+
+    <label for="trigger_args">Trigger Args (Tham số trigger - JSON - bắt buộc):</label><br>
+    <textarea id="trigger_args" name="trigger_args" rows="6" style="width: 80%; font-family: monospace;" required
+        placeholder='Nhập cấu hình trigger dạng JSON...'>{{ current_data.trigger_args if current_data else '{}' }}</textarea><br>
+    <small>
+        Nhập JSON object chứa các tham số phù hợp với Trigger Type đã chọn. Xem <a
+            href="https://apscheduler.readthedocs.io/en/latest/modules/triggers/cron.html"
+            target="_blank">CronTrigger</a>,
+        <a href="https://apscheduler.readthedocs.io/en/latest/modules/triggers/interval.html"
+            target="_blank">IntervalTrigger</a>,
+        <a href="https://apscheduler.readthedocs.io/en/latest/modules/triggers/date.html"
+            target="_blank">DateTrigger</a>.<br>
+        <strong>Ví dụ:</strong><br>
+        - Interval (chạy mỗi 1 giờ 30 phút): <code>{"hours": 1, "minutes": 30}</code><br>
+        - Interval (chạy mỗi 5 giây, từ ngày... đến ngày...):
+        <code>{"seconds": 5, "start_date": "2025-12-01 00:00:00", "end_date": "2025-12-31 23:59:59"}</code><br>
+        - Cron (chạy lúc 9:30 sáng từ Thứ 2-Thứ 6): <code>{"day_of_week": "mon-fri", "hour": 9, "minute": 30}</code><br>
+        - Cron (chạy vào phút thứ 15 của mỗi giờ): <code>{"minute": "15"}</code><br>
+        - Date (chạy một lần vào ngày giờ cụ thể): <code>{"run_date": "2025-12-25 08:00:00"}</code><br>
+        <em>Lưu ý: Ngày tháng nên dùng định dạng YYYY-MM-DD HH:MM:SS hoặc ISO 8601. Timezone sẽ mặc định theo
+            server.</em>
+    </small><br><br>
+
+    <label for="trigger_args">Trigger Args (Tham số trigger - JSON - bắt buộc):</label><br>
+    <textarea id="trigger_args" name="trigger_args" rows="5" style="width: 80%; font-family: monospace;" required
+        placeholder='Ví dụ: {"hours": 1} hoặc {"minute": "*/15"} hoặc {"day_of_week": "mon-fri", "hour": 9}'>{{ current_data.trigger_args if current_data else '{}' }}</textarea><br>
+    <small>Xem tài liệu APScheduler cho các tham số của 'interval', 'cron', 'date'.</small><br><br>
+
+    <label for="description">Description (Mô tả):</label><br>
+    <textarea id="description" name="description" rows="2"
+        style="width: 80%;">{{ current_data.description if current_data else '' }}</textarea><br><br>
+
+    <label for="is_enabled">Enabled (Kích hoạt khi khởi động):</label>
+    <input type="checkbox" id="is_enabled" name="is_enabled" value="on" {% if current_data and
+        current_data.is_enabled=='on' %}checked{% elif not current_data %}checked{% endif %}> {# Mặc định checked khi
+    thêm mới #}
+    <br><br>
+
+    <button type="submit">Thêm Tác vụ</button>
+    <a href="{{ url_for('admin.view_scheduled_jobs') }}">Hủy</a>
+</form>
+{% endblock %}

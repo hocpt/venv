@@ -1,0 +1,161 @@
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1> {# Ví dụ: title="Quản lý Tác vụ nền" được truyền từ route #}
+<p><a href="{{ url_for('admin.add_scheduled_job') }}" class="button">Thêm Tác vụ Mới</a></p>
+<p><small>Lưu ý: Các thay đổi về lịch trình hoặc trạng thái bật/tắt sẽ được lưu vào CSDL. Việc cập nhật scheduler đang
+        chạy có thể gặp lỗi (sẽ có cảnh báo). Nếu gặp lỗi, thay đổi sẽ có hiệu lực hoàn toàn sau khi khởi động lại
+        server.</small></p>
+
+{% if jobs %}
+<table border="1" cellpadding="5" cellspacing="0"
+    style="width:100%; border-collapse: collapse; box-sizing: border-box;">
+    <thead>
+        <tr style="background-color: #f2f2f2;">
+            <th style="width: 15%;">Job ID</th>
+            <th style="width: 25%;">Function Path</th>
+            <th style="width: 8%;">Trigger</th>
+            <th style="width: 15%;">Trigger Args</th>
+            <th>Description</th>
+            <th style="width: 8%; text-align: center;">Enabled <small>(DB)</small></th>
+            <th style="width: 12%; text-align: center;">Next Run <small>(Live)</small></th>
+            <th style="width: 12%;">Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {# Lặp qua danh sách jobs lấy từ DB #}
+        {% for job in jobs %}
+        <tr>
+            {# Job ID #}
+            <td>{{ job.job_id }}</td>
+
+            {# Function Path #}
+            <td><code>{{ job.job_function_path }}</code></td>
+
+            {# Trigger Type #}
+            <td>{{ job.trigger_type }}</td>
+
+            {# Trigger Args (hiển thị JSON gọn) #}
+            <td>
+                <pre
+                    style="max-height: 60px; overflow: auto; margin:0; font-size: 0.85em; background-color: #eee; border: none; padding: 3px;">{{ job.trigger_args | tojson(indent=0) if job.trigger_args is not none else '{}' }}</pre>
+            </td>
+
+            {# Description #}
+            <td>{{ job.description | default('') }}</td>
+
+            {# Enabled Status (DB) + Toggle Button #}
+            <td style="text-align: center;">
+                {% if job.is_enabled %}
+                <span style="color: green; font-weight: bold;">Yes</span>
+                {% else %}
+                <span style="color: red;">No</span>
+                {% endif %}
+                {# Nút bật/tắt nhanh - POST tới route toggle_scheduled_job #}
+                <form action="{{ url_for('admin.toggle_scheduled_job', job_id=job.job_id) }}" method="POST"
+                    style="display:block; margin-top: 5px;">
+                    <button type="submit" class="button small {% if job.is_enabled %}secondary-button{% endif %}"
+                        style="font-size: 0.8em; padding: 2px 5px;">
+                        {% if job.is_enabled %}Tắt{% else %}Bật{% endif %}
+                    </button>
+                </form>
+            </td>
+
+            {# Next Run Time (Live Status) #}
+            <td style="text-align: center; font-size: 0.9em; vertical-align: middle;">
+                {# Lấy trạng thái live từ dict live_jobs_status #}
+                {% set live_status = live_jobs_status.get(job.job_id) %}
+                {% if live_status %} {# Job tồn tại trong scheduler live #}
+                {% if live_status.next_run %} {# Job đang active và có lịch chạy tiếp theo #}
+                {{ live_status.next_run.strftime('%Y-%m-%d %H:%M:%S %Z') if live_status.next_run else 'N/A' }}
+                {% else %} {# Job tồn tại nhưng bị pause (next_run is None) #}
+                <span style="color: orange;">Paused</span>
+                {% endif %}
+                {% elif job.is_enabled %} {# Job được bật trong DB nhưng không có trong scheduler live #}
+                <span style="color: #cc0000; font-weight: bold;">Error?</span>
+                <small style="display: block; font-size:0.8em; color: #cc0000;">(Not in scheduler)</small>
+                {% else %} {# Job bị tắt trong DB và cũng không có trong scheduler live #}
+                <span style="color: grey;">Disabled</span>
+                {% endif %}
+            </td>
+
+            {# Actions Column #}
+            <td style="white-space: nowrap; vertical-align: middle;">
+                {# Link Sửa cấu hình Job #}
+                <a href="{{ url_for('admin.edit_scheduled_job', job_id=job.job_id) }}">Sửa</a>
+
+                {# Form Xóa Job #}
+                <form action="{{ url_for('admin.delete_scheduled_job', job_id=job.job_id) }}" method="POST"
+                    style="display:inline;"
+                    onsubmit="return confirm('Xác nhận xóa cấu hình job \'{{ job.job_id }}\'? Job đang chạy (nếu có) cũng sẽ bị xóa khỏi scheduler.');">
+                    <button type="submit" class="link-button delete-button">Xóa</button>
+                </form>
+
+                {# Nút Chạy Ngay chỉ cho suggestion_job #}
+                {% if job.job_id == 'suggestion_job' %}
+                <form action="{{ url_for('admin.run_suggestion_job_now') }}" method="POST" style="display:inline;"
+                    onsubmit="return confirm('Chạy tác vụ đề xuất AI ngay bây giờ? Nó sẽ xử lý các tương tác mới nhất.');">
+                    <button type="submit" class="button small" style="margin-left: 5px; background-color: #28a745;">Chạy
+                        Ngay</button> {# Nút màu xanh lá #}
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% elif jobs is none %}
+<p style="color: red;">Lỗi khi tải danh sách cấu hình tác vụ nền từ CSDL.</p>
+{% else %}
+<p>Chưa có cấu hình tác vụ nền nào trong database. Hãy <a href="{{ url_for('admin.add_scheduled_job') }}">thêm tác vụ
+        mới</a>.</p>
+{% endif %}
+{% endblock %}
+
+{# CSS cho nút xóa dạng link và nút nhỏ (có thể chuyển vào style.css) #}
+{% block styles %}
+{{ super() }}
+<style>
+    .link-button.delete-button {
+        color: red;
+        background: none;
+        border: none;
+        padding: 0;
+        font: inherit;
+        cursor: pointer;
+        text-decoration: underline;
+        margin-left: 10px;
+    }
+
+    .button.small {
+        font-size: 0.8em;
+        padding: 2px 5px;
+        vertical-align: middle;
+    }
+
+    td pre {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        background-color: #f0f0f0;
+        padding: 5px;
+        border: none;
+        margin: 0;
+        font-size: 0.85em;
+        max-height: 60px;
+        overflow: auto;
+    }
+
+    /* Style cho dark theme pre nếu bạn di chuyển CSS vào đây */
+    .ai-playground-dark-theme td pre {
+        background-color: #3c4043;
+        color: #e8eaed;
+    }
+
+    th,
+    td {
+        vertical-align: middle;
+    }
+
+    /* Căn giữa nội dung ô theo chiều dọc */
+</style>
+{% endblock %}

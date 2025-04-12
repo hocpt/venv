@@ -1,0 +1,90 @@
+{# backup/templates/admin_scheduled_jobs.html #}
+{% extends "admin_base.html" %}
+{% block content %}
+<h1>{{ title | default('Quản lý Tác vụ nền (Cấu hình)') }}</h1>
+<p><a href="{{ url_for('admin.add_scheduled_job') }}" class="button">Thêm Tác vụ Mới</a></p>
+{# <<< Nhấn mạnh hơn về việc cần restart>>> #}
+    <p><small>Lưu ý quan trọng: Mọi thay đổi cấu hình (thêm, sửa, xóa, bật/tắt) sẽ chỉ có hiệu lực với lịch chạy tác vụ
+            sau khi **khởi động lại server**.</small></p>
+
+    {% if jobs is defined and jobs is iterable %}
+    {% if jobs %}
+    <table border="1" cellpadding="5" cellspacing="0"
+        style="width:100%; border-collapse: collapse; box-sizing: border-box; table-layout: fixed;">
+        <thead>
+            <tr style="background-color: #f2f2f2;">
+                <th style="width: 15%;">Job ID</th>
+                <th style="width: 25%;">Function Path</th>
+                <th style="width: 8%;">Trigger</th>
+                <th style="width: 15%;">Trigger Args</th>
+                <th>Description</th>
+                {# <<< Sửa tiêu đề cột>>> #}
+                    <th style="width: 10%; text-align: center;">Enabled <small>(Config)</small></th>
+                    {# <<< XÓA BỎ CỘT Next Run (Live)>>> #}
+                        <th style="width: 8%; text-align: center;">Chờ XL <small>(Suggest)</small></th>
+                        <th style="width: 12%;">Hành động</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for job in jobs %}
+            <tr>
+                {# ... (các cột Job ID, Function Path, Trigger, Trigger Args, Description như cũ) ... #}
+                <td>{{ job.job_id }}</td>
+                <td><code>{{ job.job_function_path }}</code></td>
+                <td>{{ job.trigger_type }}</td>
+                <td>
+                    <pre ...>{{ job.trigger_args | tojson(indent=0) ... }}</pre>
+                </td>
+                <td>{{ job.description | default('') }}</td>
+
+                {# Enabled Status (DB) + Toggle Button #}
+                <td style="text-align: center; vertical-align: middle;">
+                    {% if job.is_enabled %}
+                    <span style="color: green; font-weight: bold;">Yes</span>
+                    {% else %}
+                    <span style="color: red;">No</span>
+                    {% endif %}
+                    {# Nút này giờ chỉ thay đổi cấu hình DB #}
+                    <form action="{{ url_for('admin.toggle_scheduled_job', job_id=job.job_id) }}" method="POST"
+                        style="display:block; margin-top: 5px;">
+                        <button type="submit" class="button small {% if job.is_enabled %}secondary-button{% endif %}"
+                            title="Thay đổi cấu hình bật/tắt trong DB (cần restart server để áp dụng)">
+                            {% if job.is_enabled %}Đặt thành Tắt{% else %}Đặt thành Bật{% endif %}
+                        </button>
+                    </form>
+                </td>
+
+                {# <<< XÓA BỎ CỘT Next Run (Live)>>> #}
+
+                    {# Pending Items Column (Giữ nguyên) #}
+                    <td style="text-align: center; vertical-align: middle;">
+                        {% if job.job_id == 'suggestion_job' %}
+                        <span style="font-weight: bold; font-size: 1.1em;">{{ pending_counts.get('suggestion_job', '--')
+                            }}</span>
+                        {% else %}
+                        N/A
+                        {% endif %}
+                    </td>
+                    {# Actions Column (Giữ nguyên) #}
+                    <td style="white-space: nowrap; vertical-align: middle;">
+                        <a href="{{ url_for('admin.edit_scheduled_job', job_id=job.job_id) }}">Sửa</a>
+                        <form action="{{ url_for('admin.delete_scheduled_job', job_id=job.job_id) }}" method="POST" ...>
+                            <button ...>Xóa</button></form>
+                        {% if job.job_id == 'suggestion_job' %}
+                        <form action="{{ url_for('admin.run_suggestion_job_now') }}" method="POST" ...><button ...>Chạy
+                                Ngay</button></form>
+                        {% endif %}
+                    </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% elif jobs is none %}
+    {# ... (Thông báo lỗi DB như cũ) ... #}
+    {% else %}
+    {# ... (Thông báo chưa có job nào như cũ) ... #}
+    {% endif %}
+    {% endif %}
+    {% endblock %}
+
+    {# ... (Block styles như cũ) ... #}

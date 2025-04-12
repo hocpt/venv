@@ -1,0 +1,117 @@
+{% extends "admin_base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p><a href="{{ url_for('admin.add_scheduled_job') }}" class="button">Thêm Tác vụ Mới</a></p>
+<p><small>Lưu ý: Thay đổi chỉ có hiệu lực hoàn toàn sau khi khởi động lại server nếu có lỗi xảy ra khi tương tác với
+        scheduler đang chạy.</small></p>
+
+{% if jobs %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%;">
+    <thead>
+        <tr>
+            <th>Job ID</th>
+            <th>Function Path</th>
+            <th>Trigger</th>
+            <th>Trigger Args</th>
+            <th>Description</th>
+            <th>Enabled (DB)</th>
+            <th>Next Run (Live)</th>
+            <th>Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for job in jobs %}
+        <tr>
+            <td>{{ job.job_id }}</td>
+            <td><code>{{ job.job_function_path }}</code></td>
+            <td>{{ job.trigger_type }}</td>
+            <td>
+                <pre ...>{{ job.trigger_args | tojson(indent=0) ... }}</pre>
+            </td>
+            <td>{{ job.description | default('') }}</td>
+            <td style="text-align: center;">
+                {# ... (Phần hiển thị Enabled và nút Bật/Tắt như cũ) ... #}
+            </td>
+            <td style="text-align: center; font-size: 0.9em;">
+                {# ... (Phần hiển thị Next Run như cũ) ... #}
+            </td>
+            <td style="text-align: center; font-size: 0.9em;">
+                {% set live_status = live_jobs_status.get(job.job_id) %}
+                {% if live_status %}
+                {% if live_status.next_run %}
+                {{ live_status.next_run.strftime('%Y-%m-%d %H:%M:%S %Z') }}
+                {% else %}
+                <span style="color: orange;">Paused</span>
+                {% endif %}
+                {% elif job.is_enabled %}
+                <span style="color: grey;">Pending/Error?</span> {# Không tìm thấy job đang chạy dù enabled #}
+                {% else %}
+                <span style="color: grey;">Disabled</span>
+                {% endif %}
+            </td>
+            <td>{{ job.job_id }}</td>
+            <td><code>{{ job.job_function_path }}</code></td>
+            <td>{{ job.trigger_type }}</td>
+            <td>
+                <pre ...>{{ job.trigger_args | tojson(indent=0) ... }}</pre>
+            </td>
+            <td>{{ job.description | default('') }}</td>
+            <td style="text-align: center;">
+                {# ... (Phần hiển thị Enabled và nút Bật/Tắt như cũ) ... #}
+            </td>
+            <td style="text-align: center; font-size: 0.9em;">
+                {# ... (Phần hiển thị Next Run như cũ) ... #}
+            </td>
+            <td style="white-space: nowrap;">
+                <a href="{{ url_for('admin.edit_scheduled_job', job_id=job.job_id) }}">Sửa</a>
+                <form action="{{ url_for('admin.delete_scheduled_job', job_id=job.job_id) }}" method="POST"
+                    style="display:inline;"
+                    onsubmit="return confirm('Xác nhận xóa cấu hình job \'{{ job.job_id }}\'? Job đang chạy (nếu có) cũng sẽ bị xóa khỏi scheduler.');">
+                    <button type="submit" class="link-button delete-button">Xóa</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>Chưa có cấu hình tác vụ nền nào trong database.</p>
+{% endif %}
+{% endblock %}
+
+{# Thêm style nút xóa/nhỏ nếu chưa có ở block styles #}
+{% block styles %}
+{{ super() }}
+<style>
+    .link-button.delete-button {
+        color: red;
+        background: none;
+        border: none;
+        padding: 0;
+        font: inherit;
+        cursor: pointer;
+        text-decoration: underline;
+        margin-left: 10px;
+    }
+
+    .button.small {
+        font-size: 0.8em;
+        padding: 2px 5px;
+    }
+
+    pre {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        background-color: #f8f8f8;
+        padding: 5px;
+        border: 1px solid #eee;
+    }
+
+    /* Style cho dark theme (nếu bạn đã chuyển CSS vào file) */
+    .ai-playground-dark-theme pre {
+        background-color: #3c4043;
+        border-color: #5f6368;
+        color: #e8eaed;
+    }
+</style>
+{% endblock %}

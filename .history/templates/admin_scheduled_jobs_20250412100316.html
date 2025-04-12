@@ -1,0 +1,158 @@
+{% extends "admin_base.html" %}
+
+{% block content %} {# Mở block content #}
+<h1>{{ title | default('Quản lý Tác vụ nền') }}</h1>
+<p><a href="{{ url_for('admin.add_scheduled_job') }}" class="button">Thêm Tác vụ Mới</a></p>
+<p><small>Lưu ý: Các thay đổi về lịch trình hoặc trạng thái bật/tắt sẽ được lưu vào CSDL. Việc cập nhật scheduler đang
+        chạy có thể gặp lỗi (sẽ có cảnh báo). Nếu gặp lỗi, thay đổi sẽ có hiệu lực hoàn toàn sau khi khởi động lại
+        server.</small></p>
+
+{# Mở IF kiểm tra biến jobs tồn tại và có thể lặp #}
+{% if jobs is defined and jobs is iterable %}
+{# Mở IF kiểm tra list jobs không rỗng #}
+{% if jobs %}
+<table border="1" cellpadding="5" cellspacing="0"
+    style="width:100%; border-collapse: collapse; box-sizing: border-box; table-layout: fixed;">
+    <thead>
+        <tr style="background-color: #f2f2f2;">
+            <th style="width: 12%;">Job ID</th> {# Giữ nguyên #}
+            <th style="width: 18%;">Function Path</th> {# Giảm từ 20% #}
+            <th style="width: 7%;">Trigger</th> {# Giữ nguyên #}
+            <th style="width: 12%;">Trigger Args</th> {# Giảm từ 15% #}
+            <th style="width: 16%;">Description</th> {# <<< Tăng lên đáng kể (16%)>>> #}
+                <th style="width: 8%; text-align: center;">Enabled <small>(DB)</small></th> {# Giữ nguyên #}
+                <th style="width: 11%; text-align: center;">Next Run <small>(Live)</small></th> {# Giữ nguyên #}
+                <th style="width: 6%; text-align: center;">Chờ XL <small>(Suggest)</small></th> {# Giảm từ 8% #}
+                <th style="width: 10%;">Hành động</th> {# Giảm từ 12% #}
+        </tr>
+    </thead>
+    <tbody>
+        {# Mở FOR lặp qua jobs #}
+        {% for job in jobs %}
+        <tr>
+            {# Job ID #}
+            <td style="word-wrap: break-word;">{{ job.job_id }}</td>
+            {# Function Path #}
+            <td style="word-wrap: break-word;"><code>{{ job.job_function_path }}</code></td>
+            {# Trigger Type #}
+            <td>{{ job.trigger_type }}</td>
+            {# Trigger Args #}
+            <td>
+                <pre
+                    style="max-height: 60px; overflow: auto; margin:0; font-size: 0.85em; background-color: #f0f0f0; border: none; padding: 3px; white-space: pre-wrap; word-wrap: break-word;">{{ job.trigger_args | tojson(indent=0) if job.trigger_args is not none else '{}' }}</pre>
+            </td>
+            {# Description #}
+            <td>{{ job.description | default('') }}</td>
+            {# Enabled Status (DB) + Toggle Button #}
+            <td style="text-align: center; vertical-align: middle;">
+                {% if job.is_enabled %} {# Mở IF is_enabled cho text Yes/No #}
+                <span style="color: green; font-weight: bold;">Yes</span>
+                {% else %}
+                <span style="color: red;">No</span>
+                <form action="{{ url_for('admin.toggle_scheduled_job', job_id=job.job_id) }}" method="POST"
+                    style="display:block; margin-top: 5px;">
+                    <button type="submit" class="button small {% if job.is_enabled %}secondary-button{% endif %}"
+                        title="Thay đổi cấu hình bật/tắt (cần restart server để áp dụng)">
+                        {% if job.is_enabled %}Đặt thành Tắt{% else %}Đặt thành Bật{% endif %}
+                    </button>
+                </form>
+            </td>
+
+            {# Pending Items Column #}
+            <td style="text-align: center; vertical-align: middle;">
+                {% if job.job_id == 'suggestion_job' %} {# Mở IF suggestion_job #}
+                <span style="font-weight: bold; font-size: 1.1em;">{{ pending_counts.get('suggestion_job', '--')
+                    }}</span>
+                {% else %}
+                N/A
+                {% endif %} {# Đóng IF suggestion_job #}
+            </td>
+            {# Actions Column #}
+            <td style="white-space: nowrap; vertical-align: middle;">
+                <a href="{{ url_for('admin.edit_scheduled_job', job_id=job.job_id) }}">Sửa</a>
+                <form action="{{ url_for('admin.delete_scheduled_job', job_id=job.job_id) }}" method="POST"
+                    style="display:inline;"
+                    onsubmit="return confirm('Xác nhận xóa cấu hình job \'{{ job.job_id }}\'? Job đang chạy (nếu có) cũng sẽ bị xóa khỏi scheduler.');">
+                    <button type="submit" class="link-button delete-button">Xóa</button>
+                </form>
+                {% if job.job_id == 'suggestion_job' %} {# Mở IF suggestion_job #}
+                <form action="{{ url_for('admin.run_suggestion_job_now') }}" method="POST" style="display:inline;"
+                    onsubmit="return confirm('Chạy tác vụ đề xuất AI ngay bây giờ? Nó sẽ xử lý các tương tác mới nhất.');">
+                    <button type="submit" class="button small"
+                        style="margin-left: 5px; background-color: #28a745; color: white !important;">Chạy Ngay</button>
+                </form>
+                {% endif %} {# Đóng IF suggestion_job #}
+            </td>
+        </tr>
+        {% endfor %} {# Đóng FOR lặp qua jobs #}
+    </tbody>
+</table>
+{% elif jobs is none %} {# elif của IF jobs #}
+<p style="color: red;">Lỗi khi tải danh sách cấu hình tác vụ nền từ CSDL.</p>
+{% else %} {# else của IF jobs #}
+<p>Chưa có cấu hình tác vụ nền nào trong database. Hãy <a href="{{ url_for('admin.add_scheduled_job') }}">thêm tác vụ
+        mới</a>.</p>
+{% endif %} {# Đóng IF kiểm tra list jobs không rỗng #}
+{% endif %} {# <<< THẺ ENDIF BỊ THIẾU TRƯỚC ĐÓ ĐÃ ĐƯỢC THÊM VÀO ĐÂY>>> #}
+
+    {% endblock %} {# Đóng block content #}
+
+    {# Block CSS #}
+    {% block styles %}
+    {{ super() }}
+    <style>
+        .link-button.delete-button {
+            color: red;
+            background: none;
+            border: none;
+            padding: 0;
+            font: inherit;
+            cursor: pointer;
+            text-decoration: underline;
+            margin-left: 10px;
+        }
+
+        .button.small {
+            font-size: 0.8em;
+            padding: 2px 5px;
+            vertical-align: middle;
+        }
+
+        td pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-size: 0.85em;
+            background-color: #f0f0f0;
+            padding: 5px;
+            border: none;
+            margin: 0;
+            max-height: 60px;
+            overflow: auto;
+            text-align: left;
+        }
+
+        .ai-playground-dark-theme td pre {
+            background-color: #3c4043;
+            color: #e8eaed;
+        }
+
+        th,
+        td {
+            vertical-align: middle;
+            padding: 8px 5px;
+        }
+
+        table {
+            table-layout: fixed;
+            width: 100%;
+        }
+
+        th,
+        td {
+            word-wrap: break-word;
+        }
+    </style>
+    {% endblock %} {# Đóng block styles #}
+
+    {# Block scripts (nếu có) #}
+    {% block scripts %}{{ super() }}{% endblock %}
