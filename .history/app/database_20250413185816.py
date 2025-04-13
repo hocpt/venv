@@ -33,11 +33,11 @@ def get_db_connection():
         # Tạo chuỗi DSN (Data Source Name) để kết nối
         # Dùng f-string hoặc cách khác đều được
         dsn = f"dbname='{db_name}' user='{db_user}' host='{db_host}' password='{db_password}' port='{db_port}'"
-        #print(f"DEBUG (database.py): Connecting with DSN: dbname='{db_name}' user='{db_user}' host='{db_host}' port='{db_port}' password='***'") # Che password
+        print(f"DEBUG (database.py): Connecting with DSN: dbname='{db_name}' user='{db_user}' host='{db_host}' port='{db_port}' password='***'") # Che password
 
         # Lệnh kết nối sử dụng DSN
         conn = psycopg2.connect(dsn)
-        #print("DEBUG (database.py): Kết nối CSDL thành công (dùng DSN).")
+        print("DEBUG (database.py): Kết nối CSDL thành công (dùng DSN).")
         return conn
 
     # --- Bỏ khối except RuntimeError vì không còn dùng current_app ---

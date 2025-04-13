@@ -2186,21 +2186,15 @@ def view_scheduled_jobs():
             for job_conf in db_jobs_config:
                 if job_conf.get('job_id') == 'suggestion_job':
                      # ... (code đếm pending giữ nguyên) ...
-                    try:
+                     try:
                         last_id = db.get_task_state('suggestion_job') or 0
-                        # <<< SỬA DÒNG NÀY >>>
-                        # status_filter = current_app.config.get('STATUS_TO_ANALYZE_SUGGEST', ['success_ai']) # Dòng cũ sai default
-                        status_filter = current_app.config.get(
-                            'STATUS_TO_ANALYZE_SUGGEST',
-                            ['success_ai', 'success_ai_sim_A', 'success_ai_sim_B'] # <<< Default đúng
-                        )
-                        # <<< KẾT THÚC SỬA >>>
+                        status_filter = current_app.config.get('STATUS_TO_ANALYZE_SUGGEST', ['success_ai'])
                         count = db.get_pending_suggestion_interaction_count(last_id, status_filter)
                         pending_counts['suggestion_job'] = count if count is not None else 'Lỗi'
-                    except Exception as count_err:
-                        print(f"Lỗi khi đếm pending items cho suggestion_job: {count_err}")
-                        pending_counts['suggestion_job'] = 'Lỗi'
-                    break
+                     except Exception as count_err:
+                         print(f"Lỗi khi đếm pending items cho suggestion_job: {count_err}")
+                         pending_counts['suggestion_job'] = 'Lỗi'
+                     break # Chỉ cần đếm cho 1 job
 
         except Exception as e:
             print(f"Lỗi nghiêm trọng khi load job configs/live times: {e}")
@@ -2392,40 +2386,12 @@ def toggle_scheduled_job(job_id):
 
 
 # Hàm chạy thủ công suggestion_job (Giữ nguyên không đổi)
-# app/admin_routes.py
-# ... (import db, flash, redirect, url_for, etc.)
-
 @admin_bp.route('/scheduled-jobs/suggestion_job/run-now', methods=['POST'])
 def run_suggestion_job_now():
-    """Yêu cầu chạy suggestion_job ngay lập tức thông qua command queue."""
-    job_name_to_run = 'suggestion_job' # Tên job cần chạy ngay
-    print(f"INFO: Received request to run job '{job_name_to_run}' now.")
 
-    if not db:
-         flash("Lỗi nghiêm trọng: Database module chưa sẵn sàng.", "error")
-         return redirect(url_for('admin.view_scheduled_jobs'))
-
-    try:
-        # Tạo một payload đơn giản (có thể trống hoặc chứa thông tin nguồn gốc)
-        payload = {'source': 'manual_run_now_button'}
-        # Thêm lệnh vào hàng đợi CSDL với một command_type riêng
-        command_id = db.add_scheduler_command(
-            command_type='run_suggestion_job_now', # <<< Loại lệnh mới
-            payload=payload
-        )
-
-        if command_id:
-            flash(f"Đã yêu cầu chạy tác vụ '{job_name_to_run}' ngay lập tức. Scheduler sẽ xử lý (Command ID: {command_id}).", 'success')
-        else:
-             flash(f"Lỗi khi thêm yêu cầu chạy tác vụ '{job_name_to_run}' vào hàng đợi CSDL.", "error")
-
-    except Exception as e:
-        print(f"Lỗi nghiêm trọng khi yêu cầu chạy '{job_name_to_run}' ngay: {e}")
-        print(traceback.format_exc())
-        flash(f"Đã xảy ra lỗi không mong muốn khi yêu cầu chạy tác vụ: {e}", "error")
-
-    # <<< QUAN TRỌNG: Luôn trả về một response hợp lệ >>>
-    return redirect(url_for('admin.view_scheduled_jobs'))
+    """Thực thi logic của suggestion_job một lần ngay lập tức."""
+    # ... (Toàn bộ code của hàm này giữ nguyên như phiên bản đầy đủ trước đó) ...
+    pass # Giữ nguyên code đầy đủ của hàm này
 
 # --- Hàm helper để lấy next_run_time từ bảng apscheduler_jobs ---
 # (Có thể đặt trong database.py nếu muốn, nhưng để đây cho tiện)
@@ -2515,6 +2481,118 @@ def view_ai_simulations():
     title = "Quản lý Mô phỏng AI"
     personas = []
     strategies = []
+
+    if not db: # Kiểm tra module db
+        flash("Lỗi nghiêm trọng: Database module chưa sẵn sàng.", "error")
+    else:
+        try:
+            personas = db.get_all_personas() or []
+            strategies = db.get_all_strategies() or []
+            if not personas:
+                 flash("Không tìm thấy AI Personas nào trong CSDL.", "warning")
+            if not strategies:
+                 flash("Không tìm thấy Strategies nào trong CSDL.", "warning")
+        except Exception as e:
+            print(f"Lỗi khi tải dữ liệu cho trang mô phỏng AI: {e}")
+            flash("Lỗi không mong muốn khi tải dữ liệu cần thiết.", "error")
+            personas = [] # Đảm bảo là list rỗng khi lỗi
+            strategies = []
+
+    # Render template mới đã tạo ở bước trước
+    return render_template('admin_ai_simulations.html',
+                           title=title,
+                           personas=personas,
+                           strategies=strategies)
+
+# app/admin_routes.py
+# ... (import db, uuid, ...) ...
+
+@admin_bp.route('/ai-simulations/run-adhoc', methods=['POST'])
+def run_adhoc_simulation():
+    """Xử lý yêu cầu chạy mô phỏng ad-hoc bằng cách thêm lệnh vào DB queue."""
+    # KHÔNG CÓ KIỂM TRA 'if not live_scheduler:'
+    # KHÔNG CÓ GỌI 'live_scheduler.add_job(...)' TRỰC TIẾP
+
+    # Chỉ kiểm tra hàm tác vụ nền có import được không (tùy chọn)
+    if not run_ai_conversation_simulation:
+         flash("Lỗi: Không tìm thấy hàm tác vụ nền 'run_ai_conversation_simulation'.", "error")
+         return redirect(url_for('admin.view_ai_simulations'))
+
+    try:
+        # --- Lấy dữ liệu từ form ---
+        persona_a_id = request.form.get('persona_a_id')
+        persona_b_id = request.form.get('persona_b_id')
+        strategy_id = request.form.get('strategy_id')
+        max_turns_str = request.form.get('max_turns', '5')
+        starting_prompt = request.form.get('starting_prompt', '').strip()
+        sim_goal = request.form.get('sim_goal', 'simulation').strip()
+        sim_account_id = request.form.get('sim_account_id', 'sim_account_adhoc').strip()
+        sim_thread_id_base = request.form.get('sim_thread_id_base', 'sim_adhoc').strip()
+
+        # --- Validate dữ liệu ---
+        errors = []
+        # ... (code validate như cũ) ...
+        if not persona_a_id: errors.append("Vui lòng chọn Persona A.")
+        if not persona_b_id: errors.append("Vui lòng chọn Persona B.")
+        if persona_a_id == persona_b_id: errors.append("Persona A và Persona B phải khác nhau.")
+        if not strategy_id: errors.append("Vui lòng chọn Chiến lược.")
+        max_turns = 5
+        try:
+            max_turns = int(max_turns_str)
+            if not (1 <= max_turns <= 20): raise ValueError("Số lượt phải từ 1 đến 20.")
+        except ValueError as e:
+            errors.append(f"Số lượt nói tối đa không hợp lệ: {e}")
+
+        if errors:
+            for error in errors: flash(error, 'warning')
+            personas = db.get_all_personas() or []
+            strategies = db.get_all_strategies() or []
+            return render_template('admin_ai_simulations.html', title="Chạy Mô phỏng (Lỗi)",
+                                   personas=personas, strategies=strategies, current_data=request.form), 400
+
+        # --- Chuẩn bị Payload cho Lệnh ---
+        command_payload = {
+            'persona_a_id': persona_a_id,
+            'persona_b_id': persona_b_id,
+            'strategy_id': strategy_id,
+            'max_turns': max_turns,
+            'starting_prompt': starting_prompt if starting_prompt else "Xin chào!",
+            'sim_account_id': sim_account_id,
+            'sim_thread_id_base': sim_thread_id_base,
+            'sim_goal': sim_goal
+        }
+
+        print(f"INFO: Adding 'run_simulation' command with payload: {command_payload}")
+
+        # --- *** THAY ĐỔI CHÍNH: GỌI HÀM DB ĐỂ THÊM LỆNH *** ---
+        command_id = db.add_scheduler_command(
+            command_type='run_simulation',
+            payload=command_payload
+        )
+        # --- *** KẾT THÚC THAY ĐỔI CHÍNH *** ---
+
+        if command_id:
+            flash(f"Đã yêu cầu chạy mô phỏng '{sim_goal}'. Tác vụ sẽ được xử lý bởi scheduler (Command ID: {command_id}).", 'success')
+        else:
+             flash("Lỗi khi thêm yêu cầu chạy mô phỏng vào hàng đợi CSDL.", "error")
+
+    except Exception as e:
+        print(f"Lỗi nghiêm trọng khi yêu cầu mô phỏng: {e}")
+        print(traceback.format_exc())
+        flash(f"Đã xảy ra lỗi không mong muốn khi yêu cầu chạy mô phỏng: {e}", "error")
+
+    return redirect(url_for('admin.view_ai_simulations'))
+
+# =============================================================
+# === QUẢN LÝ MÔ PHỎNG HỘI THOẠI AI ===
+# =============================================================
+
+@admin_bp.route('/ai-simulations', methods=['GET'])
+def view_ai_simulations():
+    """Hiển thị trang quản lý và form chạy mô phỏng ad-hoc."""
+    title = "Quản lý Mô phỏng AI"
+    personas = []
+    strategies = []
     accounts = [] # <<< Thêm list accounts
 
     if not db:
@@ -2524,10 +2602,7 @@ def view_ai_simulations():
             personas = db.get_all_personas() or []
             strategies = db.get_all_strategies() or []
             accounts = db.get_all_accounts() or [] # <<< Lấy danh sách accounts
-        except Exception as e:
-            print(f"Lỗi khi tải dữ liệu cho trang mô phỏng AI: {e}")
-            flash("Lỗi không mong muốn khi tải dữ liệu cần thiết.", "error")
-            personas, strategies, accounts = [], [], [] # Đảm bảo là list rỗng khi lỗi
+
             # Thêm cảnh báo nếu thiếu dữ liệu cần thiết cho dropdown
             if not personas:
                 flash("Không tìm thấy AI Personas nào. Vui lòng thêm persona trước.", "warning")
@@ -2541,12 +2616,7 @@ def view_ai_simulations():
             flash("Lỗi không mong muốn khi tải dữ liệu cần thiết.", "error")
             # Đảm bảo trả về list rỗng khi lỗi
             personas, strategies, accounts = [], [], []
-    # <<< THÊM DEBUG PRINT Ở ĐÂY >>>
-    print(f"DEBUG view_ai_simulations: Chuẩn bị render template...")
-    print(f"DEBUG view_ai_simulations: Số lượng accounts = {len(accounts) if accounts is not None else 'None'}")
-    if accounts: # Chỉ in tài khoản đầu tiên nếu list không rỗng
-        print(f"DEBUG view_ai_simulations: Account đầu tiên = {accounts[0]}")
-    # <<< KẾT THÚC DEBUG PRINT >>>
+
     # Render template mới, truyền cả 3 list dữ liệu
     return render_template('admin_ai_simulations.html',
                            title=title,

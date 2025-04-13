@@ -22,25 +22,17 @@ from apscheduler.job import Job
 from dotenv import load_dotenv
 # <<< Import các hàm DB và hàm tác vụ nền >>>
 try:
-    # Thử import tương đối (cách chuẩn)
-    from . import database as db
-    from .background_tasks import run_ai_conversation_simulation, analyze_interactions_and_suggest
-    from . import create_app
+    from .background_tasks import run_ai_conversation_simulation, analyze_interactions_and_suggest # <<< Thêm analyze...
 except ImportError:
-    # Nếu thất bại, thử import trực tiếp (ít tin cậy hơn)
+    # ... (Khối fallback import như cũ, đảm bảo import được cả hai hàm) ...
     try:
         import database as db
-        from background_tasks import run_ai_conversation_simulation, analyze_interactions_and_suggest
+        from background_tasks import run_ai_conversation_simulation, analyze_interactions_and_suggest # <<< Thêm analyze...
         import create_app
-        print("WARNING (scheduler_runner): Using fallback imports...")
+        print("WARN (scheduler_runner): Fallback imports")
     except ImportError as imp_err:
-         # Nếu cả hai cách đều thất bại
-         print(f"CRITICAL ERROR (scheduler_runner): Cannot import db/tasks/create_app: {imp_err}")
-         # Các biến sẽ không được gán giá trị module hợp lệ
-         db = None # Hoặc biến db thậm chí không được tạo
-         run_ai_conversation_simulation = None
-         analyze_interactions_and_suggest = None
-         create_app = None
+        print(f"CRIT ERROR (scheduler_runner): Cannot import db/tasks/create_app: {imp_err}")
+        db = None; run_ai_conversation_simulation = None; analyze_interactions_and_suggest = None; create_app = None
 # Biến toàn cục giữ instance scheduler đang chạy
 live_scheduler: BackgroundScheduler | None = None # Type hint cho rõ
 log = logging.getLogger(__name__)

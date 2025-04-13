@@ -22,24 +22,19 @@ from apscheduler.job import Job
 from dotenv import load_dotenv
 # <<< Import các hàm DB và hàm tác vụ nền >>>
 try:
-    # Thử import tương đối (cách chuẩn)
+    # Giả định database.py và background_tasks.py cùng cấp với scheduler_runner.py trong thư mục app
     from . import database as db
-    from .background_tasks import run_ai_conversation_simulation, analyze_interactions_and_suggest
-    from . import create_app
+    from .background_tasks import run_ai_conversation_simulation
 except ImportError:
-    # Nếu thất bại, thử import trực tiếp (ít tin cậy hơn)
+    # Fallback nếu cấu trúc khác (ít xảy ra nếu chạy từ run.py)
     try:
         import database as db
-        from background_tasks import run_ai_conversation_simulation, analyze_interactions_and_suggest
-        import create_app
-        print("WARNING (scheduler_runner): Using fallback imports...")
+        from background_tasks import run_ai_conversation_simulation
+        print("WARNING (scheduler_runner): Using fallback imports for db and background_tasks.")
     except ImportError as imp_err:
-         # Nếu cả hai cách đều thất bại
-         print(f"CRITICAL ERROR (scheduler_runner): Cannot import db/tasks/create_app: {imp_err}")
-         # Các biến sẽ không được gán giá trị module hợp lệ
-         db = None # Hoặc biến db thậm chí không được tạo
+         print(f"CRITICAL ERROR (scheduler_runner): Cannot import database or background_tasks: {imp_err}")
+         db = None
          run_ai_conversation_simulation = None
-         analyze_interactions_and_suggest = None
          create_app = None
 # Biến toàn cục giữ instance scheduler đang chạy
 live_scheduler: BackgroundScheduler | None = None # Type hint cho rõ
@@ -173,107 +168,135 @@ def load_scheduled_jobs_standalone(scheduler: BackgroundScheduler, db_config: di
 
     print(f"INFO (scheduler_runner): Finished loading jobs from DB. Added/Updated {added_count} enabled jobs.")
 
+# --- === HÀM MỚI: XỬ LÝ LỆNH TỪ DATABASE === ---
 def _process_pending_commands():
-    # ... (Code khởi tạo conn, bắt đầu transaction, lấy pending_commands như cũ) ...
+    """
+    Kiểm tra bảng scheduler_commands và thực thi các lệnh đang chờ,
+    ví dụ như lên lịch chạy mô phỏng AI.
+    """
     global live_scheduler
-    if not live_scheduler or not live_scheduler.running: return
-    if not db: print("ERROR (Cmd Proc): DB module missing."); return
-    print(f"DEBUG (Cmd Proc): Checking pending commands...")
-    conn = None
+    if not live_scheduler or not live_scheduler.running:
+        # print("DEBUG (Command Processor): Scheduler not running.")
+        return
+    if not db or not run_ai_conversation_simulation:
+        print("ERROR (Command Processor): DB module or simulation function not available.")
+        return
+
+    print(f"DEBUG (Command Processor): Checking for pending commands... ({datetime.now(SCHEDULER_TIMEZONE).strftime('%H:%M:%S')})")
+    commands_to_process = []
+    conn = None # Khởi tạo connection bên ngoài try
+
     try:
-        conn = db.get_db_connection(); #... (kiểm tra conn) ...
-        if not conn: print("ERROR (Cmd Proc): Cannot get DB conn."); return
-        conn.autocommit = False
-        # Lấy cả hai loại lệnh đang chờ
-        pending_commands = db.get_pending_commands(command_type='run_simulation', limit=5) or []
-        pending_run_now = db.get_pending_commands(command_type='run_suggestion_job_now', limit=5) or []
-        all_pending = pending_commands + pending_run_now # Gộp lại (có thể cần sắp xếp theo created_at nếu muốn)
+        # Sử dụng transaction để đảm bảo tính nhất quán
+        conn = db.get_db_connection()
+        if not conn:
+             print("ERROR (Command Processor): Cannot get DB connection.")
+             return
+        conn.autocommit = False # Bắt đầu transaction
 
-        if not all_pending: conn.commit(); return # Commit nếu không có gì
-        print(f"INFO (Cmd Proc): Found {len(all_pending)} pending command(s).")
+        # Lấy các lệnh đang chờ (hàm get_pending_commands dùng FOR UPDATE SKIP LOCKED)
+        # Giới hạn số lệnh xử lý mỗi lần để tránh quá tải
+        pending_commands = db.get_pending_commands(command_type='run_simulation', limit=5) # <<< Giới hạn 5 lệnh/lần
 
-        for command in all_pending:
+        if not pending_commands:
+            # print("DEBUG (Command Processor): No pending 'run_simulation' commands found.")
+            conn.commit() # Commit để giải phóng lock (nếu có)
+            return
+
+        print(f"INFO (Command Processor): Found {len(pending_commands)} pending 'run_simulation' command(s).")
+
+        for command in pending_commands:
             command_id = command['command_id']
-            command_type = command['command_type'] # <<< Lấy command_type
-            payload = command['payload'] # <<< Đã là dict
-            print(f"DEBUG (Cmd Proc): Processing command ID: {command_id}, Type: {command_type}")
+            # payload_str = command['payload'] # <<< Lấy payload gốc (đã là dict)
+            print(f"DEBUG (Command Processor): Processing command ID: {command_id}")
 
-            # 1. Đánh dấu processing
+            # 1. Đánh dấu là đang xử lý (giữ nguyên)
             updated_processing = db.update_command_status(conn, command_id, 'processing')
-            if not updated_processing: print(f"WARN (Cmd Proc): Skip cmd {command_id}, cannot mark processing."); continue
+            if not updated_processing:
+                print(f"WARNING (Command Processor): Could not mark command {command_id} as processing. Skipping.")
+                continue
 
             try:
-                target_func = None
-                job_args = ()
-                job_id_prefix = "unknown_run"
-                executor_to_use = 'default' # Mặc định dùng threadpool
+                # 2. Parse Payload và chuẩn bị Args
+                # <<< THAY ĐỔI CHÍNH: BỎ json.loads, DÙNG TRỰC TIẾP payload >>>
+                # params = json.loads(payload_str) # <<< BỎ DÒNG NÀY
+                params = command['payload'] # <<< DÙNG TRỰC TIẾP DICT TỪ DB
+                # <<< KẾT THÚC THAY ĐỔI CHÍNH >>>
 
-                # --- Phân loại Lệnh ---
-                if command_type == 'run_simulation':
-                    if not run_ai_conversation_simulation: raise ImportError("Simulation function not loaded")
-                    target_func = run_ai_conversation_simulation
-                    executor_to_use = 'processpool' # Mô phỏng chạy process riêng
-                    job_id_prefix = "sim_run"
-                    # Trích xuất args cho simulation (như code cũ)
-                    params = payload
-                    persona_a_id = params.get('persona_a_id'); persona_b_id = params.get('persona_b_id')
-                    strategy_id = params.get('strategy_id'); max_turns = int(params.get('max_turns', 5))
-                    starting_prompt = params.get('starting_prompt') or "Xin chào!"
-                    log_account_id_a = params.get('log_account_id_a'); log_account_id_b = params.get('log_account_id_b')
-                    sim_thread_id_base = params.get('sim_thread_id_base') or f"sim_{log_account_id_a[:5]}_vs_{log_account_id_b[:5]}"
-                    sim_goal = params.get('sim_goal') or "simulation"
-                    if not all([persona_a_id, persona_b_id, strategy_id, log_account_id_a, log_account_id_b]):
-                        raise ValueError("Missing required params for simulation")
-                    job_args = (persona_a_id, persona_b_id, strategy_id, max_turns, starting_prompt,
-                                log_account_id_a, log_account_id_b, sim_thread_id_base, sim_goal)
+                if not isinstance(params, dict): # Thêm kiểm tra phòng ngừa
+                    raise TypeError(f"Payload for command {command_id} is not a dictionary.")
 
-                elif command_type == 'run_suggestion_job_now': # <<< XỬ LÝ LỆNH MỚI
-                    if not analyze_interactions_and_suggest: raise ImportError("Suggestion function not loaded")
-                    target_func = analyze_interactions_and_suggest
-                    executor_to_use = 'processpool' # Job này cũng có thể nặng, dùng processpool
-                    job_id_prefix = "manual_suggestion_run"
-                    job_args = () # Hàm này không cần tham số
+                # Trích xuất các tham số cần thiết (giữ nguyên)
+                persona_a_id = params.get('persona_a_id')
+                persona_b_id = params.get('persona_b_id')
+                strategy_id = params.get('strategy_id')
+                max_turns = int(params.get('max_turns', 5))
+                starting_prompt = params.get('starting_prompt') or "Xin chào!"
+                sim_account_id = params.get('sim_account_id') or f"sim_{command_id}"
+                sim_thread_id_base = params.get('sim_thread_id_base') or f"sim_{command_id}"
+                sim_goal = params.get('sim_goal') or "simulation"
+                log_account_id_a = params.get('log_account_id_a') # <<< Lấy ID log A
+                log_account_id_b = params.get('log_account_id_b') # <<< Lấy ID log B
+                sim_thread_id_base = params.get('sim_thread_id_base') or f"sim_{log_account_id_a[:5]}_vs_{log_account_id_b[:5]}" # <<< Tạo thread base từ ID log
+                
+                # Validate (giữ nguyên)
+                if not all([persona_a_id, persona_b_id, strategy_id]):
+                    raise ValueError("Missing required parameters in payload")
 
-                # Thêm các loại lệnh khác (như cancel_job) ở đây nếu cần
-                # elif command_type == 'cancel_job': ...
+                # Chuẩn bị Job (giữ nguyên)
+                job_id = f"sim_run_{sim_thread_id_base}_{uuid.uuid4().hex[:8]}"
+                job_args = (
+                persona_a_id,           # 1
+                persona_b_id,           # 2
+                strategy_id,            # 3
+                max_turns,              # 4
+                starting_prompt,        # 5
+                log_account_id_a,       # 6
+                log_account_id_b,       # 7
+                sim_thread_id_base,     # 8
+                sim_goal                # 9 <<< Bây giờ biến này đã tồn tại
+            )
+                run_time = datetime.now(SCHEDULER_TIMEZONE) + timedelta(seconds=2)
 
-                else:
-                    raise ValueError(f"Unknown command_type: {command_type}")
+                print(f"DEBUG (Command Processor): Scheduling job '{job_id}' with args: {job_args}")
+                print(f"DEBUG (Command Processor): Final job_args for add_job = {job_args}")
 
-                # --- Nếu xác định được hàm mục tiêu ---
-                if target_func:
-                    job_id = f"{job_id_prefix}_{uuid.uuid4().hex[:8]}"
-                    run_time = datetime.now(SCHEDULER_TIMEZONE) + timedelta(seconds=1) # Chạy sau 1 giây
-                    print(f"DEBUG (Cmd Proc): Scheduling job '{job_id}' Func='{target_func.__name__}' Executor='{executor_to_use}'")
+                # 3. Thêm Job vào Scheduler (giữ nguyên)
+                live_scheduler.add_job(
+                    id=job_id,
+                    func=run_ai_conversation_simulation,
+                    args=job_args,
+                    trigger='date', run_date=run_time,
+                    jobstore='default', executor='processpool',
+                    replace_existing=False, misfire_grace_time=120
+                )
 
-                    live_scheduler.add_job(
-                        id=job_id, func=target_func, args=job_args,
-                        trigger='date', run_date=run_time,
-                        jobstore='default', executor=executor_to_use,
-                        replace_existing=False, misfire_grace_time=120
-                    )
-                    db.update_command_status(conn, command_id, 'done')
-                    print(f"INFO (Cmd Proc): Scheduled job '{job_id}' for command {command_id}.")
-                else:
-                     # Trường hợp không xác định được target_func (dù không nên xảy ra nếu code trên đúng)
-                     raise ValueError("Target function could not be determined.")
+                # 4. Cập nhật Status thành Done (giữ nguyên)
+                db.update_command_status(conn, command_id, 'done')
+                print(f"INFO (Command Processor): Successfully scheduled job for command {command_id}")
 
             except Exception as processing_err:
-                # Xử lý lỗi khi parse payload hoặc thêm job
-                error_msg = f"Error processing command {command_id} ({command_type}): {type(processing_err).__name__} - {processing_err}"
+                # 5. Xử lý lỗi (giữ nguyên)
+                error_msg = f"Error processing command {command_id}: {type(processing_err).__name__} - {processing_err}"
                 print(error_msg)
                 db.update_command_status(conn, command_id, 'error', error_message=str(processing_err)[:500])
 
-        # Commit tất cả thay đổi status
+        # Commit tất cả các thay đổi status sau khi xử lý xong batch
         conn.commit()
-        # print(f"DEBUG (Cmd Proc): Finished command batch.")
+        print(f"DEBUG (Command Processor): Finished processing batch.")
 
+    except psycopg2.Error as db_conn_err:
+         print(f"ERROR (Command Processor): Database connection/transaction error: {db_conn_err}")
+         if conn: conn.rollback() # Rollback nếu lỗi transaction
     except Exception as e:
-        print(f"ERROR (Cmd Proc): Unexpected error: {e}")
-        if conn: conn.rollback()
+        print(f"ERROR (Command Processor): Unexpected error: {e}")
+        print(traceback.format_exc())
+        if conn: conn.rollback() # Rollback nếu lỗi không rõ
     finally:
-        if conn: conn.autocommit = True; conn.close()
-
+        if conn:
+             conn.autocommit = True # Trả về trạng thái autocommit mặc định
+             conn.close()
+             # print("DEBUG (Command Processor): DB Connection closed.")
 # --- HÀM GIÁM SÁT MỚI ---
 def _monitor_and_sync_job_status():
     global live_scheduler
@@ -365,7 +388,7 @@ def run_scheduler():
     jobstores = { 'default': SQLAlchemyJobStore(url=db_url) }
     executors = {
         'default': {'type': 'threadpool', 'max_workers': 5}, # Cho monitor, command processor
-        'processpool': {'type': 'processpool', 'max_workers': 2} # Cho simulation, suggestion
+        'processpool': {'type': 'processpool', 'max_workers': 3} # Cho simulation, suggestion
     }
     job_defaults = { 'coalesce': False, 'max_instances': 1, 'misfire_grace_time': 60 }
 

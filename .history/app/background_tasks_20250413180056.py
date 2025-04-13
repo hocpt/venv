@@ -74,7 +74,7 @@ def analyze_interactions_and_suggest():
 
         # Lấy cấu hình từ current_app
         persona_id_for_suggestion = current_app.config.get('SUGGESTION_ANALYSIS_PERSONA_ID', 'rule_suggester')
-        status_filter = current_app.config.get('STATUS_TO_ANALYZE_SUGGEST', ['success_ai', 'success_ai_sim_A', 'success_ai_sim_B']) # <<< Dùng list đã cập nhật
+        status_filter = current_app.config.get('STATUS_TO_ANALYZE_SUGGEST', DEFAULT_STATUS_TO_ANALYZE) # <<< Dùng list đã cập nhật
         limit = current_app.config.get('SUGGESTION_PROCESSING_LIMIT', DEFAULT_PROCESSING_LIMIT)
 
         print(f"DEBUG ({job_id_log}): Using Persona ID: {persona_id_for_suggestion}")
@@ -341,23 +341,17 @@ def approve_all_suggestions_task():
 # =============================================
 # === HÀM MÔ PHỎNG HỘI THOẠI AI (PHIÊN BẢN CẬP NHẬT) ===
 # =============================================
-
-# app/background_tasks.py
-# ... (các import và các hàm khác giữ nguyên) ...
-
-# =============================================
-# === HÀM MÔ PHỎNG HỘI THOẠI AI (PHIÊN BẢN ĐẦY ĐỦ - SỬA LỖI NAMEERROR) ===
-# =============================================
 def run_ai_conversation_simulation(
-        persona_a_id: str,           # Tham số 1
-        persona_b_id: str,           # Tham số 2
-        strategy_id: str,            # Tham số 3
-        max_turns: int,              # Tham số 4
-        starting_prompt: str | None, # Tham số 5
-        log_account_id_a: str,       # Tham số 6 <<< Đảm bảo có ở đây
-        log_account_id_b: str,       # Tham số 7 <<< Đảm bảo có ở đây
-        sim_thread_id_base: str,     # Tham số 8
-        sim_goal: str                # Tham số 9
+        persona_a_id: str,
+        persona_b_id: str,
+        strategy_id: str, # <<< Thêm strategy_id
+        max_turns: int = 5,
+        starting_prompt: str = "Xin chào!",
+        sim_account_id: str = "sim_adhoc",
+        sim_thread_id_base: str = "sim_adhoc",
+        sim_goal: str = "simulation"
+        # ,prompt_template_a_id: int | None = None, # Tạm thời chưa dùng
+        # prompt_template_b_id: int | None = None
     ):
     """
     Tác vụ nền để mô phỏng cuộc hội thoại giữa hai AI Persona với cấu hình động,
@@ -365,10 +359,7 @@ def run_ai_conversation_simulation(
     """
     task_id_log = f"{sim_thread_id_base}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
     print(f"\n--- Starting AI Conversation Simulation: {task_id_log} ---")
-    # In ra các tham số nhận được để kiểm tra
-    print(f"    Received Params: PA={persona_a_id}, PB={persona_b_id}, Strat={strategy_id}, Turns={max_turns}")
-    print(f"    Log Accounts: LogA={log_account_id_a}, LogB={log_account_id_b}") # <<< Log tham số account
-    print(f"    StartPrompt='{starting_prompt[:50] if starting_prompt else '[Default]' }...', Goal={sim_goal}")
+    print(f"    Persona A: {persona_a_id}, Persona B: {persona_b_id}, Strategy: {strategy_id}, Max Turns: {max_turns}")
     start_time = time.time()
 
     # --- Tạo App Context Tạm Thời ---
@@ -379,7 +370,7 @@ def run_ai_conversation_simulation(
     try:
         print(f"DEBUG ({task_id_log}): Creating temporary app instance...")
         temp_app = create_app()
-        if not temp_app: raise Exception("Failed to create temporary Flask app instance.")
+        if not temp_app: raise Exception("Failed to create Flask app instance.")
     except Exception as creation_err:
         print(f"CRITICAL ERROR ({task_id_log}): Cannot create app context: {creation_err}")
         return
@@ -392,20 +383,17 @@ def run_ai_conversation_simulation(
              return
 
         # --- === Sử dụng Tham số Truyền vào === ---
-        # Các tham số đã được truyền vào hàm, không cần gán lại vào biến viết hoa nữa
-        SIM_THREAD_ID = f"sim_thread_{task_id_log}"
+        SIM_THREAD_ID = f"sim_thread_{task_id_log}" # Tạo ID luồng duy nhất
         SIM_APP_NAME = 'simulation'
-        # Chuyển starting_prompt thành giá trị mặc định nếu None hoặc rỗng
-        actual_starting_prompt = starting_prompt if starting_prompt else "Xin chào!"
 
         # --- Lấy thông tin Strategy và Stage ban đầu ---
-        current_stage_id = None
+        current_stage_id = None # Khởi tạo
         try:
             initial_stage_id = db.get_initial_stage(strategy_id)
             if not initial_stage_id:
                 print(f"ERROR ({task_id_log}): Strategy '{strategy_id}' not found or has no initial stage. Aborting.")
                 return
-            current_stage_id = initial_stage_id
+            current_stage_id = initial_stage_id # <<< Bắt đầu từ stage đầu tiên
             print(f"DEBUG ({task_id_log}): Initial Stage set to '{current_stage_id}' for strategy '{strategy_id}'.")
         except Exception as db_err:
             print(f"ERROR ({task_id_log}): DB error fetching initial stage for strategy '{strategy_id}': {db_err}. Aborting.")
@@ -413,6 +401,7 @@ def run_ai_conversation_simulation(
 
         # --- Lấy thông tin chi tiết Personas ---
         try:
+            # (Code lấy persona_a_details, persona_b_details như trước)
              persona_a_details = db.get_persona_details(persona_a_id)
              persona_b_details = db.get_persona_details(persona_b_id)
              if not persona_a_details or not persona_b_details:
@@ -424,34 +413,32 @@ def run_ai_conversation_simulation(
 
         # --- === Vòng Lặp Hội Thoại === ---
         conversation_history_text = ""
-        last_message = actual_starting_prompt # Sử dụng câu chào đã xử lý
+        last_message = starting_prompt if starting_prompt else "Xin chào!"
         current_speaker_persona_id = persona_a_id # A nói trước
         turns_taken = 0
-        detected_intent_for_next_turn = "start"
+        detected_intent_for_next_turn = "start" # Intent ban đầu
 
         while turns_taken < max_turns * 2:
-            # Xác định người nói và ID log tương ứng trong lượt này
+            turns_taken += 1
             is_persona_a_turn = (current_speaker_persona_id == persona_a_id)
             persona_id_to_use = persona_a_id if is_persona_a_turn else persona_b_id
             opponent_persona_id = persona_b_id if is_persona_a_turn else persona_a_id
             turn_status_code = 'success_ai_sim_A' if is_persona_a_turn else 'success_ai_sim_B'
             speaker_label = "Persona A" if is_persona_a_turn else "Persona B"
             opponent_label = "Persona B" if is_persona_a_turn else "Persona A"
-            # <<< SỬ DỤNG THAM SỐ ĐÚNG Ở ĐÂY >>>
-            account_id_for_this_turn_log = log_account_id_a if is_persona_a_turn else log_account_id_b
 
-            turns_taken += 1 # Tăng số lượt đã thực hiện
             print(f"\nDEBUG ({task_id_log}): --- Turn {(turns_taken + 1) // 2} / {max_turns} ({speaker_label} speaking) ---")
             print(f"    Current Stage: {current_stage_id}")
-            print(f"    Input ('{last_message[:100]}...'), Prev Intent: {detected_intent_for_next_turn}")
-            print(f"    Using Log Account: {account_id_for_this_turn_log}") # <<< Log thêm
+            print(f"    Input for {speaker_label} ('{last_message[:100]}...'), Prev Intent: {detected_intent_for_next_turn}")
 
             # 1. Chuẩn bị Prompt Data
             prompt_data = {
                 "account_platform": SIM_APP_NAME,
-                "account_notes": f"Simulated conversation ({sim_goal}) between {persona_a_id} and {persona_b_id}", # <<< Dùng tham số
-                "account_goal": sim_goal, # <<< Dùng tham số
-                "strategy_id": strategy_id, # <<< Dùng tham số
+                # <<< SỬA DÒNG NÀY: DÙNG BIẾN VIẾT THƯỜNG >>>
+                "account_notes": f"Simulated conversation ({sim_goal}) between {persona_a_id} and {persona_b_id}",
+                # <<< KẾT THÚC SỬA >>>
+                "account_goal": sim_goal,
+                "strategy_id": strategy_id,
                 "current_stage_id": current_stage_id,
                 "user_intent": detected_intent_for_next_turn,
                 "formatted_history": conversation_history_text,
@@ -459,21 +446,25 @@ def run_ai_conversation_simulation(
             }
 
             # 2. Gọi AI Service
-            ai_reply, ai_status = None, "error_ai_call_failed" # Khởi tạo
+            ai_reply = None
+            ai_status = "error_unknown"
             try:
-                ai_reply, ai_status = ai_service.generate_reply_with_ai(prompt_data=prompt_data, persona_id=persona_id_to_use)
+                ai_reply, ai_status = ai_service.generate_reply_with_ai(
+                    prompt_data=prompt_data,
+                    persona_id=persona_id_to_use
+                )
             except Exception as ai_call_err:
-                print(f"ERROR ({task_id_log}): AI call failed: {ai_call_err}")
-                break # Dừng mô phỏng nếu AI lỗi
+                print(f"ERROR ({task_id_log}): AI call failed for {persona_id_to_use}: {ai_call_err}")
+                ai_status = "error_ai_call_exception"
+                # break # Dừng nếu AI lỗi
 
             # 3. Xử lý kết quả và Ghi Log
             if ai_status.startswith("success") and ai_reply:
-                print(f"    {speaker_label} replied: '{ai_reply[:100]}...'")
-                history_id = None
+                print(f"    {speaker_label} ({persona_id_to_use}) replied: '{ai_reply[:100]}...'")
+                history_id = None # Reset history_id
                 try:
                     history_id = db.log_interaction_received(
-                        account_id=account_id_for_this_turn_log, # <<< Dùng biến đã xác định
-                        app_name=SIM_APP_NAME, thread_id=SIM_THREAD_ID,
+                        account_id=sim_account_id, app_name=SIM_APP_NAME, thread_id=SIM_THREAD_ID,
                         received_text=last_message, strategy_id=strategy_id,
                         current_stage_id=current_stage_id, user_intent=detected_intent_for_next_turn
                     )
@@ -485,18 +476,20 @@ def run_ai_conversation_simulation(
                     else: print(f"ERROR ({task_id_log}): Failed log received turn {turns_taken}.")
                 except Exception as log_err: print(f"ERROR ({task_id_log}): Failed log interaction DB: {log_err}"); break
 
-                # 4. Phát hiện Intent của lời nói VỪA TẠO RA
-                detected_intent_for_next_turn = "error"
+                # 4. Phát hiện Intent của lời nói VỪA TẠO RA cho lượt tiếp theo
+                detected_intent_for_next_turn = "error" # Mặc định nếu lỗi
                 try:
+                    # Dùng persona mặc định để detect khách quan hơn
                     detected_intent_for_next_turn = ai_service.detect_user_intent_with_ai(text=ai_reply, persona_id=None)
                     print(f"    Intent detected in reply: {detected_intent_for_next_turn}")
                 except Exception as intent_err: print(f"ERROR ({task_id_log}): Failed detect intent: {intent_err}")
 
-                # 5. Tìm Transition và Cập nhật Stage
-                next_stage_found = None
+                # 5. Tìm Transition và Cập nhật Stage cho lượt tiếp theo
+                next_stage_found = None # Lưu stage tiếp theo tìm được
                 try:
                     transition = db.find_transition(current_stage_id, detected_intent_for_next_turn)
-                    if transition and transition.get('next_stage_id'): next_stage_found = transition['next_stage_id']
+                    if transition and transition.get('next_stage_id'):
+                        next_stage_found = transition['next_stage_id']
                 except Exception as trans_err: print(f"ERROR ({task_id_log}): Error finding transition: {trans_err}")
 
                 # 6. Cập nhật lịch sử, tin nhắn cuối, và stage
@@ -505,7 +498,7 @@ def run_ai_conversation_simulation(
                 last_message = ai_reply
                 if next_stage_found and next_stage_found != current_stage_id:
                      print(f"    Transitioning Stage: '{current_stage_id}' -> '{next_stage_found}'")
-                     current_stage_id = next_stage_found
+                     current_stage_id = next_stage_found # <<< Cập nhật stage
 
             else:
                 print(f"ERROR ({task_id_log}): {speaker_label} failed (Status: {ai_status}). Ending.")
@@ -513,14 +506,10 @@ def run_ai_conversation_simulation(
 
             # 7. Chuyển lượt
             current_speaker_persona_id = opponent_persona_id
-            time.sleep(random.randint(1, 3))
+            time.sleep(random.randint(1, 3)) # Tạm dừng ngẫu nhiên
 
         # --- Kết thúc vòng lặp ---
         end_time = time.time()
-        print(f"INFO ({task_id_log}): Simulation finished. Total turns attempted: {turns_taken}.") # Sửa log kết thúc
+        print(f"INFO ({task_id_log}): Simulation finished. Total turns processed: {turns_taken}.")
         print(f"--- Finishing background task: {task_id_log} --- (Duration: {end_time - start_time:.2f}s)")
-    # <<< Kết thúc with temp_app.app_context() >>>
-
-# ... (Các hàm tác vụ nền khác nếu có) ...
-
     # <<< Kết thúc with temp_app.app_context() >>>
