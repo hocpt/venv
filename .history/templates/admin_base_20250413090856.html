@@ -1,0 +1,178 @@
+{# === File: backup/templates/admin_base.html === #}
+<!doctype html>
+<html lang="vi">
+
+<head>
+
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>{{ title | default('Admin') }} - Bảng Điều Khiển Tự Động Hóa</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {# Block để các template con có thể thêm CSS riêng nếu cần #}
+    {% block styles %}{% endblock %}
+    <style>
+        /* CSS cơ bản cho flash messages (giữ nguyên hoặc chuyển vào style.css) */
+        .flashes {
+            list-style-type: none;
+            padding: 15px;
+            margin: 0;
+        }
+
+        .flashes li {
+            padding: 10px 15px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+
+        .flashes li.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .flashes li.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .flashes li.warning {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+        }
+
+        .flashes li.info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            background-color: #f8f8f8;
+            padding: 5px;
+            border: 1px solid #eee;
+        }
+
+        body {
+            padding-top: 0;
+        }
+
+        /* Bỏ padding top nếu menu ngang ở trên cùng */
+        header {
+            background-color: #f8f9fa;
+            padding: 10px 20px;
+            border-bottom: 1px solid #dee2e6;
+            margin-bottom: 0;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 1.5em;
+        }
+
+        main {
+            padding: 20px;
+        }
+
+        footer {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h1>Bảng Điều Khiển Tự Động Hóa</h1>
+    </header>
+
+    {# <<< THAY THẾ KHỐI NAV CŨ BẰNG KHỐI NÀY>>> #}
+        <nav class="tab-nav">
+            <ul class="tab-list">
+                {# Xác định tab active dựa trên request.endpoint #}
+                {# Lưu ý: request.endpoint sẽ có dạng 'blueprint_name.function_name' #}
+                <li class="tab-item {% if request.endpoint == 'admin.index' %}active{% endif %}">
+                    <a href="{{ url_for('admin.index') }}" class="tab-link">Dashboard</a>
+                </li>
+                {# Nhóm các route liên quan đến accounts #}
+                <li
+                    class="tab-item {% if request.endpoint.startswith('admin.view_accounts') or request.endpoint.startswith('admin.add_account') or request.endpoint.startswith('admin.edit_account') %}active{% endif %}">
+                    <a href="{{ url_for('admin.view_accounts') }}" class="tab-link">Tài khoản</a>
+                </li>
+                {# Nhóm các route liên quan đến rules #}
+                <li
+                    class="tab-item {% if request.endpoint.startswith('admin.view_rules') or request.endpoint.startswith('admin.add_rule') or request.endpoint.startswith('admin.edit_rule') %}active{% endif %}">
+                    <a href="{{ url_for('admin.view_rules') }}" class="tab-link">Luật</a>
+                </li>
+                {# Nhóm các route liên quan đến templates #}
+                <li
+                    class="tab-item {% if request.endpoint.startswith('admin.view_templates') or request.endpoint.startswith('admin.add_template') or request.endpoint.startswith('admin.view_template_variations') or request.endpoint.startswith('admin.add_template_variation') %}active{% endif %}">
+                    <a href="{{ url_for('admin.view_templates') }}" class="tab-link">Templates</a>
+                </li>
+                <li
+                    class="tab-item {% if request.endpoint.startswith('admin.view_strategies') or request.endpoint.startswith('admin.add_strategy') or request.endpoint.startswith('admin.edit_strategy') or request.endpoint.startswith('admin.view_strategy_stages') or request.endpoint.startswith('admin.add_stage') or request.endpoint.startswith('admin.edit_stage') or request.endpoint.startswith('admin.add_transition') or request.endpoint.startswith('admin.edit_transition') %}active{% endif %}">
+                    <a href="{{ url_for('admin.view_strategies') }}" class="tab-link">Chiến lược</a>
+                </li>
+                <li class="tab-item {% if request.endpoint.startswith('admin.view_history') %}active{% endif %}">
+                    <a href="{{ url_for('admin.view_history') }}" class="tab-link">Lịch sử</a>
+                </li>
+                <li class="tab-item {% if request.endpoint.startswith('admin.view_suggestions') %}active{% endif %}">
+                    <a href="{{ url_for('admin.view_suggestions') }}" class="tab-link">Đề xuất AI</a>
+                </li>
+                <li
+                    class="tab-item {% if request.endpoint.startswith('admin.view_personas') or request.endpoint.startswith('admin.add_persona') or request.endpoint.startswith('admin.edit_persona') %}active{% endif %}">
+                    <a href="{{ url_for('admin.view_personas') }}" class="tab-link">AI Personas</a>
+                </li>
+                <li
+                    class="tab-item {% if request.endpoint.startswith('admin.view_prompt_templates') or request.endpoint.startswith('admin.add_prompt_template') or request.endpoint.startswith('admin.edit_prompt_template') %}active{% endif %}">
+                    <a href="{{ url_for('admin.view_prompt_templates') }}" class="tab-link">Prompt Templates</a>
+                </li>
+                <li class="tab-item {% if request.endpoint == 'admin.ai_playground' %}active{% endif %}">
+                    <a href="{{ url_for('admin.ai_playground') }}" class="tab-link">AI Playground</a>
+                </li>
+                <li
+                    class="tab-item {% if request.endpoint.startswith('admin.view_scheduled_jobs') or request.endpoint.startswith('admin.add_scheduled_job') or request.endpoint.startswith('admin.edit_scheduled_job') %}active{% endif %}">
+                    <a href="{{ url_for('admin.view_scheduled_jobs') }}" class="tab-link">Tác vụ Nền</a>
+                </li>
+                <li class="tab-item {% if request.endpoint == 'admin.view_ai_simulations' %}active{% endif %}">
+                    <a href="{{ url_for('admin.view_ai_simulations') }}" class="tab-link">Mô phỏng AI</a>
+                </li>
+            </ul>
+        </nav>
+        {# <<< KẾT THÚC KHỐI NAV MỚI>>> #}
+
+            {# Không cần thẻ
+            <hr> ngăn cách nữa #}
+
+            <main>
+                {# Hiển thị các thông báo Flash nếu có #}
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                <ul class=flashes>
+                    {% for category, message in messages %}
+                    <li class="{{ category }}">{{ message }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+                {% endwith %}
+
+                {# Khối nội dung chính #}
+                {% block content %}
+                <p>Nội dung mặc định.</p>
+                {% endblock %}
+            </main>
+
+            <hr> {# Giữ lại hr này nếu muốn ngăn cách với footer #}
+            <footer>
+                <p style="text-align:center; font-size:0.8em; color: #777;">Automation Control Panel</p>
+            </footer>
+
+            {# Thêm các link JavaScript nếu cần ở cuối body #}
+            {% block scripts %}{% endblock %}
+
+</body>
+
+</html>

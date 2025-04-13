@@ -1,0 +1,197 @@
+{# templates/admin_ai_simulations.html #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title | default('Quản lý Mô phỏng Hội thoại AI') }}</h1>
+<p>Sử dụng form dưới đây để cấu hình và chạy một cuộc hội thoại mô phỏng giữa hai AI Persona theo một Chiến lược cụ thể.
+    Kết quả hội thoại sẽ được ghi vào Lịch sử Tương tác và có thể được Job Đề xuất AI phân tích.</p>
+
+{# === Form Chạy Mô phỏng Tùy chỉnh (Ad-hoc) === #}
+<hr>
+<h2>Chạy Mô phỏng Tùy chỉnh</h2>
+{# Form sẽ POST đến route chúng ta sẽ tạo sau: admin.run_adhoc_simulation #}
+<form action="{{ url_for('admin.run_adhoc_simulation') }}" method="POST" id="adhoc-sim-form">
+    <fieldset>
+        <legend>Cấu hình Mô phỏng</legend>
+
+        {# ----- Hàng 1: Chọn Personas ----- #}
+        <div class="form-row">
+            <div class="form-group">
+                <label for="persona_a_id">Persona A (bắt buộc):</label><br>
+                <select name="persona_a_id" id="persona_a_id" required>
+                    <option value="">-- Chọn Persona A --</option>
+                    {% for p in personas %} {# Biến personas sẽ được truyền từ route GET #}
+                    <option value="{{ p.persona_id }}">{{ p.name }} ({{ p.persona_id }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="persona_b_id">Persona B (bắt buộc):</label><br>
+                <select name="persona_b_id" id="persona_b_id" required>
+                    <option value="">-- Chọn Persona B --</option>
+                    {% for p in personas %}
+                    <option value="{{ p.persona_id }}">{{ p.name }} ({{ p.persona_id }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        {# ----- Hàng 2: Chọn Strategy và Số lượt ----- #}
+        <div class="form-row">
+            <div class="form-group">
+                <label for="strategy_id">Chiến lược Áp dụng (bắt buộc):</label><br>
+                <select name="strategy_id" id="strategy_id" required>
+                    <option value="">-- Chọn Chiến lược --</option>
+                    {% for s in strategies %} {# Biến strategies sẽ được truyền từ route GET #}
+                    <option value="{{ s.strategy_id }}">{{ s.name }} ({{ s.strategy_id }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="max_turns">Số lượt nói tối đa (mỗi bên):</label><br>
+                <input type="number" id="max_turns" name="max_turns" value="5" min="1" max="20" required
+                    style="width: 80px;">
+            </div>
+        </div>
+
+        {# ----- Hàng 3: Câu Mở đầu và Mục tiêu ----- #}
+        <div class="form-row">
+            <div class="form-group" style="flex-grow: 2;"> {# Cho ô này rộng hơn #}
+                <label for="starting_prompt">Câu/Chủ đề Mở đầu (Persona A nói):</label><br>
+                <input type="text" id="starting_prompt" name="starting_prompt" value="Xin chào!" style="width: 95%;">
+                <small>(Để trống nếu muốn Persona A tự bắt đầu)</small>
+            </div>
+            <div class="form-group" style="flex-grow: 1;">
+                <label for="sim_goal">Mục tiêu/Ngữ cảnh Mô phỏng:</label><br>
+                <input type="text" id="sim_goal" name="sim_goal" value="general_chat" style="width: 90%;">
+                <small>(vd: comment_video, product_support, sales_pitch)</small>
+            </div>
+        </div>
+
+        {# ----- Hàng 4: ID Mô phỏng (Tùy chọn) ----- #}
+        <div class="form-row">
+            <div class="form-group">
+                <label for="sim_account_id">Account ID Mô phỏng:</label><br>
+                <input type="text" id="sim_account_id" name="sim_account_id" value="sim_account_adhoc">
+                <small>(Để phân biệt trong history)</small>
+            </div>
+            <div class="form-group">
+                <label for="sim_thread_id_base">Tiền tố Thread ID:</label><br>
+                <input type="text" id="sim_thread_id_base" name="sim_thread_id_base" value="sim_adhoc">
+                <small>(Hệ thống sẽ thêm timestamp)</small>
+            </div>
+        </div>
+
+    </fieldset>
+
+    {# Nút bấm kích hoạt #}
+    <div class="form-actions" style="margin-top: 20px;">
+        <button type="submit" class="button" id="run-sim-button">Bắt đầu Mô phỏng</button>
+        <span id="loading-indicator" style="margin-left: 10px; display: none;">⏳ Đang yêu cầu chạy nền...</span>
+    </div>
+</form>
+
+{# (Tùy chọn) Khu vực hiển thị các cấu hình đã lưu sẽ thêm vào đây sau #}
+{#
+<hr>
+<h2>Cấu hình Mô phỏng Đã Lưu</h2>
+<p>(Sẽ thêm chức năng này sau)</p> #}
+
+{% endblock %}
+
+
+{# Thêm CSS cho Form nếu cần #}
+{% block styles %}
+{{ super() }}
+<style>
+    .form-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        /* Khoảng cách giữa các group */
+        margin-bottom: 15px;
+    }
+
+    .form-group {
+        flex: 1;
+        /* Các group co giãn bằng nhau */
+        min-width: 200px;
+        /* Độ rộng tối thiểu */
+    }
+
+    .form-group label {
+        font-weight: bold;
+        display: block;
+        margin-bottom: 5px;
+        font-size: 0.9em;
+    }
+
+    .form-group input[type="text"],
+    .form-group input[type="number"],
+    .form-group select,
+    .form-group textarea {
+        width: 100%;
+        /* Chiếm hết độ rộng của group */
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-sizing: border-box;
+        /* Quan trọng để padding không làm tăng width */
+    }
+
+    .form-group small {
+        font-size: 0.8em;
+        color: #666;
+        margin-top: 3px;
+        display: block;
+    }
+
+    fieldset {
+        border: 1px solid #ddd;
+        padding: 20px;
+        border-radius: 5px;
+    }
+
+    legend {
+        font-size: 1.1em;
+        font-weight: bold;
+        padding: 0 10px;
+    }
+
+    /* Kế thừa style nút từ admin_base.html hoặc định nghĩa lại */
+    .button {
+        /* display: inline-block; */
+        /* Có thể đã có */
+        /* padding: 8px 15px; */
+        /* Có thể đã có */
+        /* ... */
+    }
+
+    .form-actions button:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+    }
+</style>
+{% endblock %}
+
+{# Thêm JavaScript để xử lý nút bấm (tùy chọn) #}
+{% block scripts %}
+{{ super() }}
+<script>
+    // Thêm hiệu ứng loading đơn giản khi nhấn nút
+    const form = document.getElementById('adhoc-sim-form');
+    const button = document.getElementById('run-sim-button');
+    const loadingIndicator = document.getElementById('loading-indicator');
+
+    if (form && button && loadingIndicator) {
+        form.addEventListener('submit', function () {
+            // Vô hiệu hóa nút và hiển thị loading
+            button.disabled = true;
+            loadingIndicator.style.display = 'inline';
+
+            // (Không cần phải làm gì thêm ở đây, form sẽ submit bình thường)
+            // Nút sẽ tự động enable lại khi trang được tải lại sau khi redirect từ server
+        });
+    }
+</script>
+{% endblock %}

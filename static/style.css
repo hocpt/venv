@@ -1,0 +1,318 @@
+/* === File: backup/static/style.css === */
+
+/* ... CSS cũ của bạn ... */
+
+/* === CSS cho Menu Tab Ngang (Kiểu mới) === */
+.tab-nav {
+    background-color: #f8f9fa;
+    /* Màu nền xám rất nhạt cho thanh nav */
+    border-bottom: 1px solid #dee2e6;
+    /* Đường kẻ mỏng phân cách với content */
+    width: 100%;
+    /* Chiếm toàn bộ chiều ngang */
+}
+
+.tab-list {
+    display: flex;
+    /* Sắp xếp các mục li nằm ngang */
+    list-style: none;
+    /* Bỏ dấu chấm đầu dòng của ul */
+    margin: 0;
+    padding: 0 15px;
+    /* Padding ngang cho list (thay vì 10px) */
+    overflow-x: auto;
+    /* Cho phép cuộn ngang nếu không đủ chỗ */
+    white-space: nowrap;
+    /* Ngăn các mục xuống dòng */
+}
+
+.tab-item {
+    margin: 0;
+    /* Bỏ margin mặc định của li */
+}
+
+.tab-link {
+    display: inline-block;
+    /* Để có thể set padding và border */
+    padding: 14px 16px;
+    /* Padding trên dưới và trái phải cho mỗi tab */
+    color: #495057;
+    /* Màu chữ hơi xám */
+    text-decoration: none;
+    /* Bỏ gạch chân */
+    border: none;
+    /* Bỏ border mặc định nếu có */
+    border-bottom: 3px solid transparent;
+    /* Quan trọng: Tạo khoảng trống cho border active mà không làm thay đổi layout */
+    transition: color 0.2s ease, border-color 0.2s ease;
+    /* Hiệu ứng chuyển đổi màu */
+    font-size: 0.95em;
+    /* Kích thước chữ */
+    font-weight: 500;
+    /* Độ đậm vừa phải */
+}
+
+/* Hiệu ứng khi rê chuột qua tab */
+.tab-link:hover {
+    color: #0056b3;
+    /* Đổi màu chữ khi hover */
+    background-color: transparent;
+    /* Không đổi màu nền khi hover */
+}
+
+/* Kiểu dáng cho tab đang active */
+.tab-item.active .tab-link {
+    color: #0d6efd;
+    /* Màu chữ xanh dương cho tab active */
+    border-bottom-color: #0d6efd;
+    /* Đường gạch chân màu xanh dương */
+    font-weight: 600;
+    /* Đậm hơn một chút */
+}
+
+/* Đảm bảo content không bị che lấp */
+main {
+    padding: 20px;
+    /* Giữ padding cho content */
+}
+
+/* --- CSS cho nút bấm (giữ nguyên) --- */
+.button {
+    display: inline-block;
+    padding: 5px 10px;
+    background-color: #007bff;
+    color: white !important;
+    border: none;
+    border-radius: 4px;
+    text-decoration: none;
+    cursor: pointer;
+    font-size: 0.9em;
+    margin-left: 5px;
+}
+
+.button:hover {
+    background-color: #0056b3;
+    text-decoration: none;
+}
+
+/* --- CSS cơ bản cho flash messages (giữ nguyên hoặc di chuyển vào đây) --- */
+.flashes {
+    list-style-type: none;
+    padding: 15px;
+    margin: 0 0 15px 0;
+}
+
+/* Thêm margin bottom */
+.flashes li {
+    padding: 10px 15px;
+    margin-bottom: 10px;
+    border-radius: 4px;
+}
+
+.flashes li.success {
+    background-color: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.flashes li.error {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.flashes li.warning {
+    background-color: #fff3cd;
+    color: #856404;
+    border: 1px solid #ffeeba;
+}
+
+.flashes li.info {
+    background-color: #d1ecf1;
+    color: #0c5460;
+    border: 1px solid #bee5eb;
+}
+
+/* === File: backup/static/style.css (Hoặc trong block styles của template) === */
+
+/* === CSS cho AI Playground Dark Theme === */
+
+/* Container chính */
+.ai-playground-dark-theme {
+    background-color: #1e1f20;
+    /* Nền tối */
+    color: #e8eaed;
+    /* Màu chữ sáng mặc định */
+    border-color: #5f6368;
+    /* Màu viền tối hơn */
+    font-family: Roboto, "Segoe UI", Arial, sans-serif;
+    /* Font giống Google */
+}
+
+/* Khu vực hiển thị chat */
+.ai-playground-dark-theme .chat-display-area {
+    background-color: #1e1f20;
+    /* Nền tối */
+    scrollbar-color: #5f6368 #1e1f20;
+    /* Màu thanh cuộn (cho Firefox) */
+}
+
+/* Tùy chỉnh thanh cuộn cho trình duyệt Webkit (Chrome, Safari, Edge) */
+.ai-playground-dark-theme .chat-display-area::-webkit-scrollbar {
+    width: 8px;
+}
+
+.ai-playground-dark-theme .chat-display-area::-webkit-scrollbar-track {
+    background: #202124;
+    /* Màu nền track thanh cuộn */
+}
+
+.ai-playground-dark-theme .chat-display-area::-webkit-scrollbar-thumb {
+    background-color: #5f6368;
+    /* Màu con trượt */
+    border-radius: 4px;
+    /* Bo góc con trượt */
+    border: 2px solid #202124;
+    /* Tạo khoảng cách với track */
+}
+
+
+/* Định dạng chung cho các message */
+.ai-playground-dark-theme .chat-message {
+    border: 1px solid transparent;
+    /* Bỏ border mặc định */
+}
+
+.ai-playground-dark-theme .chat-message strong {
+    color: #bdc1c6;
+    /* Màu nhãn "Bạn:", "AI:" */
+}
+
+.ai-playground-dark-theme .chat-message pre {
+    color: #e8eaed;
+    /* Màu chữ trong pre */
+    font-family: "Roboto Mono", monospace;
+    /* Font monospace */
+    background-color: transparent !important;
+    /* Đảm bảo nền trong suốt */
+    border: none !important;
+    /* Bỏ border của pre */
+}
+
+/* Message của người dùng */
+.ai-playground-dark-theme .user-message {
+    background-color: #303134;
+    /* Nền tối hơn một chút */
+    /* margin-left: auto; */
+    /* Có thể bỏ nếu không cần đẩy hẳn sang phải */
+}
+
+/* Message của AI */
+.ai-playground-dark-theme .ai-message {
+    background-color: #202124;
+    /* Nền tối gần như đen */
+    /* margin-right: auto; */
+}
+
+/* Message lỗi */
+.ai-playground-dark-theme .error-message {
+    background-color: #4d1f1c;
+    /* Nền đỏ tối */
+    border: 1px solid #e57373;
+    color: #ffcdd2;
+    /* Chữ hồng nhạt */
+}
+
+.ai-playground-dark-theme .error-message pre {
+    color: #ffcdd2;
+}
+
+.ai-playground-dark-theme .error-message strong {
+    color: #ffcdd2;
+}
+
+
+/* Khu vực nhập liệu */
+.ai-playground-dark-theme .input-area {
+    background-color: #202124;
+    /* Nền tối cho khu vực input */
+    border-top-color: #5f6368;
+    /* Màu đường kẻ phân cách */
+}
+
+/* Các control trong khu vực nhập liệu */
+.ai-playground-dark-theme .control-group label {
+    color: #bdc1c6;
+    /* Màu chữ label */
+}
+
+.ai-playground-dark-theme select,
+.ai-playground-dark-theme textarea {
+    background-color: #3c4043;
+    /* Nền ô input tối */
+    color: #e8eaed;
+    /* Màu chữ nhập */
+    border: 1px solid #5f6368;
+    /* Màu viền */
+    border-radius: 4px;
+    padding: 8px 10px;
+}
+
+.ai-playground-dark-theme textarea {
+    min-height: 60px;
+    /* Chiều cao tối thiểu cho textarea */
+}
+
+/* Placeholder text */
+.ai-playground-dark-theme ::placeholder {
+    /* Chrome, Firefox, Opera, Safari 10.1+ */
+    color: #9aa0a6;
+    opacity: 1;
+    /* Firefox */
+}
+
+.ai-playground-dark-theme :-ms-input-placeholder {
+    /* Internet Explorer 10-11 */
+    color: #9aa0a6;
+}
+
+.ai-playground-dark-theme ::-ms-input-placeholder {
+    /* Microsoft Edge */
+    color: #9aa0a6;
+}
+
+/* Nút bấm */
+.ai-playground-dark-theme .button {
+    background-color: #8ab4f8;
+    /* Màu xanh dương nhạt kiểu Google */
+    color: #202124 !important;
+    /* Màu chữ tối */
+    border: none;
+    font-weight: 500;
+}
+
+.ai-playground-dark-theme .button:hover {
+    background-color: #aecbfa;
+    /* Sáng hơn khi hover */
+}
+
+.ai-playground-dark-theme .secondary-button {
+    background-color: #5f6368;
+    /* Màu xám tối */
+    color: #e8eaed !important;
+    /* Màu chữ sáng */
+}
+
+.ai-playground-dark-theme .secondary-button:hover {
+    background-color: #70757a;
+}
+
+/* Link trong dark theme (ví dụ nút Tải lại trang) */
+.ai-playground-dark-theme a.button {
+    color: #202124 !important;
+    /* Đảm bảo màu chữ đúng cho link dạng button */
+}
+
+.ai-playground-dark-theme a.secondary-button {
+    color: #e8eaed !important;
+}

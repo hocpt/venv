@@ -1,0 +1,224 @@
+{# templates/admin_scheduled_jobs.html #}
+{% extends "admin_base.html" %}
+
+{% block content %} {# Open content block #}
+<h1>{{ title | default('Quản lý Tác vụ nền') }}</h1> {# Sửa title nếu cần #}
+<p><a href="{{ url_for('admin.add_scheduled_job') }}" class="button">Thêm Tác vụ Mới</a></p>
+<p><small>Lưu ý quan trọng: Thay đổi cấu hình (Thêm, Sửa, Xóa) cần **khởi động lại server** để áp dụng vào lịch chạy.
+        Thay đổi Bật/Tắt sẽ được cập nhật tự động sau khoảng 1 phút (do job monitor).</small></p>
+
+{# Check 1: jobs tồn tại và có thể lặp #}
+{% if jobs is defined and jobs is iterable %} {# IF 1 Open #}
+{# Check 2: jobs không rỗng #}
+{% if jobs %} {# IF 2 Open #}
+<table border="1" cellpadding="5" cellspacing="0"
+    style="width:100%; border-collapse: collapse; box-sizing: border-box; table-layout: fixed;">
+    <thead>
+        <tr style="background-color: #f2f2f2;">
+            <th style="width: 10%;">Job ID</th>
+            <th style="width: 18%;">Function Path</th>
+            <th style="width: 6%;">Trigger</th>
+            <th style="width: 14%;">Trigger Args</th>
+            <th style="width: 15%;">Description</th>
+            <th style="width: 7%; text-align: center;">Kích hoạt <small>(Config)</small></th>
+            {# <<< THÊM CỘT MỚI>>> #}
+                <th style="width: 12%; text-align: center;">Next Run <small>(Live)</small></th>
+                <th style="width: 7%; text-align: center;">Chờ XL <small>(Suggest)</small></th>
+                <th style="width: 11%;">Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {# Loop 1: Lặp qua jobs từ DB config (đã được bổ sung live_next_run_time_str) #}
+        {% for job in jobs %} {# FOR 1 Open #}
+        <tr>
+            {# Job ID #}
+            <td style="word-wrap: break-word;">{{ job.job_id }}</td>
+            {# Function Path #}
+            <td style="word-wrap: break-word;"><code>{{ job.job_function_path }}</code></td>
+            {# Trigger Type #}
+            <td>{{ job.trigger_type }}</td>
+            {# Trigger Args #}
+            <td>
+                <pre
+                    style="max-height: 60px; overflow: auto; margin:0; font-size: 0.85em; background-color: #f0f0f0; border: none; padding: 3px; white-space: pre-wrap; word-wrap: break-word;">{{ job.trigger_args | tojson(indent=0) if job.trigger_args is not none else '{}' }}</pre>
+            </td>
+            {# Description #}
+            <td>{{ job.description | default('') }}</td>
+            {# Enabled Status (DB) + Toggle Button #}
+            <td style="text-align: center; vertical-align: middle;">
+                {% if job.is_enabled %} {# IF 3 Open #}
+                <span style="color: green; font-weight: bold;">Yes</span>
+                {% else %} {# IF 3 Else #}
+                <span style="color: red;">No</span>
+                {% endif %} {# IF 3 Close #}
+                {# Toggle Form - only updates DB #}
+                <form action="{{ url_for('admin.toggle_scheduled_job', job_id=job.job_id) }}" method="POST"
+                    style="display:block; margin-top: 5px;">
+                    <button type="submit" class="button small {% if job.is_enabled %}secondary-button{% endif %}"
+                        title="Thay đổi cấu hình bật/tắt trong DB (có hiệu lực sau ~1 phút)">
+                        {% if job.is_enabled %}Đặt thành Tắt{% else %}Đặt thành Bật{% endif %}
+                    </button>
+                </form>
+            </td>
+            {# <<< HIỂN THỊ NEXT RUN TIME LIVE>>> #}
+                <td style="text-align: center; vertical-align: middle; font-size: 0.85em;">
+                    {{ job.live_next_run_time_str | default('N/A') }}
+                </td>
+                {# Pending Items Column #}
+                <td style="text-align: center; vertical-align: middle;">
+                    {% if job.job_id == 'suggestion_job' %} {# IF 6 Open #}
+                    <span style="font-weight: bold; font-size: 1.1em;">{{ pending_counts.get('suggestion_job', '--')
+                        }}</span>
+                    {% else %} {# IF 6 Else #}
+                    N/A
+                    {% endif %} {# IF 6 Close #}
+                </td>
+                {# Actions Column #}
+                <td style="white-space: nowrap; vertical-align: middle;">
+                    <a href="{{ url_for('admin.edit_scheduled_job', job_id=job.job_id) }}">Sửa</a>
+                    <form action="{{ url_for('admin.delete_scheduled_job', job_id=job.job_id) }}" method="POST"
+                        style="display:inline;"
+                        onsubmit="return confirm('Xác nhận xóa cấu hình job \'{{ job.job_id }}\'? Thay đổi cần restart server.');">
+                        <button type="submit" class="link-button delete-button">Xóa</button>
+                    </form>
+                    {% if job.job_id == 'suggestion_job' %} {# IF 7 Open #}
+                    <form action="{{ url_for('admin.run_suggestion_job_now') }}" method="POST" style="display:inline;"
+                        onsubmit="return confirm('Chạy tác vụ đề xuất AI ngay bây giờ? Nó sẽ xử lý các tương tác mới nhất.');">
+                        <button type="submit" class="button small"
+                            style="margin-left: 5px; background-color: #28a745; color: white !important;">Chạy
+                            Ngay</button>
+                    </form>
+                    {% endif %} {# IF 7 Close #}
+                </td>
+        </tr>
+        {% endfor %} {# FOR 1 Close #}
+    </tbody>
+</table>
+{% elif jobs is none %} {# IF 2 Elif #}
+<p style="color: red;">Lỗi khi tải danh sách cấu hình tác vụ nền từ CSDL.</p>
+{% else %} {# IF 2 Else #}
+<p>Chưa có cấu hình tác vụ nền nào trong database. Hãy <a href="{{ url_for('admin.add_scheduled_job') }}">thêm tác vụ
+        mới</a>.</p>
+{% endif %} {# IF 2 Close #}
+{% endif %} {# IF 1 Close - Đóng thẻ IF ngoài cùng #}
+
+{% endblock %} {# Đóng block content #}
+
+
+{# ... (block styles giữ nguyên) ... #}
+{% block styles %}
+{{ super() }}
+<script>
+    function updateJobStatuses() {
+        // console.log("Polling for job statuses..."); // Log để debug nếu cần
+        fetch("{{ url_for('admin.get_live_job_statuses_for_ajax') }}") // Gọi endpoint mới
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(statuses => {
+                // console.log("Received statuses:", statuses); // Log dữ liệu nhận được
+                const tableBody = document.querySelector('table tbody');
+                if (!tableBody) return; // Không tìm thấy bảng
+
+                const rows = tableBody.querySelectorAll('tr');
+                rows.forEach(row => {
+                    const jobIdElement = row.querySelector('td:first-child'); // Lấy ô chứa Job ID
+                    const nextRunCell = row.querySelector('td:nth-child(20)'); // <<< Lấy ô thứ 7 (Next Run Live)
+
+                    if (jobIdElement && nextRunCell) {
+                        const jobId = jobIdElement.textContent.trim();
+                        const newStatus = statuses[jobId] || 'N/A'; // Lấy trạng thái từ JSON hoặc mặc định
+                        if (jobId === 'suggestion_job') { // Chỉ log job đang quan tâm
+                            console.log(`JS DEBUG: Received status for ${jobId}: ${newStatus}`);
+                        }
+                        // Chỉ cập nhật nếu nội dung khác đi để tránh nhấp nháy không cần thiết
+                        if (nextRunCell.textContent.trim() !== newStatus) {
+                            // console.log(`Updating ${jobId}: ${nextRunCell.textContent.trim()} -> ${newStatus}`);
+                            nextRunCell.textContent = newStatus;
+                            // Thêm class để visual feedback (tùy chọn)
+                            nextRunCell.classList.add('status-updated');
+                            setTimeout(() => {
+                                nextRunCell.classList.remove('status-updated');
+                            }, 1000); // Xóa class sau 1 giây
+                        }
+                    }
+                });
+            })
+            .catch(error => {
+                console.error('Error fetching job statuses:', error);
+                // Có thể hiển thị thông báo lỗi nhỏ trên UI nếu muốn
+            });
+    }
+
+    // Chạy lần đầu khi tải trang
+    document.addEventListener('DOMContentLoaded', updateJobStatuses);
+
+    // Chạy định kỳ mỗi 7 giây (có thể điều chỉnh)
+    setInterval(updateJobStatuses, 7000); // 7000 milliseconds = 7 seconds
+
+</script>
+<style>
+    .link-button.delete-button {
+        color: red;
+        background: none;
+        border: none;
+        padding: 0;
+        font: inherit;
+        cursor: pointer;
+        text-decoration: underline;
+        margin-left: 10px;
+    }
+
+    .button.small {
+        font-size: 0.8em;
+        padding: 2px 5px;
+        vertical-align: middle;
+    }
+
+    /* Style cho nút Bật/Tắt khi nó là secondary */
+    .button.small.secondary-button {
+        background-color: #6c757d;
+        /* Màu xám */
+        color: white !important;
+    }
+
+    .button.small.secondary-button:hover {
+        background-color: #5a6268;
+    }
+
+    td pre {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        font-size: 0.85em;
+        background-color: #f0f0f0;
+        padding: 5px;
+        border: none;
+        margin: 0;
+        max-height: 60px;
+        overflow: auto;
+        text-align: left;
+    }
+
+    th,
+    td {
+        vertical-align: middle;
+        padding: 8px 5px;
+    }
+
+    table {
+        table-layout: fixed;
+        width: 100%;
+    }
+
+    th,
+    td {
+        word-wrap: break-word;
+    }
+</style>
+{% endblock %}
+
+{# ... (block scripts giữ nguyên) ... #}
+{% block scripts %}{{ super() }}{% endblock %}
