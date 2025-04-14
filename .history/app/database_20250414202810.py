@@ -3417,15 +3417,10 @@ def update_command_status(conn, command_id: int, status: str, error_message: str
         # Không đóng connection ở đây
     return success
 
-def get_recent_simulation_commands(
-        status_list: list[str] = None, # Giữ nguyên để có thể lọc nếu cần sau
-        command_type: str = 'run_simulation', # Thêm command_type
-        limit: int = 25 # Tăng limit lên một chút
-    ) -> list[dict] | None:
-    """Lấy các lệnh chạy mô phỏng gần đây theo trạng thái và loại."""
-    # Mặc định lấy các trạng thái này nếu không có status_list được truyền vào
+def get_recent_simulation_commands(status_list: list[str] = None, limit: int = 20) -> list[dict] | None:
+    """Lấy các lệnh chạy mô phỏng gần đây theo trạng thái."""
     if status_list is None:
-        status_list = ['pending', 'processing', 'error', 'done']
+        status_list = ['pending', 'processing', 'error'] # Lấy các trạng thái chưa hoàn thành hoặc lỗi
 
     commands = None
     conn = get_db_connection()
@@ -3433,95 +3428,33 @@ def get_recent_simulation_commands(
     cur = None
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        # Lấy các lệnh run_simulation khớp trạng thái, sắp xếp mới nhất trước
         sql = """
             SELECT command_id, command_type, payload, status, created_at, processed_at, error_message
             FROM public.scheduler_commands
-            WHERE command_type = %s AND status = ANY(%s::varchar[]) -- Lọc theo cả type và status
-            ORDER BY created_at DESC -- Luôn lấy mới nhất trước
+            WHERE command_type = 'run_simulation' AND status = ANY(%s::varchar[])
+            ORDER BY created_at DESC
             LIMIT %s;
         """
-        # FOR UPDATE SKIP LOCKED không cần thiết nếu chỉ lấy các trạng thái cuối cùng
-        cur.execute(sql, (command_type, status_list, limit))
+        cur.execute(sql, (status_list, limit))
         rows = cur.fetchall()
         commands = [dict(row) for row in rows] if rows else []
-        for cmd in commands: # Parse payload
+        # Parse payload JSON thành dict ngay tại đây cho tiện
+        for cmd in commands:
             try:
-                if isinstance(cmd.get('payload'), str):
+                if isinstance(cmd.get('payload'), str): # Đảm bảo chỉ parse nếu nó là string
                     cmd['payload'] = json.loads(cmd['payload'])
-            except: cmd['payload'] = {} # Gán rỗng nếu lỗi
+            except (json.JSONDecodeError, TypeError):
+                 print(f"WARN: Could not parse payload for command_id {cmd.get('command_id')}")
+                 cmd['payload'] = {} # Đặt thành dict rỗng nếu lỗi parse
 
-    except Exception as e: print(f"ERROR (db - get_recent_commands): {e}"); commands = None
+    except psycopg2.Error as e:
+        print(f"ERROR (db - get_recent_simulation_commands): DB Error: {e}")
+        commands = None # Trả về None nếu lỗi DB
+    except Exception as e:
+        print(f"ERROR (db - get_recent_simulation_commands): Unexpected error: {e}")
+        commands = None
     finally:
         if cur: cur.close()
         if conn: conn.close()
     return commands
-
-def delete_scheduler_command(command_id: int) -> bool:
-    """Xóa một lệnh cụ thể khỏi bảng scheduler_commands."""
-    if not command_id: return False
-    conn = get_db_connection()
-    if not conn: return False
-    cur = None
-    success = False
-    try:
-        cur = conn.cursor()
-        sql = "DELETE FROM public.scheduler_commands WHERE command_id = %s;"
-        cur.execute(sql, (command_id,))
-        conn.commit()
-        success = cur.rowcount > 0 # True nếu có dòng bị xóa
-        if success:
-            print(f"DEBUG (db): Deleted scheduler command ID {command_id}.")
-        else:
-            print(f"WARN (db - delete_scheduler_command): Command ID {command_id} not found for deletion.")
-    except psycopg2.Error as e:
-        print(f"ERROR (db - delete_scheduler_command): DB Error for ID {command_id}: {e}")
-        if conn: conn.rollback()
-    except Exception as e:
-        print(f"ERROR (db - delete_scheduler_command): Unexpected error for ID {command_id}: {e}")
-        if conn: conn.rollback()
-    finally:
-        if cur: cur.close()
-        if conn: conn.close()
-    return success
-
-def delete_completed_or_errored_commands(command_type: str) -> tuple[bool, int | None, str | None]:
-    """Xóa tất cả các lệnh có trạng thái 'done' hoặc 'error' cho một loại lệnh cụ thể.
-
-    Returns:
-        Tuple: (success: bool, deleted_count: int | None, error_message: str | None)
-    """
-    if not command_type:
-        return False, None, "Command type cannot be empty."
-
-    conn = get_db_connection()
-    if not conn:
-        return False, None, "Cannot connect to database."
-
-    cur = None
-    success = False
-    deleted_count = 0
-    error_msg = None
-    try:
-        cur = conn.cursor()
-        sql = """
-            DELETE FROM public.scheduler_commands
-            WHERE command_type = %s AND status IN ('done', 'error');
-        """
-        cur.execute(sql, (command_type,))
-        deleted_count = cur.rowcount # Số dòng đã bị xóa
-        conn.commit()
-        success = True
-        print(f"DEBUG (db): Deleted {deleted_count} completed/errored '{command_type}' commands.")
-    except psycopg2.Error as e:
-        error_msg = f"DB Error: {e}"
-        print(f"ERROR (db - delete_completed_or_errored_commands): {error_msg}")
-        if conn: conn.rollback()
-    except Exception as e:
-        error_msg = f"Unexpected error: {e}"
-        print(f"ERROR (db - delete_completed_or_errored_commands): {error_msg}")
-        if conn: conn.rollback()
-    finally:
-        if cur: cur.close()
-        if conn: conn.close()
-    return success, deleted_count, error_msg
-

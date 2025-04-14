@@ -38,16 +38,6 @@ except ImportError:
      run_ai_conversation_simulation = None # Đặt là None nếu import lỗi
 # --- Định nghĩa các loại trigger hợp lệ ---
 TRIGGER_TYPES = ['interval', 'cron', 'date']
-# === ĐỊNH NGHĨA CÁC TÁC VỤ NỀN CÓ THỂ LÊN LỊCH TỪ UI ===
-# Key: Tên hiển thị trên UI
-# Value: Đường dẫn Python đầy đủ đến hàm thực thi
-AVAILABLE_SCHEDULED_TASKS = {
-    'Phân tích & Đề xuất AI (Suggestion Job)': 'app.background_tasks.analyze_interactions_and_suggest',
-    'Tự động Duyệt Tất Cả Đề Xuất': 'app.background_tasks.approve_all_suggestions_task',
-    # Thêm các tác vụ nền định kỳ khác bạn muốn người dùng có thể lên lịch ở đây
-    # Lưu ý: Không nên thêm run_ai_conversation_simulation ở đây vì nó cần tham số động
-}
-
 admin_bp = Blueprint(
     'admin',
     __name__,
@@ -2144,6 +2134,7 @@ def delete_prompt_template(prompt_template_id):
          flash(f"Lỗi không mong muốn khi xóa prompt template: {e}", "error")
     return redirect(url_for('admin.view_prompt_templates'))
 
+# =============================================================
 # === QUẢN LÝ TÁC VỤ NỀN (SCHEDULER CONFIGURATION IN DB) ===
 # =============================================================
 
@@ -2242,7 +2233,6 @@ def view_scheduled_jobs():
 @admin_bp.route('/scheduled-jobs/add', methods=['GET', 'POST'])
 def add_scheduled_job():
     """Chỉ thêm cấu hình Job mới vào DB."""
-    title = "Thêm Tác vụ Nền Mới"
     if not db:
          flash("Lỗi nghiêm trọng: Database module chưa sẵn sàng.", "error")
          return redirect(url_for('admin.index'))
@@ -2263,12 +2253,7 @@ def add_scheduled_job():
         if not job_id: error_msg.append("Job ID là bắt buộc.")
         if not function_path: error_msg.append("Function Path là bắt buộc.")
         if not trigger_type or trigger_type not in TRIGGER_TYPES: error_msg.append("Trigger Type không hợp lệ.")
-        if error_msg: # Nếu có lỗi validation
-            for msg in error_msg: flash(msg, "warning")
-            return render_template('admin_add_scheduled_job.html', title="Thêm Tác vụ (Lỗi)",
-                                   trigger_types=TRIGGER_TYPES,
-                                   available_tasks=AVAILABLE_SCHEDULED_TASKS, # <<< Truyền cả khi lỗi POST
-                                   current_data=request.form), 400
+
         try: # Validate JSON và kiểu số
             if not trigger_args_str: trigger_args_str = '{}'
             trigger_args_dict = json.loads(trigger_args_str)
@@ -2310,10 +2295,7 @@ def add_scheduled_job():
                                    trigger_types=TRIGGER_TYPES, current_data=request.form)
 
     # --- Xử lý GET Request ---
-    return render_template('admin_add_scheduled_job.html',
-                           title=title,
-                           trigger_types=TRIGGER_TYPES,
-                           available_tasks=AVAILABLE_SCHEDULED_TASKS)
+    return render_template('admin_add_scheduled_job.html', title="Thêm Tác vụ Nền Mới", trigger_types=TRIGGER_TYPES)
 
 @admin_bp.route('/scheduled-jobs/<job_id>/edit', methods=['GET', 'POST'])
 def edit_scheduled_job(job_id):
@@ -3161,31 +3143,3 @@ def delete_scheduler_command_view(command_id):
 
     # Luôn redirect về trang quản lý mô phỏng (nơi hiển thị danh sách lệnh/job)
     return redirect(url_for('admin.view_ai_simulations'))
-
-@admin_bp.route('/ai-simulations/commands/clear-finished', methods=['POST'])
-def clear_finished_simulation_commands():
-    """Xóa các lệnh run_simulation có status 'done' hoặc 'error'."""
-    print("INFO: Received request to clear finished simulation commands.")
-    if not db:
-         flash("Lỗi nghiêm trọng: Database module chưa sẵn sàng.", "error")
-         return redirect(url_for('admin.view_ai_simulations'))
-
-    try:
-        # Gọi hàm xóa hàng loạt trong database.py
-        success, deleted_count, error_msg = db.delete_completed_or_errored_commands(
-            command_type='run_simulation' # Chỉ xóa lệnh loại run_simulation
-        )
-
-        if success:
-            flash(f"Đã xóa thành công {deleted_count or 0} lệnh mô phỏng đã hoàn thành hoặc bị lỗi.", 'success')
-        else:
-            flash(f"Xóa lệnh thất bại: {error_msg or 'Lỗi không xác định'}.", "error")
-
-    except Exception as e:
-        print(f"Lỗi nghiêm trọng khi xóa hàng loạt lệnh: {e}")
-        print(traceback.format_exc())
-        flash(f"Đã xảy ra lỗi không mong muốn khi xóa lệnh: {e}", "error")
-
-    # Luôn redirect về trang quản lý mô phỏng
-    return redirect(url_for('admin.view_ai_simulations'))
-

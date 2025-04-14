@@ -38,16 +38,6 @@ except ImportError:
      run_ai_conversation_simulation = None # Đặt là None nếu import lỗi
 # --- Định nghĩa các loại trigger hợp lệ ---
 TRIGGER_TYPES = ['interval', 'cron', 'date']
-# === ĐỊNH NGHĨA CÁC TÁC VỤ NỀN CÓ THỂ LÊN LỊCH TỪ UI ===
-# Key: Tên hiển thị trên UI
-# Value: Đường dẫn Python đầy đủ đến hàm thực thi
-AVAILABLE_SCHEDULED_TASKS = {
-    'Phân tích & Đề xuất AI (Suggestion Job)': 'app.background_tasks.analyze_interactions_and_suggest',
-    'Tự động Duyệt Tất Cả Đề Xuất': 'app.background_tasks.approve_all_suggestions_task',
-    # Thêm các tác vụ nền định kỳ khác bạn muốn người dùng có thể lên lịch ở đây
-    # Lưu ý: Không nên thêm run_ai_conversation_simulation ở đây vì nó cần tham số động
-}
-
 admin_bp = Blueprint(
     'admin',
     __name__,
@@ -2144,6 +2134,7 @@ def delete_prompt_template(prompt_template_id):
          flash(f"Lỗi không mong muốn khi xóa prompt template: {e}", "error")
     return redirect(url_for('admin.view_prompt_templates'))
 
+# =============================================================
 # === QUẢN LÝ TÁC VỤ NỀN (SCHEDULER CONFIGURATION IN DB) ===
 # =============================================================
 
@@ -2242,7 +2233,6 @@ def view_scheduled_jobs():
 @admin_bp.route('/scheduled-jobs/add', methods=['GET', 'POST'])
 def add_scheduled_job():
     """Chỉ thêm cấu hình Job mới vào DB."""
-    title = "Thêm Tác vụ Nền Mới"
     if not db:
          flash("Lỗi nghiêm trọng: Database module chưa sẵn sàng.", "error")
          return redirect(url_for('admin.index'))
@@ -2263,12 +2253,7 @@ def add_scheduled_job():
         if not job_id: error_msg.append("Job ID là bắt buộc.")
         if not function_path: error_msg.append("Function Path là bắt buộc.")
         if not trigger_type or trigger_type not in TRIGGER_TYPES: error_msg.append("Trigger Type không hợp lệ.")
-        if error_msg: # Nếu có lỗi validation
-            for msg in error_msg: flash(msg, "warning")
-            return render_template('admin_add_scheduled_job.html', title="Thêm Tác vụ (Lỗi)",
-                                   trigger_types=TRIGGER_TYPES,
-                                   available_tasks=AVAILABLE_SCHEDULED_TASKS, # <<< Truyền cả khi lỗi POST
-                                   current_data=request.form), 400
+
         try: # Validate JSON và kiểu số
             if not trigger_args_str: trigger_args_str = '{}'
             trigger_args_dict = json.loads(trigger_args_str)
@@ -2310,10 +2295,7 @@ def add_scheduled_job():
                                    trigger_types=TRIGGER_TYPES, current_data=request.form)
 
     # --- Xử lý GET Request ---
-    return render_template('admin_add_scheduled_job.html',
-                           title=title,
-                           trigger_types=TRIGGER_TYPES,
-                           available_tasks=AVAILABLE_SCHEDULED_TASKS)
+    return render_template('admin_add_scheduled_job.html', title="Thêm Tác vụ Nền Mới", trigger_types=TRIGGER_TYPES)
 
 @admin_bp.route('/scheduled-jobs/<job_id>/edit', methods=['GET', 'POST'])
 def edit_scheduled_job(job_id):
@@ -2545,152 +2527,47 @@ def get_live_job_statuses_for_ajax():
 # =============================================================
 
 @admin_bp.route('/ai-simulations', methods=['GET'])
-@admin_bp.route('/ai-simulations', methods=['GET'])
 def view_ai_simulations():
-    """
-    Hiển thị trang quản lý mô phỏng AI:
-    - Danh sách cấu hình đã lưu
-    - Form chạy ad-hoc
-    - Danh sách các lần chạy/lệnh gần đây (từ commands và live jobs)
-    """
+    """Hiển thị trang quản lý: danh sách cấu hình đã lưu, form ad-hoc, danh sách live/pending."""
     title = "Quản lý Mô phỏng AI"
     personas, strategies, accounts, saved_configs = [], [], [], []
-    simulations_display_list = [] # Danh sách cuối cùng để hiển thị
+    recent_simulation_runs = [] # <<< Danh sách thống nhất để hiển thị
 
     if not db:
         flash("Lỗi nghiêm trọng: Database module chưa sẵn sàng.", "error")
     else:
         try:
-            # 1. Lấy dữ liệu cho các Dropdown và Bảng Cấu hình đã lưu
+            # Lấy dữ liệu cho dropdowns và cấu hình đã lưu (như cũ)
             personas = db.get_all_personas() or []
             strategies = db.get_all_strategies() or []
             accounts = db.get_all_accounts() or []
             saved_configs = db.get_all_simulation_configs() or []
 
-            # === TẠO DANH SÁCH HIỂN THỊ CÁC LẦN CHẠY/LỆNH GẦN ĐÂY ===
-            server_tz = _get_configured_timezone()
-
-            # 2. Lấy các Lệnh mô phỏng gần đây (pending, processing, error, done)
-            recent_commands = db.get_recent_simulation_commands(
+            # === LẤY LỊCH SỬ YÊU CẦU MÔ PHỎNG GẦN ĐÂY ===
+            # Lấy cả pending, processing, error, done gần nhất
+            recent_simulation_runs = db.get_recent_simulation_commands(
                 status_list=['pending', 'processing', 'error', 'done'],
                 command_type='run_simulation',
-                limit=25 # Lấy 25 lệnh gần nhất
+                limit=25 # Lấy 25 yêu cầu gần nhất
             ) or []
-            print(f"DEBUG: Found {len(recent_commands)} recent simulation commands.")
-
-            # 3. Lấy các Job mô phỏng đang được lên lịch (từ apscheduler_jobs)
-            live_job_times = _get_live_next_run_times() or {} # dict {job_id: timestamp}
-            live_sim_jobs = {job_id: ts for job_id, ts in live_job_times.items() if job_id.startswith('sim_run_')}
-            print(f"DEBUG: Found {len(live_sim_jobs)} live simulation jobs.")
-
-            processed_command_ids = set() # Theo dõi command ID đã được liên kết với live job
-
-            # 4. Ưu tiên xử lý các Live Job trước (vì chúng chắc chắn đã được schedule)
-            for job_id, next_run_timestamp in live_sim_jobs.items():
-                sim_info = {
-                    'id': job_id,
-                    'type': 'job', # Đánh dấu là lấy từ live job
-                    'config_info': '(Live Job - Config N/A)', # Thông tin config sẽ khó lấy trực tiếp
-                    'status_text': 'Unknown',
-                    'created_at': None, # Khó lấy thời gian yêu cầu gốc từ đây
-                    'next_run_time_str': 'N/A',
-                    'command_id': None # ID của lệnh gốc (nếu có thể trích xuất)
-                }
-
-                # Cố gắng trích xuất command_id từ job_id nếu có quy tắc đặt tên
-                # Ví dụ: nếu job_id = f"sim_run_{command_id}_{uuid}"
-                parts = job_id.split('_')
-                command_id_from_job = None
-                if len(parts) >= 3 and parts[0] == 'sim' and parts[1] == 'run':
-                    try:
-                        command_id_from_job = int(parts[2])
-                        sim_info['command_id'] = command_id_from_job
-                        processed_command_ids.add(command_id_from_job) # Đánh dấu đã xử lý command này
-                    except (ValueError, IndexError):
-                        pass # Bỏ qua nếu không parse được
-
-                # Format thời gian chạy
-                if next_run_timestamp is not None:
-                    try:
-                        utc_dt = datetime.fromtimestamp(next_run_timestamp, tz=timezone.utc)
-                        local_dt = utc_dt.astimezone(server_tz)
-                        sim_info['next_run_time_str'] = local_dt.strftime('%Y-%m-%d %H:%M:%S %z')
-                        sim_info['status_text'] = 'Scheduled'
-                    except Exception as fmt_err:
-                        print(f"Error formatting timestamp for live job {job_id}: {fmt_err}")
-                        sim_info['next_run_time_str'] = 'Lỗi Format'
-                else:
-                    # Job có trong apscheduler_jobs nhưng next_run_time là None? Có thể là Paused?
-                    sim_info['next_run_time_str'] = '---'
-                    sim_info['status_text'] = 'Paused?'
-
-                simulations_display_list.append(sim_info)
-
-            # 5. Xử lý các Lệnh từ scheduler_commands (chỉ thêm nếu chưa được xử lý ở trên)
-            for command in recent_commands:
-                cmd_id = command['command_id']
-                cmd_status = command.get('status', 'unknown')
-
-                # Chỉ thêm nếu command này chưa được xử lý bởi vòng lặp live job HOẶC status là lỗi/pending/processing
-                if cmd_id not in processed_command_ids or cmd_status in ['pending', 'processing', 'error']:
-                    payload = command.get('payload', {})
-                    status_text = cmd_status.capitalize()
-                    if status_text == 'Pending': status_text = 'Pending Queue'
-                    elif status_text == 'Processing': status_text = 'Processing Cmd'
-                    elif status_text == 'Done':
-                        # Nếu là 'done' nhưng không có trong live_jobs -> có thể đã chạy xong rất nhanh
-                        status_text = 'Done (Completed/Removed)'
-                    elif status_text == 'Error':
-                        status_text = f"Error: {command.get('error_message', '')[:100]}"
 
 
-                    sim_info = {
-                        'id': f"cmd_{cmd_id}", # Phân biệt ID lệnh và ID job
-                        'type': 'command',
-                        'config_info': f"Cmd {cmd_id}: {payload.get('persona_a_id','?')} vs {payload.get('persona_b_id','?')} ({payload.get('strategy_id','?')})",
-                        'status_text': status_text,
-                        'created_at': command.get('created_at'),
-                        'next_run_time_str': '---', # Lệnh thì chưa có next_run_time
-                        'command_id': cmd_id # Lưu lại command ID gốc
-                    }
 
-                    # Kiểm tra xem lệnh này đã có trong display list chưa (phòng trường hợp logic processed_command_ids chưa hoàn hảo)
-                    already_added = any(item.get('command_id') == cmd_id for item in simulations_display_list)
-                    if not already_added:
-                         simulations_display_list.append(sim_info)
-                    elif cmd_status == 'error' and already_added:
-                         # Ưu tiên hiển thị trạng thái lỗi nếu job đã được thêm trước đó
-                         for item in simulations_display_list:
-                              if item.get('command_id') == cmd_id:
-                                   item['status_text'] = status_text
-                                   break
-
-
-            # 6. Sắp xếp danh sách hiển thị cuối cùng (ví dụ: theo thời gian tạo lệnh giảm dần)
-            def get_sort_key(item):
-                if item.get('created_at'): return item['created_at']
-                # Cố gắng lấy timestamp từ next_run_time_str nếu không có created_at
-                if item.get('next_run_time_str') and item['next_run_time_str'] not in ['---', 'N/A', 'Lỗi Format', 'Paused?']:
-                    try: return datetime.strptime(item['next_run_time_str'], '%Y-%m-%d %H:%M:%S %z')
-                    except ValueError: pass
-                return datetime.now(timezone.utc) # Mặc định nếu không có gì để sort
-
-            simulations_display_list.sort(key=get_sort_key, reverse=True)
-
+            # ... (flash warnings dropdowns nếu cần) ...
 
         except Exception as e:
             print(f"Lỗi khi tải dữ liệu cho trang mô phỏng AI: {e}")
             flash("Lỗi không mong muốn khi tải dữ liệu.", "error")
             personas, strategies, accounts, saved_configs, simulations_display_list = [], [], [], [], []
 
-    # Render template
+        # Render template, truyền danh sách hiển thị mới
     return render_template('admin_ai_simulations.html',
-                           title=title,
-                           personas=personas,
-                           strategies=strategies,
-                           accounts=accounts,
-                           saved_configs=saved_configs,
-                           simulations_display=simulations_display_list)
+                            title=title,
+                            personas=personas,
+                            strategies=strategies,
+                            accounts=accounts,
+                            saved_configs=saved_configs,
+                            simulations_display=simulations_display_list)
 
 
 @admin_bp.route('/ai-simulations/run-adhoc', methods=['POST'])
@@ -3161,31 +3038,3 @@ def delete_scheduler_command_view(command_id):
 
     # Luôn redirect về trang quản lý mô phỏng (nơi hiển thị danh sách lệnh/job)
     return redirect(url_for('admin.view_ai_simulations'))
-
-@admin_bp.route('/ai-simulations/commands/clear-finished', methods=['POST'])
-def clear_finished_simulation_commands():
-    """Xóa các lệnh run_simulation có status 'done' hoặc 'error'."""
-    print("INFO: Received request to clear finished simulation commands.")
-    if not db:
-         flash("Lỗi nghiêm trọng: Database module chưa sẵn sàng.", "error")
-         return redirect(url_for('admin.view_ai_simulations'))
-
-    try:
-        # Gọi hàm xóa hàng loạt trong database.py
-        success, deleted_count, error_msg = db.delete_completed_or_errored_commands(
-            command_type='run_simulation' # Chỉ xóa lệnh loại run_simulation
-        )
-
-        if success:
-            flash(f"Đã xóa thành công {deleted_count or 0} lệnh mô phỏng đã hoàn thành hoặc bị lỗi.", 'success')
-        else:
-            flash(f"Xóa lệnh thất bại: {error_msg or 'Lỗi không xác định'}.", "error")
-
-    except Exception as e:
-        print(f"Lỗi nghiêm trọng khi xóa hàng loạt lệnh: {e}")
-        print(traceback.format_exc())
-        flash(f"Đã xảy ra lỗi không mong muốn khi xóa lệnh: {e}", "error")
-
-    # Luôn redirect về trang quản lý mô phỏng
-    return redirect(url_for('admin.view_ai_simulations'))
-

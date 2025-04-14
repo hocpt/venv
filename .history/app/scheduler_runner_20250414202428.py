@@ -175,68 +175,51 @@ def load_scheduled_jobs_standalone(scheduler: BackgroundScheduler, db_config: di
     print(f"INFO (scheduler_runner): Finished loading jobs from DB. Added/Updated {added_count} enabled jobs.")
 
 
-# --- === HÀM XỬ LÝ LỆNH TỪ DATABASE (PHIÊN BẢN HOÀN CHỈNH) === ---
+
 def _process_pending_commands():
-    """
-    Kiểm tra bảng scheduler_commands và thực thi các lệnh đang chờ
-    (run_simulation, run_suggestion_job_now, cancel_job).
-    """
+    # ... (Code khởi tạo conn, bắt đầu transaction, lấy pending_commands như cũ) ...
     global live_scheduler
-    # Kiểm tra các điều kiện cần thiết để chạy
-    if not live_scheduler or not live_scheduler.running:
-        # print("DEBUG (Command Processor): Scheduler not running.")
-        return
-    if not db:
-        print("ERROR (Command Processor): DB module missing.")
-        return
-    # Kiểm tra xem các hàm tác vụ có sẵn không (nếu chưa import được)
-    run_sim_func = globals().get('run_ai_conversation_simulation')
-    suggest_func = globals().get('analyze_interactions_and_suggest')
-    # Không cần kiểm tra hết ở đây, sẽ kiểm tra khi xử lý từng loại lệnh
-
-    print(f"DEBUG (Command Processor): Checking for pending commands...")
+    if not live_scheduler or not live_scheduler.running: return
+    if not db: print("ERROR (Cmd Proc): DB module missing."); return
+    print(f"DEBUG (Cmd Proc): Checking pending commands...")
     conn = None
-    processed_count = 0 # Đếm số lệnh đã xử lý trong lần chạy này
-
     try:
-        conn = db.get_db_connection()
-        if not conn:
-            print("ERROR (Command Processor): Cannot get DB connection.")
-            return
-        conn.autocommit = False # Bắt đầu Transaction
-
-        # Lấy các loại lệnh đang chờ (pending)
-        pending_sim = db.get_pending_commands(command_type='run_simulation', limit=5) or []
+        conn = db.get_db_connection(); #... (kiểm tra conn) ...
+        if not conn: print("ERROR (Cmd Proc): Cannot get DB conn."); return
+        conn.autocommit = False
+        # Lấy cả hai loại lệnh đang chờ
+        pending_commands = db.get_pending_commands(command_type='run_simulation', limit=5) or []
         pending_run_now = db.get_pending_commands(command_type='run_suggestion_job_now', limit=5) or []
         pending_cancel = db.get_pending_commands(command_type='cancel_job', limit=10) or []
+        all_pending = pending_commands + pending_run_now # Gộp lại (có thể cần sắp xếp theo created_at nếu muốn)
 
-        all_pending = pending_sim + pending_run_now + pending_cancel
-
-        if not all_pending:
-            conn.commit() # Commit để giải phóng lock nếu có
-            if conn: conn.close() # Đóng connection nếu không có gì làm
-            return
-
-        print(f"INFO (Command Processor): Found {len(all_pending)} pending command(s).")
+        if not all_pending: conn.commit(); return # Commit nếu không có gì
+        print(f"INFO (Cmd Proc): Found {len(all_pending)} pending command(s).")
 
         for command in all_pending:
             command_id = command['command_id']
-            command_type = command['command_type']
-            payload = command['payload'] # Đã là dict
+            command_type = command['command_type'] # <<< Lấy command_type
+            payload = command['payload'] # <<< Đã là dict
             print(f"DEBUG (Cmd Proc): Processing command ID: {command_id}, Type: {command_type}")
 
-            # 1. Đánh dấu processing (quan trọng để tránh xử lý lặp lại ngay)
+            # 1. Đánh dấu processing
             updated_processing = db.update_command_status(conn, command_id, 'processing')
-            if not updated_processing:
-                print(f"WARN (Cmd Proc): Skip cmd {command_id}, cannot mark processing (maybe processed by another instance?).")
-                continue # Bỏ qua nếu không đánh dấu được
+            if not updated_processing: print(f"WARN (Cmd Proc): Skip cmd {command_id}, cannot mark processing."); continue
 
             try:
-                # --- Phân loại và Xử lý Lệnh ---
+                target_func = None
+                job_args = ()
+                job_id_prefix = "unknown_run"
+                executor_to_use = 'default' # Mặc định dùng threadpool
+
+                # --- Phân loại Lệnh ---
                 if command_type == 'run_simulation':
-                    if not run_sim_func: raise ImportError("run_ai_conversation_simulation function not available")
+                    if not run_ai_conversation_simulation: raise ImportError("Simulation function not loaded")
+                    target_func = run_ai_conversation_simulation
+                    executor_to_use = 'processpool' # Mô phỏng chạy process riêng
+                    job_id_prefix = "sim_run"
+                    # Trích xuất args cho simulation (như code cũ)
                     params = payload
-                    # Trích xuất args (như cũ)
                     persona_a_id = params.get('persona_a_id'); persona_b_id = params.get('persona_b_id')
                     strategy_id = params.get('strategy_id'); max_turns = int(params.get('max_turns', 5))
                     starting_prompt = params.get('starting_prompt') or "Xin chào!"
@@ -245,28 +228,18 @@ def _process_pending_commands():
                     sim_goal = params.get('sim_goal') or "simulation"
                     if not all([persona_a_id, persona_b_id, strategy_id, log_account_id_a, log_account_id_b]):
                         raise ValueError("Missing required params for simulation")
-
-                    job_id = f"sim_run_{sim_thread_id_base}_{uuid.uuid4().hex[:8]}"
                     job_args = (persona_a_id, persona_b_id, strategy_id, max_turns, starting_prompt,
                                 log_account_id_a, log_account_id_b, sim_thread_id_base, sim_goal)
-                    run_time = datetime.now(SCHEDULER_TIMEZONE) + timedelta(seconds=2)
 
-                    live_scheduler.add_job(id=job_id, func=run_sim_func, args=job_args, trigger='date', run_date=run_time,
-                                           jobstore='default', executor='processpool', replace_existing=False, misfire_grace_time=120)
-                    db.update_command_status(conn, command_id, 'done') # Đánh dấu lệnh gốc là done sau khi add_job
-                    print(f"INFO (Cmd Proc): Scheduled job '{job_id}' for cmd {command_id}.")
-                    processed_count += 1
+                elif command_type == 'run_suggestion_job_now': # <<< XỬ LÝ LỆNH MỚI
+                    if not analyze_interactions_and_suggest: raise ImportError("Suggestion function not loaded")
+                    target_func = analyze_interactions_and_suggest
+                    executor_to_use = 'processpool' # Job này cũng có thể nặng, dùng processpool
+                    job_id_prefix = "manual_suggestion_run"
+                    job_args = () # Hàm này không cần tham số
 
-                elif command_type == 'run_suggestion_job_now':
-                    if not suggest_func: raise ImportError("analyze_interactions_and_suggest function not available")
-                    job_id = f"manual_suggestion_run_{uuid.uuid4().hex[:8]}"
-                    run_time = datetime.now(SCHEDULER_TIMEZONE) + timedelta(seconds=1)
-                    live_scheduler.add_job(id=job_id, func=suggest_func, args=(), trigger='date', run_date=run_time,
-                                           jobstore='default', executor='processpool', replace_existing=False, misfire_grace_time=120)
-                    db.update_command_status(conn, command_id, 'done')
-                    print(f"INFO (Cmd Proc): Scheduled job '{job_id}' for cmd {command_id}.")
-                    processed_count += 1
-
+                # Thêm các loại lệnh khác (như cancel_job) ở đây nếu cần
+                # elif command_type == 'cancel_job': ...
                 elif command_type == 'cancel_job':
                     job_id_to_cancel = payload.get('job_id_to_cancel')
                     if not job_id_to_cancel:
@@ -276,42 +249,50 @@ def _process_pending_commands():
                     try:
                         live_scheduler.remove_job(job_id_to_cancel, jobstore='default')
                         print(f"INFO (Cmd Proc): Successfully removed job '{job_id_to_cancel}'.")
-                        db.update_command_status(conn, command_id, 'done') # Lệnh cancel đã xong
+                        db.update_command_status(conn, command_id, 'done')
                     except JobLookupError:
-                        print(f"WARN (Cmd Proc): Job '{job_id_to_cancel}' not found for cancellation. Marking command done.")
-                        db.update_command_status(conn, command_id, 'done') # Vẫn đánh dấu xong vì job không tồn tại
-                    # Các lỗi khác khi remove_job sẽ bị bắt bởi khối except bên ngoài và đánh dấu lệnh là error
-                    processed_count += 1
-
+                        # Job không tồn tại trong scheduler (có thể đã chạy xong hoặc bị xóa trước đó)
+                        print(f"WARN (Cmd Proc): Job '{job_id_to_cancel}' not found in scheduler. Marking command done.")
+                        db.update_command_status(conn, command_id, 'done')
+                    except Exception as remove_err:
+                        # Lỗi khác khi cố gắng xóa job
+                        raise remove_err
                 else:
                     raise ValueError(f"Unknown command_type: {command_type}")
 
+                # --- Nếu xác định được hàm mục tiêu ---
+                if target_func:
+                    job_id = f"{job_id_prefix}_{uuid.uuid4().hex[:8]}"
+                    run_time = datetime.now(SCHEDULER_TIMEZONE) + timedelta(seconds=1) # Chạy sau 1 giây
+                    print(f"DEBUG (Cmd Proc): Scheduling job '{job_id}' Func='{target_func.__name__}' Executor='{executor_to_use}'")
+
+                    live_scheduler.add_job(
+                        id=job_id, func=target_func, args=job_args,
+                        trigger='date', run_date=run_time,
+                        jobstore='default', executor=executor_to_use,
+                        replace_existing=False, misfire_grace_time=120
+                    )
+                    db.update_command_status(conn, command_id, 'done')
+                    print(f"INFO (Cmd Proc): Scheduled job '{job_id}' for command {command_id}.")
+                else:
+                     # Trường hợp không xác định được target_func (dù không nên xảy ra nếu code trên đúng)
+                     raise ValueError("Target function could not be determined.")
+
             except Exception as processing_err:
-                # Xử lý lỗi khi parse payload, kiểm tra tham số, hoặc thêm/xóa job
+                # Xử lý lỗi khi parse payload hoặc thêm job
                 error_msg = f"Error processing command {command_id} ({command_type}): {type(processing_err).__name__} - {processing_err}"
                 print(error_msg)
-                # print(traceback.format_exc()) # Bỏ comment nếu cần debug sâu
                 db.update_command_status(conn, command_id, 'error', error_message=str(processing_err)[:500])
-                # Không cần rollback ở đây, chỉ cập nhật status lỗi cho command hiện tại
 
-        # Commit tất cả các thay đổi status sau khi xử lý xong batch
+        # Commit tất cả thay đổi status
         conn.commit()
-        if processed_count > 0:
-             print(f"DEBUG (Command Processor): Finished processing batch of {processed_count} command(s).")
+        # print(f"DEBUG (Cmd Proc): Finished command batch.")
 
-    except psycopg2.Error as db_conn_err: # Lỗi kết nối hoặc transaction lớn
-         print(f"ERROR (Command Processor): Database connection/transaction error: {db_conn_err}")
-         if conn: conn.rollback()
-    except Exception as e: # Lỗi không mong muốn khác
-        print(f"ERROR (Command Processor): Unexpected error: {e}")
-        print(traceback.format_exc())
+    except Exception as e:
+        print(f"ERROR (Cmd Proc): Unexpected error: {e}")
         if conn: conn.rollback()
     finally:
-        if conn:
-             conn.autocommit = True
-             conn.close()
-             # print("DEBUG (Command Processor): DB Connection closed.")
-
+        if conn: conn.autocommit = True; conn.close()
 
 # --- HÀM GIÁM SÁT MỚI ---
 def _monitor_and_sync_job_status():
