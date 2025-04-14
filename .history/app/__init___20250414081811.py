@@ -3,6 +3,8 @@ from flask import Flask, app
 import config
 from flask_sqlalchemy import SQLAlchemy
 import os
+from .admin_routes import admin_bp
+app.register_blueprint(admin_bp)
 db_sqlalchemy = SQLAlchemy()
 
 def create_app(config_class=config.Config):
@@ -10,10 +12,9 @@ def create_app(config_class=config.Config):
         __name__,
         static_folder='static',
         template_folder='templates'
-        
-        
     )
     app.config['JSON_AS_ASCII'] = False
+
     print(f"INFO: Đang nạp cấu hình từ class {config_class.__name__}")
     app.config.from_object(config_class)
 

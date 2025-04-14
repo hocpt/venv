@@ -2528,56 +2528,67 @@ def get_live_job_statuses_for_ajax():
 
 @admin_bp.route('/ai-simulations', methods=['GET'])
 def view_ai_simulations():
-    """Hiển thị trang quản lý: danh sách cấu hình đã lưu, form ad-hoc, danh sách live."""
+    """Hiển thị trang quản lý và form chạy mô phỏng ad-hoc."""
     title = "Quản lý Mô phỏng AI"
-    personas, strategies, accounts, saved_configs, active_sim_jobs = [], [], [], [], [] # Khởi tạo
+    personas = []
+    strategies = []
+    accounts = []
+    active_sim_jobs = [] # <<< List chứa các job mô phỏng đang active
 
     if not db:
         flash("Lỗi nghiêm trọng: Database module chưa sẵn sàng.", "error")
     else:
         try:
-            # Lấy dữ liệu cho dropdowns
+            # Lấy dữ liệu cho dropdowns (như cũ)
             personas = db.get_all_personas() or []
             strategies = db.get_all_strategies() or []
             accounts = db.get_all_accounts() or []
+            # ... (flash warnings nếu thiếu dữ liệu dropdown như cũ) ...
+            if not personas: flash("Không tìm thấy AI Personas.", "warning")
+            if not strategies: flash("Không tìm thấy Strategies.", "warning")
+            if not accounts: flash("Không tìm thấy Accounts.", "warning")
 
-            # <<< THÊM: Lấy danh sách cấu hình đã lưu >>>
-            saved_configs = db.get_all_simulation_configs() or []
+            # === LẤY DANH SÁCH SIMULATION JOBS ĐANG ACTIVE ===
+            live_run_times = _get_live_next_run_times() # Dùng lại hàm helper
+            server_tz = pytz.timezone('Asia/Ho_Chi_Minh') # Hoặc lấy từ config
 
-            # Lấy danh sách live jobs (giữ nguyên logic cũ)
-            live_run_times = _get_live_next_run_times()
-            server_tz = _get_configured_timezone()
-            # ... (code xử lý live_run_times để tạo active_sim_jobs như cũ) ...
             for job_id, next_run_timestamp in live_run_times.items():
+                # Chỉ lấy các job có ID bắt đầu bằng 'sim_run_'
                 if job_id.startswith('sim_run_'):
-                    # ... (logic tạo job_info như cũ) ...
-                    job_info = {'id': job_id, 'next_run_time_str': 'N/A', 'config_info': 'Ad-hoc Run', 'status': 'Unknown'} # Thêm config_info mặc định
+                    job_info = {'id': job_id, 'next_run_time_str': 'N/A', 'config_info': 'N/A'}
                     if next_run_timestamp is not None:
                         try:
                             utc_dt = datetime.fromtimestamp(next_run_timestamp, tz=timezone.utc)
                             local_dt = utc_dt.astimezone(server_tz)
                             job_info['next_run_time_str'] = local_dt.strftime('%Y-%m-%d %H:%M:%S %z')
-                            job_info['status'] = 'Scheduled'
-                        except Exception: job_info['next_run_time_str'] = 'Lỗi Format'
-                    else: job_info['next_run_time_str'] = 'Paused (?)'; job_info['status'] = 'Paused/Finished?'
-                    active_sim_jobs.append(job_info)
-            active_sim_jobs.sort(key=lambda x: x.get('id', '')) # Sắp xếp theo ID
+                            job_info['status'] = 'Scheduled' # Hoặc "Running" nếu có cách kiểm tra?
+                        except Exception as fmt_err:
+                            print(f"Error formatting timestamp for live job {job_id}: {fmt_err}")
+                            job_info['next_run_time_str'] = 'Lỗi Format'
+                            job_info['status'] = 'Unknown'
+                    else:
+                        job_info['next_run_time_str'] = 'Paused (?)' # Job trigger date thường không pause
+                        job_info['status'] = 'Unknown' # Hoặc "Running/Finished"? Khó biết chắc chắn
 
-            # ... (flash warnings nếu thiếu dữ liệu dropdown như cũ) ...
+                    # TODO: Lấy config info (Personas, Strategy) từ DB command hoặc job name nếu có thể
+                    # Ví dụ đơn giản: job_info['config_info'] = job_id # Tạm thời hiển thị ID
+
+                    active_sim_jobs.append(job_info)
+            # Sắp xếp theo thời gian chạy dự kiến nếu muốn
+            active_sim_jobs.sort(key=lambda x: x.get('next_run_time_str', ''))
 
         except Exception as e:
             print(f"Lỗi khi tải dữ liệu cho trang mô phỏng AI: {e}")
-            flash("Lỗi không mong muốn khi tải dữ liệu.", "error")
-            personas, strategies, accounts, saved_configs, active_sim_jobs = [], [], [], [], []
+            flash("Lỗi không mong muốn khi tải dữ liệu cần thiết.", "error")
+            personas, strategies, accounts, active_sim_jobs = [], [], [], []
 
-    # Render template, truyền thêm saved_configs
+    # Render template, truyền thêm active_sim_jobs
     return render_template('admin_ai_simulations.html',
                            title=title,
                            personas=personas,
                            strategies=strategies,
                            accounts=accounts,
-                           saved_configs=saved_configs,         # <<< Truyền cấu hình đã lưu
-                           active_sim_jobs=active_sim_jobs)   # <<< Truyền job đang chạy/chờ
+                           active_sim_jobs=active_sim_jobs) # <<< Truyền danh sách job đang chạy
 
 
 @admin_bp.route('/ai-simulations/run-adhoc', methods=['POST'])
@@ -2674,319 +2685,4 @@ def run_adhoc_simulation():
 def cancel_simulation_job(job_id):
     # TODO: Implement cancellation logic using command queue
     flash(f"Yêu cầu hủy job '{job_id}' (Chức năng đang phát triển).", "info")
-    return redirect(url_for('admin.view_ai_simulations'))
-
-# --- === ROUTE CHẠY MÔ PHỎNG TỪ CẤU HÌNH ĐÃ LƯU === ---
-@admin_bp.route('/ai-simulations/configs/<int:config_id>/run', methods=['POST'])
-def run_saved_simulation(config_id):
-    """Đọc cấu hình đã lưu và thêm lệnh chạy mô phỏng vào queue."""
-    print(f"INFO: Received request to run saved simulation config ID: {config_id}")
-    if not db:
-         flash("Lỗi nghiêm trọng: Database module chưa sẵn sàng.", "error")
-         return redirect(url_for('admin.view_ai_simulations'))
-
-    try:
-        # 1. Lấy chi tiết cấu hình từ CSDL
-        config_details = db.get_simulation_config(config_id)
-
-        if not config_details:
-            flash(f"Lỗi: Không tìm thấy cấu hình mô phỏng có ID {config_id}.", "error")
-            return redirect(url_for('admin.view_ai_simulations'))
-
-        # Kiểm tra xem config có được enable không (tùy chọn)
-        if not config_details.get('is_enabled', True):
-             flash(f"Cấu hình mô phỏng '{config_details.get('config_name')}' đang bị tắt (disabled).", "warning")
-             return redirect(url_for('admin.view_ai_simulations'))
-
-        # 2. Trích xuất tham số từ cấu hình đã lưu
-        # Đảm bảo tên key khớp với các cột trong bảng ai_simulation_configs
-        # và khớp với các tham số mà run_ai_conversation_simulation mong đợi
-        command_payload = {
-            'persona_a_id': config_details.get('persona_a_id'),
-            'persona_b_id': config_details.get('persona_b_id'),
-            'log_account_id_a': config_details.get('log_account_id_a'),
-            'log_account_id_b': config_details.get('log_account_id_b'),
-            'strategy_id': config_details.get('strategy_id'),
-            'max_turns': config_details.get('max_turns', 5), # Lấy giá trị từ DB hoặc default
-            'starting_prompt': config_details.get('starting_prompt'), # Có thể là None
-            # Tạo tiền tố thread ID dựa trên tên config để dễ nhận biết
-            'sim_thread_id_base': f"sim_{config_details.get('config_name', str(config_id)).replace(' ', '_')[:15]}",
-            'sim_goal': config_details.get('simulation_goal') or 'saved_config_run'
-        }
-
-        # Kiểm tra lại các giá trị bắt buộc
-        if not all([command_payload['persona_a_id'], command_payload['persona_b_id'],
-                    command_payload['log_account_id_a'], command_payload['log_account_id_b'],
-                    command_payload['strategy_id']]):
-            flash(f"Lỗi: Cấu hình ID {config_id} thiếu thông tin Persona, Account Log hoặc Strategy.", "error")
-            return redirect(url_for('admin.view_ai_simulations'))
-
-
-        print(f"INFO: Adding 'run_simulation' command from saved config '{config_details.get('config_name')}' with payload: {command_payload}")
-
-        # 3. Thêm Lệnh vào Hàng Đợi DB
-        command_id = db.add_scheduler_command(
-            command_type='run_simulation',
-            payload=command_payload
-        )
-
-        if command_id:
-            flash(f"Đã yêu cầu chạy mô phỏng theo cấu hình '{config_details.get('config_name')}'. Tác vụ sẽ được xử lý (Command ID: {command_id}).", 'success')
-        else:
-             flash(f"Lỗi khi thêm yêu cầu chạy cấu hình '{config_details.get('config_name')}' vào hàng đợi CSDL.", "error")
-
-    except Exception as e:
-        print(f"Lỗi nghiêm trọng khi yêu cầu chạy cấu hình đã lưu ID {config_id}: {e}")
-        print(traceback.format_exc())
-        flash(f"Đã xảy ra lỗi không mong muốn: {e}", "error")
-
-    # Luôn redirect về trang quản lý mô phỏng
-    return redirect(url_for('admin.view_ai_simulations'))
-
-# --- === ROUTE THÊM CẤU HÌNH MÔ PHỎNG MỚI === ---
-@admin_bp.route('/ai-simulations/configs/add', methods=['GET', 'POST'])
-def add_simulation_config_view():
-    """Hiển thị form thêm và xử lý lưu cấu hình mô phỏng mới."""
-    title = "Thêm Cấu hình Mô phỏng AI"
-    # Dữ liệu cần cho dropdowns
-    personas = []
-    strategies = []
-    accounts = []
-    if db:
-        try:
-            personas = db.get_all_personas() or []
-            strategies = db.get_all_strategies() or []
-            accounts = db.get_all_accounts() or []
-        except Exception as e:
-            flash(f"Lỗi tải dữ liệu cho form: {e}", "error")
-
-    # --- Xử lý POST request ---
-    if request.method == 'POST':
-        try:
-            # Lấy dữ liệu từ form
-            config_name = request.form.get('config_name', '').strip()
-            description = request.form.get('description', '').strip()
-            persona_a_id = request.form.get('persona_a_id')
-            persona_b_id = request.form.get('persona_b_id')
-            log_account_id_a = request.form.get('log_account_id_a')
-            log_account_id_b = request.form.get('log_account_id_b')
-            strategy_id = request.form.get('strategy_id')
-            max_turns_str = request.form.get('max_turns', '5')
-            starting_prompt = request.form.get('starting_prompt', '').strip()
-            simulation_goal = request.form.get('simulation_goal', 'general_chat').strip()
-            is_enabled = request.form.get('is_enabled') == 'on' # Checkbox trả về 'on' nếu được chọn
-
-            # --- Validate dữ liệu ---
-            errors = []
-            if not config_name: errors.append("Tên cấu hình là bắt buộc.")
-            if not persona_a_id: errors.append("Vui lòng chọn Persona A.")
-            if not persona_b_id: errors.append("Vui lòng chọn Persona B.")
-            if persona_a_id == persona_b_id: errors.append("Persona A và Persona B phải khác nhau.")
-            if not log_account_id_a: errors.append("Vui lòng chọn Account Log cho A.")
-            if not log_account_id_b: errors.append("Vui lòng chọn Account Log cho B.")
-            if not strategy_id: errors.append("Vui lòng chọn Chiến lược.")
-            max_turns = 5
-            try:
-                max_turns = int(max_turns_str)
-                if not (1 <= max_turns <= 50): # Giới hạn trong DB là 50
-                    raise ValueError("Số lượt phải từ 1 đến 50.")
-            except ValueError as e:
-                errors.append(f"Số lượt nói tối đa không hợp lệ: {e}")
-
-            if errors: # Nếu có lỗi validation
-                for error in errors: flash(error, 'warning')
-                # Render lại form với dữ liệu cũ và lỗi
-                return render_template('admin_add_simulation_config.html',
-                                       title=title + " (Lỗi)",
-                                       personas=personas, strategies=strategies, accounts=accounts,
-                                       current_data=request.form), 400
-
-            # --- Gọi hàm DB để thêm ---
-            success = db.add_simulation_config(
-                config_name=config_name, description=description or None, # Chuyển chuỗi rỗng thành None nếu cần
-                persona_a_id=persona_a_id, persona_b_id=persona_b_id,
-                log_account_id_a=log_account_id_a, log_account_id_b=log_account_id_b,
-                strategy_id=strategy_id, max_turns=max_turns,
-                starting_prompt=starting_prompt or None, # Chuyển chuỗi rỗng thành None
-                simulation_goal=simulation_goal or None,
-                is_enabled=is_enabled
-            )
-
-            if success:
-                flash(f"Đã thêm cấu hình mô phỏng '{config_name}' thành công!", 'success')
-                return redirect(url_for('admin.view_ai_simulations')) # Redirect về trang quản lý chính
-            else:
-                flash(f"Thêm cấu hình '{config_name}' thất bại! (Tên có thể đã tồn tại hoặc ID liên kết không hợp lệ?)", 'error')
-                # Render lại form với dữ liệu cũ
-                return render_template('admin_add_simulation_config.html',
-                                       title=title,
-                                       personas=personas, strategies=strategies, accounts=accounts,
-                                       current_data=request.form)
-
-        except Exception as e:
-            print(f"Lỗi nghiêm trọng khi thêm cấu hình mô phỏng: {e}")
-            print(traceback.format_exc())
-            flash(f"Đã xảy ra lỗi không mong muốn: {e}", "error")
-            # Render lại form với dữ liệu cũ
-            return render_template('admin_add_simulation_config.html',
-                                   title=title,
-                                   personas=personas, strategies=strategies, accounts=accounts,
-                                   current_data=request.form)
-
-    # --- Xử lý GET request ---
-    # Chỉ cần render template với dữ liệu cho dropdowns
-    return render_template('admin_add_simulation_config.html',
-                           title=title,
-                           personas=personas,
-                           strategies=strategies,
-                           accounts=accounts)
-
-@admin_bp.route('/ai-simulations/configs/<int:config_id>/edit', methods=['GET', 'POST'])
-def edit_simulation_config_view(config_id):
-    """Hiển thị form và xử lý cập nhật cấu hình mô phỏng đã lưu."""
-    if not db:
-        flash("Lỗi nghiêm trọng: Database module chưa sẵn sàng.", "error")
-        return redirect(url_for('admin.view_ai_simulations'))
-
-    # Lấy thông tin cấu hình hiện tại để hiển thị form (cho cả GET và POST lỗi)
-    config_details = db.get_simulation_config(config_id)
-    if not config_details:
-        flash(f"Không tìm thấy cấu hình mô phỏng có ID {config_id}.", "error")
-        return redirect(url_for('admin.view_ai_simulations'))
-
-    title = f"Sửa Cấu hình Mô phỏng '{config_details.get('config_name', config_id)}'"
-
-    # --- Xử lý POST request ---
-    if request.method == 'POST':
-        try:
-            # Lấy dữ liệu từ form
-            config_name = request.form.get('config_name', '').strip()
-            description = request.form.get('description', '').strip()
-            persona_a_id = request.form.get('persona_a_id')
-            persona_b_id = request.form.get('persona_b_id')
-            log_account_id_a = request.form.get('log_account_id_a')
-            log_account_id_b = request.form.get('log_account_id_b')
-            strategy_id = request.form.get('strategy_id')
-            max_turns_str = request.form.get('max_turns', '5')
-            starting_prompt = request.form.get('starting_prompt', '').strip()
-            simulation_goal = request.form.get('simulation_goal', 'general_chat').strip()
-            is_enabled = request.form.get('is_enabled') == 'on'
-
-            # --- Validate dữ liệu (tương tự như khi thêm) ---
-            errors = []
-            if not config_name: errors.append("Tên cấu hình là bắt buộc.")
-            # Kiểm tra trùng tên (ngoại trừ chính ID hiện tại) - Cần hàm DB `check_config_name_exists(name, exclude_id)` hoặc xử lý ở DB
-            # Tạm thời bỏ qua kiểm tra trùng tên khi sửa
-            if not persona_a_id: errors.append("Vui lòng chọn Persona A.")
-            if not persona_b_id: errors.append("Vui lòng chọn Persona B.")
-            if persona_a_id == persona_b_id: errors.append("Persona A và Persona B phải khác nhau.")
-            if not log_account_id_a: errors.append("Vui lòng chọn Account Log cho A.")
-            if not log_account_id_b: errors.append("Vui lòng chọn Account Log cho B.")
-            if not strategy_id: errors.append("Vui lòng chọn Chiến lược.")
-            max_turns = 5
-            try:
-                max_turns = int(max_turns_str)
-                if not (1 <= max_turns <= 50): raise ValueError("Số lượt phải từ 1 đến 50.")
-            except ValueError as e: errors.append(f"Số lượt nói tối đa không hợp lệ: {e}")
-
-            if errors:
-                for error in errors: flash(error, 'warning')
-                # Cần lấy lại dropdown data để render lại form lỗi
-                personas = db.get_all_personas() or []
-                strategies = db.get_all_strategies() or []
-                accounts = db.get_all_accounts() or []
-                # Dùng config_details cũ nhưng truyền current_data=request.form để giữ giá trị nhập lỗi
-                return render_template('admin_edit_simulation_config.html',
-                                       title=title + " (Lỗi)",
-                                       config=config_details, # config gốc để lấy ID
-                                       personas=personas, strategies=strategies, accounts=accounts,
-                                       current_data=request.form), 400
-
-            # --- Gọi hàm DB để cập nhật ---
-            success = db.update_simulation_config(
-                config_id=config_id, # ID từ URL
-                config_name=config_name, description=description or None,
-                persona_a_id=persona_a_id, persona_b_id=persona_b_id,
-                log_account_id_a=log_account_id_a, log_account_id_b=log_account_id_b,
-                strategy_id=strategy_id, max_turns=max_turns,
-                starting_prompt=starting_prompt or None,
-                simulation_goal=simulation_goal or None,
-                is_enabled=is_enabled
-            )
-
-            if success:
-                flash(f"Đã cập nhật cấu hình mô phỏng '{config_name}' thành công!", 'success')
-                return redirect(url_for('admin.view_ai_simulations')) # Redirect về trang quản lý chính
-            else:
-                flash(f"Cập nhật cấu hình '{config_name}' thất bại! (Tên có thể đã tồn tại hoặc ID liên kết không hợp lệ?)", 'error')
-                # Render lại form với dữ liệu cũ và lỗi
-                personas = db.get_all_personas() or []
-                strategies = db.get_all_strategies() or []
-                accounts = db.get_all_accounts() or []
-                return render_template('admin_edit_simulation_config.html',
-                                       title=title,
-                                       config=config_details, # config gốc
-                                       personas=personas, strategies=strategies, accounts=accounts,
-                                       current_data=request.form) # Giữ lại giá trị form lỗi
-
-        except Exception as e:
-            print(f"Lỗi nghiêm trọng khi cập nhật cấu hình mô phỏng ID {config_id}: {e}")
-            print(traceback.format_exc())
-            flash(f"Đã xảy ra lỗi không mong muốn: {e}", "error")
-            # Render lại form với dữ liệu gốc
-            personas = db.get_all_personas() or []
-            strategies = db.get_all_strategies() or []
-            accounts = db.get_all_accounts() or []
-            return render_template('admin_edit_simulation_config.html',
-                                   title=title,
-                                   config=config_details, # config gốc
-                                   personas=personas, strategies=strategies, accounts=accounts)
-
-
-    # --- Xử lý GET request ---
-    # Lấy dữ liệu cho dropdowns
-    personas = []
-    strategies = []
-    accounts = []
-    try:
-        personas = db.get_all_personas() or []
-        strategies = db.get_all_strategies() or []
-        accounts = db.get_all_accounts() or []
-    except Exception as e:
-        flash(f"Lỗi tải dữ liệu cho form sửa: {e}", "error")
-        # config_details đã được lấy ở trên, vẫn render form nhưng dropdown có thể trống
-
-    # Render template với dữ liệu cấu hình hiện tại và dữ liệu cho dropdowns
-    return render_template('admin_edit_simulation_config.html',
-                           title=title,
-                           config=config_details, # <<< Dữ liệu cấu hình cần sửa
-                           personas=personas,
-                           strategies=strategies,
-                           accounts=accounts)
-
-
-@admin_bp.route('/ai-simulations/configs/<int:config_id>/delete', methods=['POST'])
-def delete_simulation_config_view(config_id):
-    """Xử lý xóa một cấu hình mô phỏng đã lưu."""
-    print(f"INFO: Received request to delete simulation config ID: {config_id}")
-    if not db:
-         flash("Lỗi nghiêm trọng: Database module chưa sẵn sàng.", "error")
-         return redirect(url_for('admin.view_ai_simulations'))
-
-    try:
-        # Gọi hàm xóa trong database.py
-        success = db.delete_simulation_config(config_id)
-
-        if success:
-            flash(f"Đã xóa thành công cấu hình mô phỏng ID {config_id}.", 'success')
-        else:
-            # Có thể do ID không tồn tại
-            flash(f"Xóa cấu hình mô phỏng ID {config_id} thất bại (ID không tồn tại?).", 'warning')
-
-    except Exception as e:
-        print(f"Lỗi nghiêm trọng khi xóa cấu hình mô phỏng ID {config_id}: {e}")
-        print(traceback.format_exc())
-        flash(f"Đã xảy ra lỗi không mong muốn khi xóa cấu hình: {e}", "error")
-
-    # Luôn redirect về trang quản lý chính
     return redirect(url_for('admin.view_ai_simulations'))

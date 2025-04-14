@@ -49,28 +49,31 @@
                 {% endif %}
             </td>
             <td style="text-align: center; white-space: nowrap;">
-                {# Nút Chạy Ngay - Style: button small + màu xanh lá #}
+                {# Nút Chạy Ngay - Áp dụng class button small + màu xanh #}
                 <form action="{{ url_for('admin.run_saved_simulation', config_id=cfg.config_id) }}" method="POST"
                     style="display:inline; margin-right: 5px;"
                     onsubmit="return confirm('Chạy mô phỏng với cấu hình \'{{ cfg.config_name }}\' này?');">
-                    <button type="submit" class="button small" {# <<< class="button small">>> #}
-                        style="background-color: #28a745; color: white !important;" {# <<< Màu xanh lá>>> #}
+                    <button type="submit" class="button small" {# <<< Thêm class="button small">>> #}
+                        style="background-color: #28a745; color: white !important;" {# <<< Thêm màu xanh giống nút
+                            Approve>>> #}
                             {% if not cfg.is_enabled %}disabled title="Cấu hình này đang bị tắt"{% endif %}>Chạy
                             Ngay</button>
                 </form>
 
-                {# Nút Sửa Config - Style: button small secondary-button #}
-                <a href="{{ url_for('admin.edit_simulation_config_view', config_id=cfg.config_id) }}"
-                    class="button small secondary-button" {# <<< class="button small secondary-button">>> #}
-                    style="margin-right: 5px;">Sửa</a>
+                {# Nút Sửa Config - Áp dụng class button small secondary-button #}
+                {# Vẫn giữ disabled vì chưa làm chức năng #}
+                <a href="#" {# "{{ url_for('admin.edit_simulation_config_view', config_id=cfg.config_id) }}" #}
+                    class="button small secondary-button" {# <<< Thêm class>>> #}
+                    style="margin-right: 5px;" title="Chức năng Sửa Config đang phát triển" disabled>Sửa</a>
 
-                {# Nút Xóa Config - Style: button small secondary-button + màu đỏ #}
-                <form action="{{ url_for('admin.delete_simulation_config_view', config_id=cfg.config_id) }}"
+                {# Nút Xóa Config - Áp dụng class button small secondary-button + màu đỏ #}
+                {# Vẫn giữ disabled vì chưa làm chức năng #}
+                <form action="#" {# "{{ url_for('admin.delete_simulation_config_view', config_id=cfg.config_id) }}" #}
                     method="POST" style="display:inline;"
-                    onsubmit="return confirm('Xác nhận xóa cấu hình \'{{ cfg.config_name }}\'? Hành động này không thể hoàn tác!');">
-                    <button type="submit" class="button small secondary-button" {# <<<
-                        class="button small secondary-button">>> #}
-                        style="background-color:#dc3545;">Xóa</button> {# <<< Thêm màu đỏ, bỏ disabled>>> #}
+                    onsubmit="return confirm('Xác nhận xóa cấu hình \'{{ cfg.config_name }}\'?');">
+                    <button type="submit" class="button small secondary-button" {# <<< Thêm class>>> #}
+                        style="background-color:#dc3545;" {# <<< Thêm màu đỏ giống nút Reject>>> #}
+                            disabled title="Chức năng Xóa Config đang phát triển">Xóa</button>
                 </form>
             </td>
         </tr>

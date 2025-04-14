@@ -2964,29 +2964,3 @@ def edit_simulation_config_view(config_id):
                            strategies=strategies,
                            accounts=accounts)
 
-
-@admin_bp.route('/ai-simulations/configs/<int:config_id>/delete', methods=['POST'])
-def delete_simulation_config_view(config_id):
-    """Xử lý xóa một cấu hình mô phỏng đã lưu."""
-    print(f"INFO: Received request to delete simulation config ID: {config_id}")
-    if not db:
-         flash("Lỗi nghiêm trọng: Database module chưa sẵn sàng.", "error")
-         return redirect(url_for('admin.view_ai_simulations'))
-
-    try:
-        # Gọi hàm xóa trong database.py
-        success = db.delete_simulation_config(config_id)
-
-        if success:
-            flash(f"Đã xóa thành công cấu hình mô phỏng ID {config_id}.", 'success')
-        else:
-            # Có thể do ID không tồn tại
-            flash(f"Xóa cấu hình mô phỏng ID {config_id} thất bại (ID không tồn tại?).", 'warning')
-
-    except Exception as e:
-        print(f"Lỗi nghiêm trọng khi xóa cấu hình mô phỏng ID {config_id}: {e}")
-        print(traceback.format_exc())
-        flash(f"Đã xảy ra lỗi không mong muốn khi xóa cấu hình: {e}", "error")
-
-    # Luôn redirect về trang quản lý chính
-    return redirect(url_for('admin.view_ai_simulations'))

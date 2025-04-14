@@ -3,6 +3,7 @@ from flask import Flask, app
 import config
 from flask_sqlalchemy import SQLAlchemy
 import os
+from .admin_routes import admin_bp
 db_sqlalchemy = SQLAlchemy()
 
 def create_app(config_class=config.Config):
