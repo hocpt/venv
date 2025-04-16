@@ -1,0 +1,124 @@
+{# templates/admin_api_keys.html #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title | default("Quản lý API Keys") }}</h1>
+<p style="color:red; font-weight:bold;">CẢNH BÁO: API Keys là thông tin cực kỳ nhạy cảm. Chỉ thêm key từ nguồn tin cậy
+    và quản lý cẩn thận.</p>
+<p><a href="{{ url_for('admin.add_api_key_view') }}" class="button">Thêm API Key Mới</a></p>
+
+{% if api_keys is defined and api_keys %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%; border-collapse: collapse;">
+    <thead>
+        <tr style="background-color: #f2f2f2;">
+            <th style="width: 5%;">ID</th>
+            <th style="width: 20%;">Tên Key</th>
+            <th style="width: 15%;">Nhà cung cấp</th>
+            <th style="width: 10%;">Trạng thái</th>
+            <th style="width: 15%;">Lần dùng cuối</th>
+            <th style="width: 15%;">Rate Limit Đến</th>
+            <th style="width: 10%;">Hành động</th>
+            {# Không hiển thị giá trị Key ở đây vì lý do bảo mật #}
+        </tr>
+    </thead>
+    <tbody>
+        {% for key in api_keys %}
+        {# Có thể thêm style khác nhau cho các status #}
+        {% set status_lower = (key.status | string | lower) %}
+        <tr {% if status_lower=='inactive' %} style="opacity: 0.6;" title="Key đang bị tắt (inactive)" {% elif
+            status_lower=='rate_limited' %} style="background-color: #fff3cd;"
+            title="Key đang bị giới hạn quota tạm thời" {% endif %}>
+            <td>{{ key.key_id }}</td>
+            <td>
+                {{ key.key_name }}
+                {% if key.notes %}
+                <br><small style="color: #555;" title="{{ key.notes | escape }}">{{ key.notes | truncate(50) }}</small>
+                {% endif %}
+            </td>
+            <td>{{ key.provider }}</td>
+            <td style="text-align: center;">
+                {% if status_lower == 'active' %} <span style="color: green; font-weight: bold;">Active</span>
+                {% elif status_lower == 'inactive' %} <span style="color: grey;">Inactive</span>
+                {% elif status_lower == 'rate_limited' %} <span style="color: orange; font-weight: bold;">Rate
+                    Limited</span>
+                {% else %} <span style="color: red;">{{ key.status | default('Unknown') }}</span>
+                {% endif %}
+            </td>
+            <td style="font-size: 0.9em;">{{ key.last_used_at.astimezone(tz=None).strftime('%Y-%m-%d %H:%M:%S') if
+                key.last_used_at else 'Chưa dùng' }}</td>
+            <td style="font-size: 0.9em;">{{ key.rate_limited_until.astimezone(tz=None).strftime('%Y-%m-%d %H:%M:%S') if
+                key.rate_limited_until else 'Không bị' }}</td>
+            <td style="text-align: center; white-space: nowrap;">
+                {# Nút Sửa - Kích hoạt #}
+                <a href="{{ url_for('admin.edit_api_key_view', key_id=key.key_id) }}" {# <<< Bỏ comment href>>> #}
+                    class="button small secondary-button" style="margin-right: 5px;">Sửa</a> {# <<< Xóa disabled nếu có>
+                    >> #}
+                    {# Nút Xóa - Kích hoạt #}
+                    <form action="{{ url_for('admin.delete_api_key_view', key_id=key.key_id) }}" {# <<< Bỏ comment
+                        action>>> #}
+                        method="POST" style="display:inline;" onsubmit="return confirm('Xác nhận xóa API Key \'{{
+                        key.key_name }}\'?');">
+                        <button type="submit" class="button small secondary-button"
+                            style="background-color:#dc3545;">Xóa</button> {# <<< Xóa disabled>>> #}
+                    </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% elif api_keys is none %}
+<p style="color: red;">Lỗi khi tải danh sách API Keys.</p>
+{% else %}
+<p>Chưa có API Key nào được lưu. Hãy thêm key mới.</p>
+{% endif %}
+
+{% endblock %}
+
+{% block styles %}
+{{ super() }}
+<style>
+    /* Kế thừa style nút và bảng */
+    th,
+    td {
+        padding: 8px;
+        vertical-align: middle;
+        word-wrap: break-word;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+    }
+
+    .button.small {
+        /* Kế thừa */
+    }
+
+    .button.secondary-button {
+        /* Kế thừa */
+    }
+
+    td span[style*="color"] {
+        padding: 2px 5px;
+        border-radius: 3px;
+        display: inline-block;
+    }
+
+    span[style*="color: green"] {
+        background-color: #d4edda;
+    }
+
+    span[style*="color: grey"] {
+        background-color: #e9ecef;
+    }
+
+    span[style*="color: orange"] {
+        background-color: #fff3cd;
+    }
+
+    span[style*="color: red"] {
+        background-color: #f8d7da;
+    }
+</style>
+{% endblock %}

@@ -1,0 +1,134 @@
+{# templates/admin_rules.html - Phiên bản đầy đủ với Highlight #}
+{% extends "admin_base.html" %} {# Kế thừa từ layout admin cơ sở #}
+
+{% block content %}
+<h1>{{ title | default('Quản lý Luật (Simple Rules)') }}</h1>
+
+<p><a href="{{ url_for('admin.add_rule') }}" class="button">Thêm Luật Mới</a></p>
+
+{# Thêm Form Bộ lọc - Chúng ta sẽ làm chức năng lọc sau #}
+{#
+<form method="GET" action="{{ url_for('admin.view_rules') }}" class="filter-form" style="margin-bottom: 20px;">
+    <fieldset>
+        <legend>Bộ lọc Luật</legend>
+        <div class="filter-row">
+            <div class="filter-group">
+                <label for="filter_keywords">Keywords (chứa):</label>
+                <input type="text" id="filter_keywords" name="filter_keywords"
+                    value="{{ filters.filter_keywords | default('') }}">
+            </div>
+            <div class="filter-group">
+                <label for="filter_category">Category:</label>
+                <select id="filter_category" name="filter_category">
+                    <option value="">-- Tất cả Category --</option>
+                    {# {% for cat in distinct_rule_categories %} ... {% endfor %} #}
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="filter_template_ref">Template Ref:</label>
+                <select id="filter_template_ref" name="filter_template_ref">
+                    <option value="">-- Tất cả Templates --</option>
+                    {# {% for tpl in distinct_rule_template_refs %} ... {% endfor %} #}
+                </select>
+            </div>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="button">Lọc</button>
+            <a href="{{ url_for('admin.view_rules') }}">Xóa lọc</a>
+        </div>
+    </fieldset>
+</form>
+#}
+
+{# Bảng hiển thị danh sách luật #}
+{% if rules is defined and rules is iterable %} {# Kiểm tra biến rules tồn tại và có thể lặp #}
+{% if rules %} {# Nếu list không rỗng #}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%; border-collapse: collapse;">
+    <thead>
+        <tr style="background-color: #f2f2f2;">
+            <th style="width: 5%;">ID</th>
+            <th style="width: 25%;">Keywords</th>
+            <th style="width: 15%;">Category</th>
+            <th style="width: 15%;">Template Ref</th>
+            <th style="width: 5%; text-align: center;">Priority</th>
+            <th style="width: 20%;">Notes</th>
+            <th style="width: 15%;">Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {# Vòng lặp bắt đầu #}
+        {% for rule in rules %}
+        {# Thêm style nền nếu rule_id nằm trong danh sách bị trùng keywords #}
+        <tr {% if rule.rule_id in duplicate_rule_ids %}style="background-color: #fff3cd;"
+            title="Keywords này bị trùng lặp ở luật khác!" {% endif %}>
+            <td>{{ rule.rule_id }}</td>
+            {# Hiển thị keywords trong
+            <pre> để giữ định dạng nếu dài #}
+                        <td><pre style="margin:0; font-size: 0.9em; background: none; border: none; padding: 0;">{{ rule.trigger_keywords }}</pre>
+            </td>
+            <td>{{ rule.category | default('') }}</td>
+            <td>{{ rule.response_template_ref }}</td>
+            <td style="text-align: center;">{{ rule.priority | default(0) }}</td>
+            <td>{{ rule.notes | default('') | truncate(80) }}</td> {# Thêm truncate cho notes dài #}
+            <td style="white-space: nowrap; text-align: center;"> {# Căn giữa và không xuống dòng #}
+                {# Nút Sửa #}
+                <a href="{{ url_for('admin.edit_rule', rule_id=rule.rule_id) }}" class="button small secondary-button"
+                    style="margin-right: 5px;">Sửa</a>
+                {# Nút Xóa #}
+                <form action="{{ url_for('admin.delete_rule', rule_id=rule.rule_id) }}" method="POST"
+                    style="display:inline;" onsubmit="return confirm('Xác nhận xóa luật #{{ rule.rule_id }}?');">
+                    <button type="submit" class="button small secondary-button"
+                        style="background-color:#dc3545;">Xóa</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %} {# Vòng lặp kết thúc #}
+    </tbody>
+</table>
+{% elif rules is none %} {# Lỗi khi tải rules #}
+<p style="color: red;">Không thể tải danh sách luật (Lỗi CSDL?).</p>
+{% else %} {# List rules rỗng #}
+<p>Chưa có luật nào được định nghĩa.</p>
+{% endif %}
+{% else %}
+<p style="color: red;">Biến 'rules' không được truyền vào template hoặc không hợp lệ.</p>
+{% endif %}
+
+{% endblock %}
+
+
+{# Thêm CSS nếu cần #}
+{% block styles %}
+{{ super() }}
+<style>
+    /* Đảm bảo các class button đã được định nghĩa trong style.css hoặc base */
+    th,
+    td {
+        padding: 8px;
+        vertical-align: middle;
+        word-wrap: break-word;
+    }
+
+    table {
+        table-layout: fixed;
+    }
+
+    /* Giúp các cột cố định chiều rộng */
+    td pre {
+        white-space: pre-wrap;
+        /* Xuống dòng tự động */
+        word-wrap: break-word;
+        /* Ngắt từ nếu quá dài */
+        background: none !important;
+        /* Bỏ nền mặc định của pre nếu có */
+        border: none !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        font-family: inherit;
+        /* Dùng font của bảng */
+    }
+
+    /* Style cho form filter (nếu dùng sau này) */
+    /* .filter-form fieldset { ... } */
+</style>
+{% endblock %}

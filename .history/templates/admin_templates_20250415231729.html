@@ -1,0 +1,238 @@
+{# templates/admin_templates.html - Đã thêm bộ lọc #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+
+{# === THÊM FORM BỘ LỌC === #}
+<form method="GET" action="{{ url_for('admin.view_templates') }}" class="filter-form" style="margin-bottom: 20px;">
+    <fieldset>
+        <legend>Bộ lọc Templates</legend>
+        <div class="filter-row">
+            <div class="filter-group">
+                <label for="filter_ref">Template Ref (chứa):</label>
+                <input type="text" id="filter_ref" name="filter_ref" value="{{ filters.filter_ref | default('') }}">
+            </div>
+            <div class="filter-group">
+                <label for="filter_category">Category:</label>
+                <select id="filter_category" name="filter_category">
+                    <option value="">-- Tất cả Category --</option>
+                    {# distinct_categories được truyền từ route #}
+                    {% for cat in distinct_categories %}
+                    <option value="{{ cat }}" {% if filters.filter_category==cat %}selected{% endif %}>{{ cat }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="button">Lọc</button>
+            <a href="{{ url_for('admin.view_templates') }}">Xóa lọc</a>
+        </div>
+    </fieldset>
+</form>
+{# === KẾT THÚC FORM BỘ LỌC === #}
+
+
+{# Thông tin phân trang #}
+{% if pagination and pagination.total_items > 0 %}
+<p>Hiển thị {{ templates | length }} trong tổng số {{ pagination.total_items }} templates. Trang {{ pagination.page }} /
+    {{ pagination.total_pages }}.</p>
+{% endif %}
+
+<p><a href="{{ url_for('admin.add_template') }}" class="button">Thêm Template Mới</a></p>
+
+{# Bảng Templates #}
+{% if templates is defined and templates is iterable %}
+{% if templates %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%; border-collapse: collapse;">
+    <thead>
+        <tr style="background-color: #f2f2f2;">
+            <th style="width: 20%;">Template Ref</th>
+            <th style="width: 35%;">Description</th>
+            <th style="width: 15%;">Category</th>
+            <th style="width: 10%; text-align:center;">Variations</th>
+            <th style="width: 20%;">Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for tpl in templates %} {# Lặp qua danh sách template của trang hiện tại #}
+        <tr>
+            <td><code>{{ tpl.template_ref }}</code></td> {# Thêm code tag #}
+            <td>{{ tpl.description | default('') | truncate(100) }}</td> {# Thêm truncate #}
+            <td>{{ tpl.category | default('') }}</td>
+            <td style="text-align:center;">{{ tpl.variation_count | default(0) }}</td> {# Mặc định 0 nếu null #}
+            <td style="white-space: nowrap; text-align: center;">
+                <a href="{{ url_for('admin.edit_template_details', template_ref=tpl.template_ref) }}"
+                    class="button small secondary-button" style="margin-right: 5px;">Sửa Details</a>
+                <a href="{{ url_for('admin.view_template_variations', template_ref=tpl.template_ref) }}"
+                    class="button small secondary-button" style="margin-right: 5px; background-color: #17a2b8;">Xem/Sửa
+                    Variations</a>
+                <form action="{{ url_for('admin.delete_template', template_ref=tpl.template_ref) }}" method="POST"
+                    style="display:inline;"
+                    onsubmit="return confirm('Xóa template ref \'{{ tpl.template_ref }}\' và TẤT CẢ variations của nó?');">
+                    <button type="submit" class="button small secondary-button"
+                        style="background-color:#dc3545;">Xóa</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{# === THÊM PHẦN ĐIỀU HƯỚNG PHÂN TRANG === #}
+{% if pagination and pagination.total_pages > 1 %}
+<div class="pagination" style="margin-top: 20px; text-align: center;">
+    {# Link trang trước #}
+    {% if pagination.has_prev %}
+    {# Quan trọng: Truyền lại filters vào url_for #}
+    <a href="{{ url_for('admin.view_templates', page=pagination.prev_num, **filters) }}" class="page-link">&lsaquo;
+        Trước</a>
+    {% else %}
+    <span class="page-link disabled">&lsaquo; Trước</span>
+    {% endif %}
+    {# Thông tin trang #}
+    <span class="page-current"> Trang {{ pagination.page }} / {{ pagination.total_pages }} </span>
+    {# Link trang sau #}
+    {% if pagination.has_next %}
+    <a href="{{ url_for('admin.view_templates', page=pagination.next_num, **filters) }}" class="page-link">Sau
+        &rsaquo;</a>
+    {% else %}
+    <span class="page-link disabled">Sau &rsaquo;</span>
+    {% endif %}
+    {# Form nhảy trang (tùy chọn) #}
+    <form method="GET" action="{{ url_for('admin.view_templates') }}" style="display: inline-block; margin-left: 15px;">
+        {# Truyền lại filter qua hidden input #}
+        {% for key, value in filters.items() %}
+        <input type="hidden" name="filter_{{ key }}" value="{{ value }}">
+        {% endfor %}
+        <label for="page_jump" style="font-size: 0.9em;">Đi tới trang:</label>
+        <input type="number" name="page" id="page_jump" min="1" max="{{ pagination.total_pages }}"
+            value="{{ pagination.page }}" style="width: 60px; padding: 3px;">
+        <button type="submit" class="button small">Đi</button>
+    </form>
+</div>
+{% endif %}
+{# === KẾT THÚC PHÂN TRANG === #}
+
+{% elif filters %}
+<p>Không tìm thấy template nào khớp với bộ lọc của bạn.</p>
+{% else %}
+<p>Chưa có template nào được định nghĩa.</p>
+{% endif %}
+{% elif templates is none %}
+<p style="color: red;">Lỗi khi tải danh sách template.</p>
+{% else %}
+<p style="color: red;">Biến 'templates' không hợp lệ.</p>
+{% endif %}
+
+{% endblock %}
+
+{# CSS cho pagination và filter form nên được định nghĩa trong style.css hoặc admin_base.html #}
+{% block styles %}
+{{ super() }}
+<style>
+    /* Copy style từ admin_rules.html nếu cần */
+    .filter-form fieldset {
+        border: 1px solid #ccc;
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 5px;
+    }
+
+    .filter-form legend {
+        font-weight: bold;
+        padding: 0 10px;
+    }
+
+    .filter-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        margin-bottom: 10px;
+    }
+
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 200px;
+    }
+
+    .filter-group label {
+        margin-bottom: 5px;
+        font-size: 0.9em;
+        color: #555;
+    }
+
+    .filter-group input[type="text"],
+    .filter-group select {
+        padding: 6px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+
+    .filter-actions {
+        margin-top: 15px;
+    }
+
+    .filter-actions a {
+        margin-left: 10px;
+    }
+
+    .pagination a,
+    .pagination span {
+        display: inline-block;
+        padding: 5px 10px;
+        margin: 0 2px;
+        border: 1px solid #ddd;
+        color: #007bff;
+        text-decoration: none;
+        border-radius: 4px;
+        font-size: 0.9em;
+    }
+
+    .pagination span.disabled {
+        color: #aaa;
+        border-color: #eee;
+        background-color: #f8f9fa;
+    }
+
+    .pagination a:hover {
+        background-color: #f0f0f0;
+    }
+
+    .pagination span.page-current {
+        font-weight: bold;
+        color: #333;
+        border: none;
+        padding: 6px 10px;
+    }
+
+    .pagination form {
+        vertical-align: middle;
+    }
+
+    th,
+    td {
+        padding: 8px;
+        vertical-align: middle;
+        word-wrap: break-word;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+    }
+
+    td code {
+        background-color: #eee;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 0.9em;
+    }
+
+    /* Các class button kế thừa từ style.css */
+</style>
+{% endblock %}

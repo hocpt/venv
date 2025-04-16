@@ -1,0 +1,46 @@
+{# === Trong file backup/templates/admin_strategies.html === #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+<p><a href="{{ url_for('admin.add_strategy') }}">Thêm Chiến lược Mới</a></p>
+
+{% if strategies %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%;">
+    <thead>
+        <tr>
+            <th>Strategy ID</th>
+            <th>Name</th>
+            <th>Description</th>
+            <th>Initial Stage ID</th>
+            <th>Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for strat in strategies %}
+        <tr>
+            <td>{{ strat.strategy_id }}</td>
+            <td>{{ strat.name }}</td>
+            <td>{{ strat.description | default('') }}</td>
+            <td>{{ strat.initial_stage_id }}</td>
+            <td>
+                {# <<< SỬA LINK SỬA>>> #}
+                    <a href="{{ url_for('admin.edit_strategy', strategy_id=strat.strategy_id) }}">Sửa</a>
+                    {# <<< SỬA LINK XEM CHI TIẾT>>> #}
+                        <a href="{{ url_for('admin.view_strategy_stages', strategy_id=strat.strategy_id) }}">Xem
+                            Stages/Transitions</a>
+                        {# <<< SỬA FORM XÓA>>> #}
+                            <form action="{{ url_for('admin.delete_strategy', strategy_id=strat.strategy_id) }}"
+                                method="POST" style="display:inline;"
+                                onsubmit="return confirm('Xác nhận xóa chiến lược \'{{ strat.name or strat.strategy_id }}\'? Các stages và transitions liên quan cũng có thể bị ảnh hưởng (tùy cấu hình CSDL).');">
+                                <button type="submit">Xóa</button> {# Bỏ disabled nếu có #}
+                            </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>Chưa có chiến lược nào.</p>
+{% endif %}
+{% endblock %}

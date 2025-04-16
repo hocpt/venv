@@ -1,0 +1,115 @@
+{# templates/admin_simulation_results.html #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title | default('Kết quả Mô phỏng AI') }}</h1>
+
+{# Hiển thị thông tin về Lệnh gốc (nếu có) #}
+{% if command %}
+<div class="command-details"
+    style="margin-bottom: 20px; padding: 10px; border: 1px solid #ddd; background-color: #f9f9f9;">
+    <strong>Thông tin Lệnh gốc:</strong><br>
+    <ul>
+        <li><strong>Command ID:</strong> {{ command.command_id }}</li>
+        <li><strong>Loại lệnh:</strong> {{ command.command_type }}</li>
+        <li><strong>Trạng thái lệnh:</strong> {{ command.status }}</li>
+        <li><strong>Yêu cầu lúc:</strong> {{ command.created_at.astimezone(tz=None).strftime('%Y-%m-%d %H:%M:%S') if
+            command.created_at else 'N/A' }}</li>
+        <li><strong>Xử lý lúc:</strong> {{ command.processed_at.astimezone(tz=None).strftime('%Y-%m-%d %H:%M:%S') if
+            command.processed_at else 'N/A' }}</li>
+        {% if command.error_message %}
+        <li style="color: red;"><strong>Lỗi xử lý lệnh:</strong> {{ command.error_message }}</li>
+        {% endif %}
+        {# Hiển thị cấu hình từ payload #}
+        {% set p = command.payload | default({}) %}
+        {% if p %}
+        <li><strong>Cấu hình:</strong> {{ p.get('persona_a_id','?') }} (Log: {{ p.get('log_account_id_a','?') }}) vs {{
+            p.get('persona_b_id','?') }} (Log: {{ p.get('log_account_id_b','?') }})</li>
+        <li><strong>Strategy:</strong> {{ p.get('strategy_id','?') }} | <strong>Goal:</strong> {{ p.get('sim_goal','?')
+            }} | <strong>Turns:</strong> {{ p.get('max_turns','?') }}</li>
+        <li><strong>Bắt đầu:</strong> {{ p.get('starting_prompt', '')[:100] }}{{ '...' if p.get('starting_prompt',
+            '')|length > 100 else '' }}</li>
+        {% endif %}
+    </ul>
+</div>
+{% else %}
+<p style="color: orange;">Không tìm thấy thông tin chi tiết cho lệnh này.</p>
+{% endif %}
+
+{# === Hiển thị Log Hội thoại === #}
+<h2>Nội dung Hội thoại</h2>
+
+<div class="chat-log-container"
+    style="max-height: 600px; overflow-y: auto; border: 1px solid #ccc; padding: 10px; background-color: #fff;">
+    {% if conversation is defined and conversation %}
+    {% set log_acc_a = command.payload.log_account_id_a if command and command.payload else None %}
+    {% set log_acc_b = command.payload.log_account_id_b if command and command.payload else None %}
+    {% set persona_a = command.payload.persona_a_id if command and command.payload else 'Persona A' %}
+    {% set persona_b = command.payload.persona_b_id if command and command.payload else 'Persona B' %}
+
+    {% for turn in conversation %}
+    {# Xác định người nói dựa trên account_id ghi log #}
+    {% set speaker_label = 'Unknown' %}
+    {% set message_class = '' %}
+    {% if turn.account_id == log_acc_a %}
+    {% set speaker_label = persona_a %}
+    {% set message_class = 'persona-a-message' %}
+    {% elif turn.account_id == log_acc_b %}
+    {% set speaker_label = persona_b %}
+    {% set message_class = 'persona-b-message' %}
+    {% endif %}
+
+    {# Hiển thị mỗi lượt nói #}
+    <div class="turn-entry {{ message_class }}" style="margin-bottom: 15px; padding: 8px; border-radius: 5px;">
+        <div style="font-size: 0.8em; color: #555; margin-bottom: 4px;">
+            <span style="font-weight: bold;">{{ speaker_label }}</span> (Acc: {{ turn.account_id }})
+            - Stage: {{ turn.stage_id | default('N/A') }}
+            - {{ turn.timestamp.astimezone(tz=None).strftime('%H:%M:%S') }}
+            - <span style="font-style: italic;">Status Log: {{ turn.status }}</span>
+        </div>
+        {# Hiển thị sent_text (lời nói của speaker trong lượt này) #}
+        {% if turn.sent_text %}
+        <pre style="margin: 0; white-space: pre-wrap; word-wrap: break-word;">{{ turn.sent_text | escape }}</pre>
+        {% else %}
+        <p style="margin: 0; font-style: italic; color: #888;">(Không có nội dung gửi đi trong lượt log này)</p>
+        {% endif %}
+        {# Tùy chọn: Hiển thị cả received_text nếu cần debug #}
+        {# <p style="margin-top: 5px; font-size: 0.8em; color: grey; border-top: 1px dashed #ccc; padding-top: 5px;">
+            <em>Received: {{ turn.received_text | default('') | escape | truncate(100) }}</em></p> #}
+    </div>
+    {% endfor %}
+    {% else %}
+    <p>Không tìm thấy nội dung hội thoại cho lần chạy này (có thể tác vụ chưa chạy hoặc có lỗi khi ghi log).</p>
+    {% endif %}
+</div>
+
+<br>
+<a href="{{ url_for('admin.view_ai_simulations') }}">Quay lại Danh sách Mô phỏng</a>
+
+{% endblock %}
+
+
+{% block styles %}
+{{ super() }}
+<style>
+    /* Thêm style cho chat log */
+    .turn-entry.persona-a-message {
+        background-color: #e7f3ff;
+        border-left: 3px solid #007bff;
+    }
+
+    .turn-entry.persona-b-message {
+        background-color: #f8f9fa;
+        border-left: 3px solid #6c757d;
+    }
+
+    .turn-entry pre {
+        background: none !important;
+        border: none !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        font-family: inherit;
+        font-size: 1em;
+    }
+</style>
+{% endblock %}

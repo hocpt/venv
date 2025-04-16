@@ -1,0 +1,205 @@
+{# templates/admin_scheduled_jobs.html - Phiên bản tách bảng Config và Live Status #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title | default('Quản lý Cấu hình Tác vụ Định Kỳ') }}</h1>
+<p><a href="{{ url_for('admin.add_scheduled_job') }}" class="button">Thêm Cấu hình Job Mới</a></p>
+<p><small>Lưu ý: Thay đổi Cấu hình (Thêm, Sửa, Xóa) cần **khởi động lại server** để áp dụng vào lịch chạy. Thay đổi
+        Bật/Tắt sẽ được cập nhật tự động vào trạng thái live sau ~1 phút (do job monitor).</small></p>
+
+{# ================================================ #}
+{# === BẢNG 1: DANH SÁCH CẤU HÌNH JOB (TỪ DB) === #}
+{# ================================================ #}
+<hr style="margin-top: 20px; margin-bottom: 20px;">
+<h2>Danh sách Cấu hình Tác vụ</h2>
+{# Kiểm tra biến jobs_config được truyền từ route #}
+{% if jobs_config is defined and jobs_config %}
+<table border="1" cellpadding="5" cellspacing="0"
+    style="width:100%; border-collapse: collapse; box-sizing: border-box; table-layout: fixed; margin-bottom: 30px;">
+    <thead>
+        <tr style="background-color: #f2f2f2;">
+            <th style="width: 12%;">Job ID</th>
+            <th style="width: 20%;">Function Path</th>
+            <th style="width: 7%;">Trigger</th>
+            <th style="width: 18%;">Trigger Args</th>
+            <th style="width: 18%;">Description</th>
+            <th style="width: 8%; text-align: center;">Kích hoạt <small>(Config)</small></th>
+            <th style="width: 8%; text-align: center;">Chờ XL <small>(Suggest)</small></th>
+            <th style="width: 10%;">Hành động Config</th>
+        </tr>
+    </thead>
+    <tbody>
+        {# Lặp qua danh sách cấu hình #}
+        {% for job in jobs_config %}
+        <tr>
+            <td style="word-wrap: break-word;">{{ job.job_id }}</td>
+            <td style="word-wrap: break-word;"><code>{{ job.job_function_path }}</code></td>
+            <td>{{ job.trigger_type }}</td>
+            <td>
+                <pre>{{ job.trigger_args | tojson(indent=0) if job.trigger_args is not none else '{}' }}</pre>
+            </td>
+            <td>{{ job.description | default('') }}</td>
+            {# Cột Kích hoạt Config và nút Toggle #}
+            <td style="text-align: center; vertical-align: middle;">
+                {% if job.is_enabled %}
+                <span style="color: green; font-weight: bold;">Yes</span>
+                {% else %}
+                <span style="color: red;">No</span>
+                {% endif %}
+                <form action="{{ url_for('admin.toggle_scheduled_job', job_id=job.job_id) }}" method="POST"
+                    style="display:block; margin-top: 5px;">
+                    <button type="submit" class="button small {% if job.is_enabled %}secondary-button{% endif %}"
+                        title="Thay đổi cấu hình bật/tắt trong DB (có hiệu lực live sau ~1 phút)">
+                        {% if job.is_enabled %}Đặt Tắt{% else %}Đặt Bật{% endif %}
+                    </button>
+                </form>
+            </td>
+            {# Cột Chờ Xử Lý (Suggest) #}
+            <td style="text-align: center; vertical-align: middle;">
+                {% if job.job_id == 'suggestion_job' %}
+                <span style="font-weight: bold; font-size: 1.1em;">{{ pending_counts.get('suggestion_job', '--')
+                    }}</span>
+                {% else %} N/A {% endif %}
+            </td>
+            {# Cột Hành động Config #}
+            <td style="white-space: nowrap; vertical-align: middle;">
+                <a href="{{ url_for('admin.edit_scheduled_job', job_id=job.job_id) }}"
+                    style="display:block; margin-bottom: 5px;">Sửa Config</a>
+                <form action="{{ url_for('admin.delete_scheduled_job', job_id=job.job_id) }}" method="POST"
+                    style="display:block; margin-bottom: 5px;"
+                    onsubmit="return confirm('Xác nhận xóa cấu hình job \'{{ job.job_id }}\'? Cần restart server.');">
+                    <button type="submit" class="link-button delete-button">Xóa Config</button>
+                </form>
+                {% if job.job_id == 'suggestion_job' %}
+                <form action="{{ url_for('admin.run_suggestion_job_now') }}" method="POST" style="display:block;"
+                    onsubmit="return confirm('Chạy tác vụ đề xuất AI ngay bây giờ?');">
+                    <button type="submit" class="button small"
+                        style="background-color: #28a745; color: white !important;">Chạy Ngay</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% elif jobs_config is none %}
+<p style="color: red;">Lỗi khi tải danh sách cấu hình tác vụ nền từ CSDL.</p>
+{% else %}
+<p>Chưa có cấu hình tác vụ nền nào trong database. Hãy <a href="{{ url_for('admin.add_scheduled_job') }}">thêm tác vụ
+        mới</a>.</p>
+{% endif %}
+
+{# ================================================ #}
+{# === BẢNG 2: TRẠNG THÁI CHẠY THỰC TẾ (LIVE) === #}
+{# ================================================ #}
+<hr style="margin-top: 30px; margin-bottom: 20px;">
+<h2>Trạng thái Chạy Thực Tế (Live Status)</h2>
+{# Kiểm tra biến live_statuses được truyền từ route #}
+{% if live_statuses is defined and live_statuses %}
+<table border="1" cellpadding="5" cellspacing="0"
+    style="width:100%; border-collapse: collapse; box-sizing: border-box;">
+    <thead>
+        <tr style="background-color: #e9ecef;">
+            <th style="width: 30%;">Job ID</th>
+            <th style="width: 30%;">Trạng thái Live</th>
+            <th style="width: 40%;">Thời gian chạy kế tiếp (Live)</th>
+            {# Có thể thêm cột Hành động Live sau (Pause/Resume/Cancel Job) #}
+            {# <th style="width: 15%;">Hành động Live</th> #}
+        </tr>
+    </thead>
+    <tbody>
+        {# Lặp qua danh sách trạng thái live #}
+        {% for status in live_statuses %}
+        <tr>
+            <td style="word-wrap: break-word;">{{ status.id }}</td>
+            <td style="text-align: center;">
+                {% if status.status == 'Scheduled' %} <span style="color: blue; font-weight:bold;">Scheduled</span>
+                {% elif status.status == 'Paused' %} <span style="color: orange; font-weight:bold;">Paused</span>
+                {% elif status.status == 'Not Scheduled' %} <span style="color: grey;">Not Scheduled</span>
+                {% else %} <span style="color: red;">{{ status.status | default('Unknown') }}</span>
+                {% endif %}
+            </td>
+            <td style="font-size: 0.9em;">{{ status.next_run_time_str | default('---') }}</td>
+            {# <td>(Hành động live sẽ thêm sau)</td> #}
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% elif live_statuses is none %}
+<p style="color: orange;">Không thể tải trạng thái live của các job (Lỗi DB?).</p>
+{% else %}
+<p>Không tìm thấy thông tin trạng thái live cho các job đã cấu hình (Có thể scheduler chưa chạy hoặc chưa có job nào
+    được schedule).</p>
+{% endif %}
+
+{% endblock %}
+
+
+{# Khối styles và scripts giữ nguyên như cũ #}
+{% block styles %}
+{{ super() }}
+<style>
+    /* ... các style đã có ... */
+    .link-button.delete-button {
+        color: red;
+        background: none;
+        border: none;
+        padding: 0;
+        font: inherit;
+        cursor: pointer;
+        text-decoration: underline;
+        margin-left: 0px;
+        /* Reset margin nếu cần */
+    }
+
+    .button.small {
+        font-size: 0.8em;
+        padding: 2px 5px;
+        vertical-align: middle;
+    }
+
+    .button.small.secondary-button {
+        background-color: #6c757d;
+        color: white !important;
+    }
+
+    .button.small.secondary-button:hover {
+        background-color: #5a6268;
+    }
+
+    td pre {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        font-size: 0.85em;
+        background-color: #f0f0f0;
+        padding: 5px;
+        border: none;
+        margin: 0;
+        max-height: 60px;
+        overflow: auto;
+        text-align: left;
+    }
+
+    th,
+    td {
+        vertical-align: middle;
+        padding: 8px 5px;
+        word-wrap: break-word;
+    }
+
+    table {
+        table-layout: fixed;
+        width: 100%;
+    }
+
+    .button:disabled,
+    button:disabled {
+        background-color: #ccc !important;
+        cursor: not-allowed !important;
+        color: #666 !important;
+        opacity: 0.65;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}{{ super() }}{% endblock %}

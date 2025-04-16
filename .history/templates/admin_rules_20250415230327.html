@@ -1,0 +1,174 @@
+{# templates/admin_rules.html #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+<p><a href="{{ url_for('admin.add_rule') }}" class="button">Thêm Luật Mới</a></p>
+
+{# Form Bộ lọc (giữ nguyên) #}
+<form method="GET" action="{{ url_for('admin.view_rules') }}" class="filter-form" style="margin-bottom: 20px;">
+    {# ... nội dung form filter ... #}
+</form>
+
+{# Thông tin phân trang (nếu có) #}
+{% if pagination and pagination.total_items > 0 %}
+<p>Hiển thị {{ rules | length }} trong tổng số {{ pagination.total_items }} luật. Trang {{ pagination.page }} / {{
+    pagination.total_pages }}.</p>
+{% endif %}
+
+
+{# Bảng hiển thị danh sách luật #}
+{% if rules is defined and rules is iterable %}
+{% if rules %}
+<table border="1" ...>
+    {# ... thead ... #}
+    <tbody>
+        {% for rule in rules %} {# Vòng lặp chỉ chứa luật của trang hiện tại #}
+        {# ... các thẻ tr và td hiển thị luật như cũ ... #}
+        {% endfor %}
+    </tbody>
+</table>
+
+{# === THÊM PHẦN ĐIỀU HƯỚNG PHÂN TRANG === #}
+{% if pagination and pagination.total_pages > 1 %}
+<div class="pagination" style="margin-top: 20px; text-align: center;">
+    {# Nút Trang Đầu (Tùy chọn) #}
+    {% if pagination.page > 1 %}
+    <a href="{{ url_for('admin.view_rules', page=1, **filters) }}" class="page-link">&laquo; Đầu</a>
+    {% else %}
+    <span class="page-link disabled">&laquo; Đầu</span>
+    {% endif %}
+
+    {# Nút Trang Trước #}
+    {% if pagination.has_prev %}
+    <a href="{{ url_for('admin.view_rules', page=pagination.prev_num, **filters) }}" class="page-link">&lsaquo;
+        Trước</a>
+    {% else %}
+    <span class="page-link disabled">&lsaquo; Trước</span>
+    {% endif %}
+
+    {# Thông tin trang hiện tại #}
+    <span class="page-current"> Trang {{ pagination.page }} / {{ pagination.total_pages }} </span>
+
+    {# Nút Trang Sau #}
+    {% if pagination.has_next %}
+    <a href="{{ url_for('admin.view_rules', page=pagination.next_num, **filters) }}" class="page-link">Sau &rsaquo;</a>
+    {% else %}
+    <span class="page-link disabled">Sau &rsaquo;</span>
+    {% endif %}
+
+    {# Nút Trang Cuối (Tùy chọn) #}
+    {% if pagination.page < pagination.total_pages %} <a
+        href="{{ url_for('admin.view_rules', page=pagination.total_pages, **filters) }}" class="page-link">Cuối
+        &raquo;</a>
+        {% else %}
+        <span class="page-link disabled">Cuối &raquo;</span>
+        {% endif %}
+
+        {# (Tùy chọn) Form nhập số trang #}
+        <form method="GET" action="{{ url_for('admin.view_rules') }}" style="display: inline-block; margin-left: 15px;">
+            {# Truyền lại các filter đang dùng qua hidden input #}
+            {% for key, value in filters.items() %}
+            <input type="hidden" name="filter_{{ key }}" value="{{ value }}">
+            {% endfor %}
+            <label for="page_jump" style="font-size: 0.9em;">Đi tới trang:</label>
+            <input type="number" name="page" id="page_jump" min="1" max="{{ pagination.total_pages }}"
+                value="{{ pagination.page }}" style="width: 60px; padding: 3px;">
+            <button type="submit" class="button small">Đi</button>
+        </form>
+
+</div>
+{% endif %}
+{# === KẾT THÚC PHẦN PHÂN TRANG === #}
+
+{% elif filters %}
+<p>Không tìm thấy luật nào khớp với bộ lọc của bạn.</p>
+{% else %}
+<p>Chưa có luật nào được định nghĩa trong cơ sở dữ liệu.</p>
+{% endif %}
+{# ... (Xử lý lỗi như cũ) ... #}
+{% endif %}
+
+{% endblock %}
+
+{# CSS cho pagination (thêm vào block styles hoặc style.css) #}
+{% block styles %}
+{{ super() }}
+<style>
+    /* ... Các style cũ ... */
+    .pagination a,
+    .pagination span {
+        display: inline-block;
+        padding: 5px 10px;
+        margin: 0 2px;
+        border: 1px solid #ddd;
+        color: #007bff;
+        text-decoration: none;
+        border-radius: 4px;
+    }
+
+    .pagination span.disabled {
+        color: #aaa;
+        border-color: #eee;
+    }
+
+    .pagination a:hover {
+        background-color: #f0f0f0;
+    }
+
+    .pagination span.page-current {
+        font-weight: bold;
+        color: #333;
+        border: none;
+        padding: 6px 10px;
+    }
+
+    /* Thêm style cho filter form nếu chưa có */
+    .filter-form fieldset {
+        border: 1px solid #ccc;
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 5px;
+    }
+
+    .filter-form legend {
+        font-weight: bold;
+        padding: 0 10px;
+    }
+
+    .filter-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        margin-bottom: 10px;
+    }
+
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 200px;
+    }
+
+    .filter-group label {
+        margin-bottom: 5px;
+        font-size: 0.9em;
+        color: #555;
+    }
+
+    .filter-group input[type="text"],
+    .filter-group select {
+        padding: 6px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+
+    .filter-actions {
+        margin-top: 15px;
+    }
+
+    .filter-actions a {
+        margin-left: 10px;
+    }
+</style>
+{% endblock %}

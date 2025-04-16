@@ -1,0 +1,163 @@
+{# templates/admin_rules.html - Đã hoàn thiện bộ lọc #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title | default('Quản lý Luật (Simple Rules)') }}</h1>
+<p><a href="{{ url_for('admin.add_rule') }}" class="button">Thêm Luật Mới</a></p>
+
+{# === FORM BỘ LỌC === #}
+<form method="GET" action="{{ url_for('admin.view_rules') }}" class="filter-form" style="margin-bottom: 20px;">
+    <fieldset>
+        <legend>Bộ lọc Luật</legend>
+        <div class="filter-row">
+            <div class="filter-group">
+                <label for="filter_keywords">Keywords (chứa):</label>
+                {# filters là dict được truyền từ route, ví dụ filters.keywords #}
+                <input type="text" id="filter_keywords" name="filter_keywords"
+                    value="{{ filters.keywords | default('') }}">
+            </div>
+            <div class="filter-group">
+                <label for="filter_category">Category:</label>
+                <select id="filter_category" name="filter_category">
+                    <option value="">-- Tất cả Category --</option>
+                    {# Lặp qua distinct_categories từ route #}
+                    {% for cat in distinct_categories %}
+                    <option value="{{ cat }}" {% if filters.category==cat %}selected{% endif %}>{{ cat }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="filter-group">
+                <label for="filter_template_ref">Template Ref:</label>
+                <select id="filter_template_ref" name="filter_template_ref">
+                    <option value="">-- Tất cả Templates --</option>
+                    {# Lặp qua distinct_template_refs từ route #}
+                    {% for tpl_ref in distinct_template_refs %}
+                    <option value="{{ tpl_ref }}" {% if filters.template_ref==tpl_ref %}selected{% endif %}>{{ tpl_ref
+                        }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="button">Lọc</button>
+            <a href="{{ url_for('admin.view_rules') }}">Xóa lọc</a>
+        </div>
+    </fieldset>
+</form>
+{# === KẾT THÚC FORM BỘ LỌC === #}
+
+
+{# Bảng hiển thị danh sách luật (phần này giữ nguyên như cũ) #}
+{% if rules is defined and rules is iterable %}
+{% if rules %}
+<table border="1" ...>
+    {# ... thead ... #}
+    <tbody>
+        {% for rule in rules %}
+        <tr {% if rule.rule_id in duplicate_rule_ids %}style="background-color: #fff3cd;"
+            title="Keywords này bị trùng lặp ở luật khác!" {% endif %}>
+            {# ... các ô td ... #}
+            <td style="white-space: nowrap; text-align: center;">
+                <a href="{{ url_for('admin.edit_rule', rule_id=rule.rule_id) }}" class="button small secondary-button"
+                    style="margin-right: 5px;">Sửa</a>
+                <form action="{{ url_for('admin.delete_rule', rule_id=rule.rule_id) }}" ...>
+                    <button type="submit" class="button small secondary-button"
+                        style="background-color:#dc3545;">Xóa</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% elif filters %} {# Hiển thị khi có filter nhưng không có kết quả #}
+<p>Không tìm thấy luật nào khớp với bộ lọc của bạn.</p>
+{% else %} {# Không có filter và không có rule #}
+<p>Chưa có luật nào được định nghĩa.</p>
+{% endif %}
+{% elif rules is none %}
+<p style="color: red;">Không thể tải danh sách luật (Lỗi CSDL?).</p>
+{% else %}
+<p style="color: red;">Biến 'rules' không được truyền vào template hoặc không hợp lệ.</p>
+{% endif %}
+
+{% endblock %}
+
+{# CSS cho filter form cần được thêm vào block styles hoặc file style.css #}
+{% block styles %}
+{{ super() }}
+<style>
+    /* Style cho form filter (tương tự trang history/templates) */
+    .filter-form fieldset {
+        border: 1px solid #ccc;
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 5px;
+    }
+
+    .filter-form legend {
+        font-weight: bold;
+        padding: 0 10px;
+    }
+
+    .filter-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        margin-bottom: 10px;
+    }
+
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 200px;
+    }
+
+    .filter-group label {
+        margin-bottom: 5px;
+        font-size: 0.9em;
+        color: #555;
+    }
+
+    .filter-group input[type="text"],
+    .filter-group select {
+        padding: 6px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+
+    .filter-actions {
+        margin-top: 15px;
+    }
+
+    .filter-actions button {
+        /* Kế thừa .button */
+    }
+
+    .filter-actions a {
+        margin-left: 10px;
+    }
+
+    /* Các style khác cho bảng và nút */
+    th,
+    td {
+        padding: 8px;
+        vertical-align: middle;
+        word-wrap: break-word;
+    }
+
+    table {
+        table-layout: fixed;
+    }
+
+    td pre {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        background: none !important;
+        border: none !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        font-family: inherit;
+    }
+</style>
+{% endblock %}

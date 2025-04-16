@@ -1,0 +1,225 @@
+{# templates/admin_simulation_results.html #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title | default('Kết quả Mô phỏng AI') }}</h1>
+
+{# Container chính sử dụng Flexbox để tạo 2 cột #}
+<div class="results-container">
+
+    {# === CỘT TRÁI: THÔNG TIN CẤU HÌNH === #}
+    <div class="left-column">
+        <h2>Thông tin Lệnh & Cấu hình</h2>
+        {% if command %}
+        <div class="info-box">
+            <strong>Lệnh ID:</strong> {{ command.command_id }}<br>
+            <strong>Loại:</strong> {{ command.command_type }}<br>
+            <strong>Trạng thái Lệnh:</strong> {{ command.status }}<br>
+            <strong>Yêu cầu lúc:</strong> {{ command.created_at.astimezone(tz=None).strftime('%Y-%m-%d %H:%M:%S') if
+            command.created_at else 'N/A' }}<br>
+            <strong>Xử lý lúc:</strong> {{ command.processed_at.astimezone(tz=None).strftime('%Y-%m-%d %H:%M:%S') if
+            command.processed_at else 'N/A' }}<br>
+            {% if command.error_message %}
+            <strong style="color: red;">Lỗi xử lý lệnh:</strong>
+            <pre style="color: red; border-color: red;">{{ command.error_message }}</pre><br>
+            {% endif %}
+        </div>
+        {% set p = command.payload | default({}) %}
+        {% if p %}
+        <div class="info-box">
+            <strong>Cấu hình đã chạy:</strong><br>
+            <ul>
+                <li><strong>Persona A:</strong> {{ p.get('persona_a_id','?') }} (Log Acc: {{
+                    p.get('log_account_id_a','?') }})</li>
+                <li><strong>Persona B:</strong> {{ p.get('persona_b_id','?') }} (Log Acc: {{
+                    p.get('log_account_id_b','?') }})</li>
+                <li><strong>Strategy:</strong> {{ p.get('strategy_id','?') }}</li>
+                <li><strong>Goal:</strong> {{ p.get('sim_goal','?') }}</li>
+                <li><strong>Max Turns/Side:</strong> {{ p.get('max_turns','?') }}</li>
+                <li><strong>Starting Prompt:</strong>
+                    <pre>{{ p.get('starting_prompt', '[Default]') }}</pre>
+                </li>
+            </ul>
+        </div>
+        {% endif %}
+        {% else %}
+        <p style="color: orange;">Không tìm thấy thông tin chi tiết cho lệnh này.</p>
+        {% endif %}
+        <a href="{{ url_for('admin.view_ai_simulations') }}" class="button secondary-button"
+            style="margin-top:15px;">Quay lại Danh sách</a>
+    </div>
+
+    {# === CỘT PHẢI: LOG HỘI THOẠI === #}
+    <div class="right-column">
+        <h2>Nội dung Hội thoại</h2>
+        <div class="chat-log-container">
+            {% if conversation is defined and conversation %}
+            {# Lấy thông tin ID và tên Persona từ payload của command #}
+            {% set log_acc_a = command.payload.log_account_id_a if command and command.payload else None %}
+            {% set log_acc_b = command.payload.log_account_id_b if command and command.payload else None %}
+            {% set persona_a_name = command.payload.persona_a_id if command and command.payload else 'Persona A' %}
+            {% set persona_b_name = command.payload.persona_b_id if command and command.payload else 'Persona B' %}
+
+            {% for turn in conversation %}
+            {# Xác định người nói và style #}
+            {% set speaker_label = 'Unknown Speaker' %}
+            {% set message_class = '' %}
+            {% if turn.account_id == log_acc_a %}
+            {% set speaker_label = persona_a_name %}
+            {% set message_class = 'persona-a-message' %}
+            {% elif turn.account_id == log_acc_b %}
+            {% set speaker_label = persona_b_name %}
+            {% set message_class = 'persona-b-message' %}
+            {% endif %}
+
+            {# Hiển thị mỗi lượt nói #}
+            <div class="turn-entry {{ message_class }}">
+                <div class="turn-meta">
+                    <span class="speaker-label">{{ speaker_label }}</span>
+                    <span class="timestamp">({{ turn.timestamp.astimezone(tz=None).strftime('%H:%M:%S') }})</span>
+                    <span class="stage-info">Stage: {{ turn.stage_id | default('N/A') }}</span>
+                    <span class="status-info">Log Status: {{ turn.status }}</span>
+                </div>
+                {# Hiển thị sent_text (lời nói của speaker trong lượt này) #}
+                {% if turn.sent_text %}
+                <pre class="turn-text">{{ turn.sent_text | escape }}</pre>
+                {% else %}
+                <p class="turn-text-empty">(Không có nội dung gửi đi)</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+            {% elif conversation is none %}
+            <p style="color: red;">Lỗi khi tải dữ liệu hội thoại.</p>
+            {% else %}
+            <p>Không tìm thấy nội dung hội thoại cho lần chạy này (có thể tác vụ chưa chạy xong, bị hủy, hoặc lỗi ghi
+                log).</p>
+            {% endif %}
+        </div> {# end chat-log-container #}
+    </div> {# end right-column #}
+
+</div> {# end results-container #}
+{% endblock %}
+
+
+{% block styles %}
+{{ super() }}
+<style>
+    .results-container {
+        display: flex;
+        flex-wrap: wrap;
+        /* Cho phép xuống dòng trên màn hình nhỏ */
+        gap: 20px;
+    }
+
+    .left-column {
+        flex: 1;
+        /* Chiếm 1 phần */
+        min-width: 300px;
+        /* Độ rộng tối thiểu */
+        max-width: 400px;
+        /* Độ rộng tối đa */
+        /* border-right: 1px solid #ddd; */
+        /* Bỏ đường kẻ nếu muốn */
+        /* padding-right: 20px; */
+    }
+
+    .right-column {
+        flex: 2;
+        /* Chiếm 2 phần, rộng hơn cột trái */
+        min-width: 400px;
+    }
+
+    .info-box {
+        margin-bottom: 15px;
+        padding: 10px;
+        border: 1px solid #eee;
+        background-color: #fdfdfd;
+        border-radius: 4px;
+        font-size: 0.9em;
+    }
+
+    .info-box ul {
+        list-style: none;
+        padding-left: 10px;
+        margin-top: 5px;
+    }
+
+    .info-box li {
+        margin-bottom: 3px;
+    }
+
+    .chat-log-container {
+        max-height: 70vh;
+        /* Giới hạn chiều cao khung chat */
+        overflow-y: auto;
+        border: 1px solid #ccc;
+        padding: 15px;
+        background-color: #fff;
+        border-radius: 4px;
+    }
+
+    .turn-entry {
+        margin-bottom: 12px;
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid #eee;
+    }
+
+    .turn-meta {
+        font-size: 0.8em;
+        color: #555;
+        margin-bottom: 5px;
+        display: flex;
+        /* Sắp xếp các span trên 1 hàng */
+        flex-wrap: wrap;
+        /* Cho phép xuống dòng nếu cần */
+        gap: 8px;
+        /* Khoảng cách giữa các span */
+    }
+
+    .speaker-label {
+        font-weight: bold;
+    }
+
+    .stage-info {
+        font-style: italic;
+    }
+
+    .status-info {
+        font-style: italic;
+        color: #888;
+    }
+
+    .turn-text {
+        /* Áp dụng cho pre */
+        margin: 0;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        font-size: 0.95em;
+        line-height: 1.5;
+        background: none !important;
+        border: none !important;
+        padding: 0 !important;
+        font-family: inherit;
+        /* Kế thừa font chung */
+    }
+
+    .turn-text-empty {
+        margin: 0;
+        font-style: italic;
+        color: #888;
+        font-size: 0.95em;
+    }
+
+    /* Phân biệt màu nền cho 2 persona */
+    .persona-a-message {
+        background-color: #e7f3ff;
+    }
+
+    .persona-b-message {
+        background-color: #f8f9fa;
+    }
+
+    /* Style nút button đã có trong CSS chung */
+</style>
+{% endblock %}

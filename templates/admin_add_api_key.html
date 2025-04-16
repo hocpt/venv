@@ -1,0 +1,107 @@
+{# templates/admin_add_api_key.html #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title | default('Thêm API Key Mới') }}</h1>
+<p style="color:red; font-weight:bold;">CẢNH BÁO: API Keys là thông tin cực kỳ nhạy cảm. Chỉ thêm key từ nguồn bạn tin
+    tưởng và đảm bảo môi trường của bạn an toàn.</p>
+
+<form method="POST">
+    <fieldset>
+        <legend>Thông tin API Key</legend>
+        <div class="form-group">
+            <label for="key_name">Tên Key (Gợi nhớ, duy nhất - bắt buộc):</label><br>
+            <input type="text" id="key_name" name="key_name" required maxlength="100"
+                value="{{ current_data.key_name if current_data else '' }}"
+                placeholder="Ví dụ: Gmail Hoc P T, Gemini Pro Key 2...">
+        </div>
+
+        <div class="form-group">
+            <label for="provider">Nhà cung cấp (Provider - bắt buộc):</label><br>
+            {# Tạm thời chỉ hỗ trợ google_gemini, có thể mở rộng sau #}
+            <select name="provider" id="provider" required>
+                <option value="google_gemini" selected>Google Gemini</option>
+                {# <option value="openai">OpenAI</option> #}
+                {# <option value="claude">Anthropic Claude</option> #}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="api_key_value">Giá trị API Key (Value - bắt buộc):</label><br>
+            {# Dùng textarea để dễ paste key dài #}
+            <textarea id="api_key_value" name="api_key_value" rows="3" style="width: 80%; font-family: monospace;"
+                required
+                placeholder="Dán giá trị API Key vào đây...">{{ current_data.api_key_value if current_data else '' }}</textarea><br>
+            <small>Hệ thống sẽ mã hóa giá trị này trước khi lưu vào CSDL.</small>
+        </div>
+
+        <div class="form-group">
+            <label for="status">Trạng thái ban đầu:</label><br>
+            <select name="status" id="status">
+                <option value="active" {% if not current_data or current_data.status=='active' %}selected{% endif %}>
+                    Active</option>
+                <option value="inactive" {% if current_data and current_data.status=='inactive' %}selected{% endif %}>
+                    Inactive</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="notes">Ghi chú (Tùy chọn):</label><br>
+            <textarea id="notes" name="notes" rows="2"
+                style="width: 80%;">{{ current_data.notes if current_data else '' }}</textarea>
+        </div>
+
+    </fieldset>
+    <div class="form-actions" style="margin-top: 20px;">
+        <button type="submit" class="button">Lưu API Key</button>
+        <a href="{{ url_for('admin.view_api_keys') }}">Hủy</a>
+    </div>
+</form>
+{% endblock %}
+
+{% block styles %}
+{{ super() }}
+{# Kế thừa hoặc thêm style cho form nếu cần #}
+<style>
+    .form-group {
+        margin-bottom: 15px;
+    }
+
+    .form-group label {
+        font-weight: bold;
+        display: block;
+        margin-bottom: 5px;
+    }
+
+    .form-group input[type="text"],
+    .form-group select,
+    .form-group textarea {
+        width: 100%;
+        max-width: 600px;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-sizing: border-box;
+    }
+
+    .form-group small {
+        font-size: 0.85em;
+        color: #555;
+        margin-top: 4px;
+        display: block;
+    }
+
+    fieldset {
+        border: 1px solid #ddd;
+        padding: 20px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+    }
+
+    legend {
+        font-size: 1.1em;
+        font-weight: bold;
+        padding: 0 10px;
+    }
+</style>
+{% endblock %}

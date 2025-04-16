@@ -1,0 +1,354 @@
+{# templates/admin_ai_simulations.html - Phiên bản hoàn chỉnh cuối cùng #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title | default('Quản lý Mô phỏng Hội thoại AI') }}</h1>
+<p>Quản lý các cấu hình mô phỏng đã lưu và theo dõi các lần chạy đang hoạt động hoặc chờ xử lý.</p>
+
+{# ========================================================== #}
+{# === PHẦN 1: CẤU HÌNH MÔ PHỎNG ĐÃ LƯU === #}
+{# ========================================================== #}
+<hr style="margin-top: 20px; margin-bottom: 20px;">
+<h2>Cấu hình Mô phỏng Đã Lưu</h2>
+<p><a href="{{ url_for('admin.add_simulation_config_view') }}" class="button">Thêm Cấu hình Mô phỏng Mới</a></p>
+
+{% if saved_configs is defined and saved_configs %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%; border-collapse: collapse; margin-bottom: 20px;">
+    <thead>
+        <tr style="background-color: #f2f2f2;">
+            <th style="width: 5%;">ID</th>
+            <th style="width: 20%;">Tên Cấu hình</th>
+            <th style="width: 25%;">Personas (A vs B)</th>
+            <th style="width: 15%;">Strategy</th>
+            <th style="width: 5%; text-align: center;">Turns</th>
+            <th style="width: 10%; text-align: center;">Enabled</th>
+            <th style="width: 20%;">Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for cfg in saved_configs %}
+        <tr>
+            <td>{{ cfg.config_id }}</td>
+            <td>
+                {{ cfg.config_name }}
+                {% if cfg.description %}
+                <br><small style="color: #555;">{{ cfg.description | truncate(50) }}</small>
+                {% endif %}
+            </td>
+            <td style="font-size: 0.9em;">{{ cfg.persona_a_id }} <br>vs<br> {{ cfg.persona_b_id }}</td>
+            <td>{{ cfg.strategy_id }}</td>
+            <td style="text-align: center;">{{ cfg.max_turns }}</td>
+            <td style="text-align: center;">
+                {% if cfg.is_enabled %}
+                <span style="color: green; font-weight: bold;">Yes</span>
+                {% else %}
+                <span style="color: red;">No</span>
+                {% endif %}
+            </td>
+            <td style="text-align: center; white-space: nowrap;">
+                {# Nút Chạy Ngay #}
+                <form action="{{ url_for('admin.run_saved_simulation', config_id=cfg.config_id) }}" method="POST"
+                    style="display:inline; margin-right: 5px;"
+                    onsubmit="return confirm('Chạy mô phỏng với cấu hình \'{{ cfg.config_name }}\' này?');">
+                    <button type="submit" class="button small"
+                        style="background-color: #28a745; color: white !important;" {% if not cfg.is_enabled %}disabled
+                        title="Cấu hình này đang bị tắt" {% endif %}>Chạy Ngay</button>
+                </form>
+                {# Nút Sửa Config #}
+                <a href="{{ url_for('admin.edit_simulation_config_view', config_id=cfg.config_id) }}"
+                    class="button small secondary-button" style="margin-right: 5px;">Sửa</a>
+                {# Nút Xóa Config #}
+                <form action="{{ url_for('admin.delete_simulation_config_view', config_id=cfg.config_id) }}"
+                    method="POST" style="display:inline;"
+                    onsubmit="return confirm('Xác nhận xóa cấu hình \'{{ cfg.config_name }}\'? Hành động này không thể hoàn tác!');">
+                    <button type="submit" class="button small secondary-button"
+                        style="background-color:#dc3545;">Xóa</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% elif saved_configs is none %}
+<p style="color: orange;">Không thể tải danh sách cấu hình đã lưu (Lỗi DB?).</p>
+{% else %}
+<p>Chưa có cấu hình mô phỏng nào được lưu. Nhấn nút "Thêm Cấu hình Mô phỏng Mới" ở trên để tạo.</p>
+{% endif %}
+
+
+{# ========================================================== #}
+{# === PHẦN 2: CÁC LẦN MÔ PHỎNG ĐANG CHẠY/CHỜ === #}
+{# ========================================================== #}
+<hr style="margin-top: 30px; margin-bottom: 20px;">
+<h2>Các Lần Mô phỏng Đang Chạy / Được Lên Lịch / Chờ Xử lý Lệnh</h2>
+
+{# Nút xóa hàng loạt lệnh đã xong/lỗi #}
+<div style="margin-bottom: 10px;">
+    <form action="{{ url_for('admin.clear_finished_simulation_commands') }}" method="POST" style="display: inline;"
+        onsubmit="return confirm('Xóa TẤT CẢ các lệnh mô phỏng có trạng thái Done hoặc Error khỏi lịch sử lệnh không?');">
+        <button type="submit" class="button secondary-button">Xóa các lệnh Đã xong / Lỗi</button>
+    </form>
+</div>
+
+{# Bảng hiển thị simulations_display #}
+{% if simulations_display is defined and simulations_display %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%; border-collapse: collapse;">
+    <thead>
+        <tr style="background-color: #e9ecef;">
+            <th style="width: 15%;">Command/Job ID</th>
+            <th style="width: 35%;">Cấu hình (Tóm tắt)</th>
+            <th style="width: 20%;">Thời gian Yêu cầu/Lên lịch</th>
+            <th style="width: 15%;">Trạng thái</th>
+            <th style="width: 15%;">Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for sim in simulations_display %}
+        <tr>
+            <td style="word-wrap: break-word; font-size: 0.9em;">
+                <code>{{ sim.id }}</code>
+                {% if sim.type == 'job' and sim.command_id %}
+                <br><small>(from Cmd: {{ sim.command_id }})</small>
+                {% endif %}
+            </td>
+            <td style="font-size: 0.9em;">
+                {# Hiển thị config_info đã được chuẩn bị từ route (cho phép HTML) #}
+                {{ sim.config_info | default('(N/A)') | safe }}
+            </td>
+            <td style="font-size: 0.9em;">
+                {# Hiển thị thời gian tạo lệnh hoặc thời gian chạy #}
+                {% if sim.type == 'job' %}
+                {{ sim.next_run_time_str | default('N/A') }} {% if 'Scheduled' in sim.status_text %}(Scheduled){% endif
+                %}
+                {% elif sim.created_at %}
+                {{ sim.created_at.astimezone(tz=None).strftime('%Y-%m-%d %H:%M:%S') }} (Requested)
+                {% else %} N/A {% endif %}
+            </td>
+            <td style="text-align: center;">
+                {# Hiển thị status_text với màu sắc #}
+                {% set status_lower = (sim.status_text | string | lower) %} {# Đảm bảo là string và chữ thường #}
+                {% if 'error' in status_lower %} <span style="color: red;"
+                    title="{{ sim.error_message | default('') | escape }}">{{ sim.status_text }}</span>
+                {% elif status_lower == 'scheduled' %} <span style="color: blue; font-weight:bold;">Scheduled</span>
+                {% elif 'paused' in status_lower %} <span style="color: orange; font-weight:bold;">Paused</span>
+                {% elif status_lower == 'pending queue' %} <span style="color: #6c757d;">Pending Queue</span>
+                {% elif status_lower == 'processing cmd' %} <span style="color: #17a2b8;">Processing Cmd</span>
+                {% elif 'done' in status_lower %} <span style="color: green; font-weight:bold;">{{ sim.status_text
+                    }}</span> {# Hiển thị Done hoặc Completed #}
+                {% else %} <span>{{ sim.status_text | default('Unknown') }}</span>
+                {% endif %}
+            </td>
+            {% if sim.type == 'command' and command_id_extracted %}
+            <a href="{{ url_for('admin.view_simulation_results', command_id=command_id_extracted) }}"
+                class="button small secondary-button" style="margin-right: 5px; background-color: #17a2b8;"
+                title="Xem nội dung hội thoại">Xem Log</a>
+            {% endif %}
+            <td style="text-align: center;">
+                {# Xác định ID gốc cho hành động #}
+                {% set command_id_extracted = sim.command_id if sim.command_id else (sim.id.replace('cmd_', '') if
+                sim.type == 'command' else None) %}
+                {% set job_id_extracted = sim.job_id if sim.job_id else (sim.id if sim.type == 'job' else None) %}
+
+                {# Nút Hủy Job: Chỉ cho job đang scheduled #}
+                {% if sim.type == 'job' and status_lower == 'scheduled' and job_id_extracted %}
+                <form action="{{ url_for('admin.cancel_simulation_job', job_id=job_id_extracted) }}" method="POST"
+                    style="display:inline;" onsubmit="return confirm('Hủy job {{ job_id_extracted }} đang chờ chạy?');">
+                    <button type="submit" class="button small secondary-button"
+                        style="background-color:#ffc107; color:black !important;" title="Hủy job đã lên lịch chạy">Hủy
+                        Job</button>
+                </form>
+                {# Nút Xóa Lệnh: Cho command đã xong/lỗi/unknown #}
+                {% elif sim.type == 'command' and command_id_extracted and ('error' in status_lower or 'done' in
+                status_lower or 'unknown' in status_lower) %}
+                <form action="{{ url_for('admin.delete_scheduler_command_view', command_id=command_id_extracted) }}"
+                    method="POST" style="display:inline;"
+                    onsubmit="return confirm('Xóa lệnh ID {{ command_id_extracted }} này khỏi lịch sử?');">
+                    <button type="submit" class="button small secondary-button" style="background-color:#6c757d;"
+                        title="Xóa lệnh này khỏi danh sách">Xóa Lệnh</button>
+                </form>
+                {% else %}
+                --- {# Không có hành động cho các trạng thái khác #}
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% elif simulations_display is none %}
+<p style="color: orange;">Không thể tải lịch sử yêu cầu mô phỏng (Lỗi DB?).</p>
+{% else %}
+<p>Chưa có yêu cầu chạy mô phỏng nào gần đây.</p>
+{% endif %}
+
+{% endblock %}
+
+
+{# Khối styles và scripts giữ nguyên #}
+{% block styles %}
+{{ super() }}
+<style>
+    .form-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        margin-bottom: 15px;
+    }
+
+    .form-group {
+        flex: 1;
+        min-width: 200px;
+        margin-bottom: 10px;
+    }
+
+    .form-group label {
+        font-weight: bold;
+        display: block;
+        margin-bottom: 5px;
+        font-size: 0.9em;
+    }
+
+    .form-group input[type="text"],
+    .form-group input[type="number"],
+    .form-group select,
+    .form-group textarea {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-sizing: border-box;
+    }
+
+    .form-group small {
+        font-size: 0.8em;
+        color: #666;
+        margin-top: 3px;
+        display: block;
+    }
+
+    fieldset {
+        border: 1px solid #ddd;
+        padding: 20px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+    }
+
+    legend {
+        font-size: 1.1em;
+        font-weight: bold;
+        padding: 0 10px;
+    }
+
+    .button {
+        display: inline-block;
+        padding: 5px 10px;
+        background-color: #007bff;
+        color: white !important;
+        border: none;
+        border-radius: 4px;
+        text-decoration: none;
+        cursor: pointer;
+        font-size: 0.9em;
+        vertical-align: middle;
+    }
+
+    .button:hover {
+        background-color: #0056b3;
+        text-decoration: none;
+    }
+
+    .button.small {
+        font-size: 0.8em;
+        padding: 3px 8px;
+    }
+
+    .button.secondary-button {
+        background-color: #6c757d;
+        color: white !important;
+    }
+
+    .button.secondary-button:hover {
+        background-color: #5a6268;
+    }
+
+    .button:disabled,
+    button:disabled,
+    a.button[disabled] {
+        background-color: #ccc !important;
+        cursor: not-allowed !important;
+        color: #666 !important;
+        opacity: 0.65;
+        pointer-events: none;
+    }
+
+    th,
+    td {
+        vertical-align: middle;
+        padding: 8px 5px;
+        word-wrap: break-word;
+    }
+
+    table {
+        table-layout: fixed;
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    [title]:hover::after {
+        content: attr(title);
+        padding: 4px 8px;
+        color: #fff;
+        background-color: #555;
+        border-radius: 4px;
+        font-size: 0.8em;
+        white-space: nowrap;
+        position: absolute;
+        margin-left: 5px;
+        z-index: 1;
+    }
+
+    td span[style*="color"] {
+        padding: 2px 5px;
+        border-radius: 3px;
+        display: inline-block;
+        /* Giúp padding hoạt động tốt hơn */
+    }
+
+    span[style*="color: blue"] {
+        background-color: #e7f3ff;
+    }
+
+    span[style*="color: orange"] {
+        background-color: #fff3cd;
+    }
+
+    span[style*="color: grey"] {
+        background-color: #e9ecef;
+    }
+
+    span[style*="color: red"] {
+        background-color: #f8d7da;
+    }
+
+    span[style*="color: green"] {
+        background-color: #d4edda;
+    }
+
+    span[style*="color: #6c757d"] {
+        background-color: #f8f9fa;
+    }
+
+    /* Pending Queue & Xóa Lệnh */
+    span[style*="color: #17a2b8"] {
+        background-color: #d1ecf1;
+    }
+
+    /* Processing Cmd */
+</style>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+    // Script AJAX polling nếu có thì giữ nguyên hoặc thêm sau
+</script>
+{% endblock %}

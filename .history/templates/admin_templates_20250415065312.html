@@ -1,0 +1,159 @@
+{# templates/admin_templates.html - Đã thêm bộ lọc #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+
+{# === THÊM FORM BỘ LỌC === #}
+<form method="GET" action="{{ url_for('admin.view_templates') }}" class="filter-form" style="margin-bottom: 20px;">
+    <fieldset>
+        <legend>Bộ lọc Templates</legend>
+        <div class="filter-row">
+            <div class="filter-group">
+                <label for="filter_ref">Template Ref (chứa):</label>
+                <input type="text" id="filter_ref" name="filter_ref" value="{{ filters.filter_ref | default('') }}">
+            </div>
+            <div class="filter-group">
+                <label for="filter_category">Category:</label>
+                <select id="filter_category" name="filter_category">
+                    <option value="">-- Tất cả Category --</option>
+                    {# distinct_categories được truyền từ route #}
+                    {% for cat in distinct_categories %}
+                    <option value="{{ cat }}" {% if filters.filter_category==cat %}selected{% endif %}>{{ cat }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="button">Lọc</button>
+            <a href="{{ url_for('admin.view_templates') }}">Xóa lọc</a>
+        </div>
+    </fieldset>
+</form>
+{# === KẾT THÚC FORM BỘ LỌC === #}
+
+
+<p><a href="{{ url_for('admin.add_template') }}">Thêm Template Mới</a></p>
+
+{% if templates %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%;">
+    <thead>
+        <tr>
+            <th>Template Ref</th>
+            <th>Description</th>
+            <th>Category</th>
+            <th>Variations Count</th>
+            <th>Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {# Vòng lặp hiển thị templates (đã lọc) #}
+        {% for tpl in templates %}
+        <tr>
+            <td>{{ tpl.template_ref }}</td>
+            <td>{{ tpl.description | default('') }}</td>
+            <td>{{ tpl.category | default('') }}</td>
+            <td style="text-align:center;">{{ tpl.variation_count | default('N/A') }}</td>
+            <td style="white-space: nowrap;">
+                <a href="{{ url_for('admin.edit_template_details', template_ref=tpl.template_ref) }}"
+                    class="button small secondary-button" style="margin-right: 5px;">Sửa Details</a>
+                <a href="{{ url_for('admin.view_template_variations', template_ref=tpl.template_ref) }}"
+                    class="button small secondary-button" style="margin-right: 5px;">Xem/Sửa Variations</a>
+                <form action="{{ url_for('admin.delete_template', template_ref=tpl.template_ref) }}" method="POST"
+                    style="display:inline;"
+                    onsubmit="return confirm('Xóa template ref \'{{ tpl.template_ref }}\' và TẤT CẢ variations của nó?');">
+                    <button type="submit" class="button small secondary-button" style="background-color:#dc3545;">Xóa
+                        Template</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% elif templates is none %}
+<p style="color: red;">Lỗi khi tải danh sách template.</p>
+{% else %}
+<p>Không tìm thấy template nào khớp với bộ lọc hoặc chưa có template nào.</p> {# Sửa lại thông báo #}
+{% endif %}
+{% endblock %}
+
+{# Kế thừa hoặc thêm style cho filter-form nếu cần #}
+{% block styles %}
+{{ super() }}
+<style>
+    /* Style cho form filter (tương tự trang history) */
+    .filter-form fieldset {
+        border: 1px solid #ccc;
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 5px;
+    }
+
+    .filter-form legend {
+        font-weight: bold;
+        padding: 0 10px;
+    }
+
+    .filter-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        margin-bottom: 10px;
+    }
+
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 200px;
+    }
+
+    .filter-group label {
+        margin-bottom: 5px;
+        font-size: 0.9em;
+        color: #555;
+    }
+
+    .filter-group input[type="text"],
+    .filter-group select {
+        padding: 6px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+
+    .filter-actions {
+        margin-top: 15px;
+    }
+
+    .filter-actions button {
+        /* Kế thừa .button */
+    }
+
+    .filter-actions a {
+        margin-left: 10px;
+    }
+
+    /* Các style khác cho bảng và nút */
+    th,
+    td {
+        padding: 8px;
+        vertical-align: middle;
+    }
+
+    .button.small {
+        font-size: 0.8em;
+        padding: 3px 8px;
+        vertical-align: middle;
+    }
+
+    .button.secondary-button {
+        background-color: #6c757d;
+        color: white !important;
+    }
+
+    .button.secondary-button:hover {
+        background-color: #5a6268;
+    }
+</style>
+{% endblock %}

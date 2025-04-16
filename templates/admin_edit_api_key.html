@@ -1,0 +1,116 @@
+{# templates/admin_edit_api_key.html #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title | default('Sửa Thông tin API Key') }}</h1>
+{# key_details được truyền từ route GET #}
+{% if key_details %}
+<form method="POST">
+    <fieldset>
+        <legend>Thông tin API Key (ID: {{ key_details.key_id }})</legend>
+
+        <div class="form-group">
+            <label>Key ID:</label><br>
+            <input type="text" value="{{ key_details.key_id }}" disabled>
+        </div>
+        <div class="form-group">
+            <label>Provider:</label><br>
+            <input type="text" value="{{ key_details.provider }}" disabled>
+        </div>
+
+        <div class="form-group">
+            <label for="key_name">Tên Key (Gợi nhớ, duy nhất - bắt buộc):</label><br>
+            {# Dùng current_data nếu có lỗi POST, nếu không dùng data từ DB #}
+            <input type="text" id="key_name" name="key_name" required maxlength="100"
+                value="{{ current_data.key_name if current_data else key_details.key_name }}">
+        </div>
+
+        <div class="form-group">
+            <label for="status">Trạng thái:</label><br>
+            {% set current_status = current_data.status if current_data else key_details.status %}
+            <select name="status" id="status">
+                {# Cho phép các trạng thái 'active', 'inactive', 'rate_limited' #}
+                <option value="active" {% if current_status=='active' %}selected{% endif %}>Active</option>
+                <option value="inactive" {% if current_status=='inactive' %}selected{% endif %}>Inactive</option>
+                <option value="rate_limited" {% if current_status=='rate_limited' %}selected{% endif %}>Rate Limited
+                    (Tạm khóa)</option>
+            </select>
+            <small>(Chọn Inactive để tạm dừng sử dụng key này).</small>
+        </div>
+
+        <div class="form-group">
+            <label for="notes">Ghi chú (Tùy chọn):</label><br>
+            <textarea id="notes" name="notes" rows="2"
+                style="width: 80%;">{{ current_data.notes if current_data else key_details.notes | default('') }}</textarea>
+        </div>
+
+        <div class="form-group">
+            <label>Giá trị API Key:</label><br>
+            <input type="text" value="*** (Không hiển thị/sửa đổi vì lý do bảo mật) ***" disabled
+                style="width: 80%; font-style: italic; color: grey;">
+        </div>
+
+    </fieldset>
+    <div class="form-actions" style="margin-top: 20px;">
+        <button type="submit" class="button">Lưu Thay Đổi</button>
+        <a href="{{ url_for('admin.view_api_keys') }}">Hủy</a>
+    </div>
+</form>
+{% else %}
+<p style="color:red;">Không tìm thấy thông tin chi tiết cho API Key này.</p>
+<a href="{{ url_for('admin.view_api_keys') }}">Quay lại danh sách</a>
+{% endif %}
+{% endblock %}
+
+{% block styles %}
+{{ super() }}
+{# Kế thừa hoặc thêm style cho form nếu cần #}
+<style>
+    .form-group {
+        margin-bottom: 15px;
+    }
+
+    .form-group label {
+        font-weight: bold;
+        display: block;
+        margin-bottom: 5px;
+    }
+
+    .form-group input[type="text"],
+    .form-group input[type="number"],
+    .form-group select,
+    .form-group textarea {
+        width: 100%;
+        max-width: 600px;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-sizing: border-box;
+    }
+
+    .form-group input[disabled] {
+        background-color: #eee;
+        cursor: not-allowed;
+    }
+
+    .form-group small {
+        font-size: 0.85em;
+        color: #555;
+        margin-top: 4px;
+        display: block;
+    }
+
+    fieldset {
+        border: 1px solid #ddd;
+        padding: 20px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+    }
+
+    legend {
+        font-size: 1.1em;
+        font-weight: bold;
+        padding: 0 10px;
+    }
+</style>
+{% endblock %}

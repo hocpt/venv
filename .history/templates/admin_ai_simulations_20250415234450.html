@@ -1,0 +1,116 @@
+{# templates/admin_ai_simulations.html - Đã thêm phân trang cho Saved Configs #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title | default('Quản lý Mô phỏng Hội thoại AI') }}</h1>
+<p>Quản lý các cấu hình mô phỏng đã lưu và theo dõi các lần chạy đang hoạt động hoặc chờ xử lý.</p>
+
+{# ========================================================== #}
+{# === PHẦN 1: CẤU HÌNH MÔ PHỎNG ĐÃ LƯU === #}
+{# ========================================================== #}
+<hr style="margin-top: 20px; margin-bottom: 20px;">
+<h2>Cấu hình Mô phỏng Đã Lưu</h2>
+<p><a href="{{ url_for('admin.add_simulation_config_view') }}" class="button">Thêm Cấu hình Mô phỏng Mới</a></p>
+
+{# Thông tin phân trang cho Saved Configs #}
+{% if saved_configs_pagination and saved_configs_pagination.total_items > 0 %}
+<p>Hiển thị {{ saved_configs | length }} trong tổng số {{ saved_configs_pagination.total_items }} cấu hình. Trang {{
+    saved_configs_pagination.page }} / {{ saved_configs_pagination.total_pages }}.</p>
+{% endif %}
+
+{# Bảng cấu hình đã lưu #}
+{% if saved_configs is defined and saved_configs %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%; border-collapse: collapse; margin-bottom: 20px;">
+    {# ... thead như cũ ... #}
+    <thead>
+        <tr style="background-color: #f2f2f2;">
+            <th style="width: 5%;">ID</th>
+            <th style="width: 20%;">Tên Cấu hình</th>
+            <th style="width: 25%;">Personas (A vs B)</th>
+            <th style="width: 15%;">Strategy</th>
+            <th style="width: 5%; text-align: center;">Turns</th>
+            <th style="width: 10%; text-align: center;">Enabled</th>
+            <th style="width: 20%;">Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for cfg in saved_configs %} {# Lặp qua saved_configs của trang hiện tại #}
+        <tr>
+            {# ... các ô td hiển thị thông tin cfg như cũ ... #}
+            <td>{{ cfg.config_id }}</td>
+            <td>...{{ cfg.config_name }}...</td>
+            <td>...{{ cfg.persona_a_id }} vs {{ cfg.persona_b_id }}...</td>
+            <td>{{ cfg.strategy_id }}</td>
+            <td style="text-align: center;">{{ cfg.max_turns }}</td>
+            <td style="text-align: center;">...{% if cfg.is_enabled %}Yes{% else %}No{% endif %}...</td>
+            <td style="text-align: center; white-space: nowrap;">
+                {# ... Các nút Chạy Ngay, Sửa, Xóa như cũ ... #}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{# === PHÂN TRANG CHO SAVED CONFIGS === #}
+{% if saved_configs_pagination and saved_configs_pagination.total_pages > 1 %}
+<div class="pagination" style="margin-top: 20px; text-align: center;">
+    {# Nút Trang Đầu #}
+    {% if saved_configs_pagination.page > 1 %} <a href="{{ url_for('admin.view_ai_simulations', page=1) }}"
+        class="page-link">&laquo; Đầu</a> {% else %} <span class="page-link disabled">&laquo; Đầu</span> {% endif %}
+    {# Nút Trang Trước #}
+    {% if saved_configs_pagination.has_prev %} <a
+        href="{{ url_for('admin.view_ai_simulations', page=saved_configs_pagination.prev_num) }}"
+        class="page-link">&lsaquo; Trước</a> {% else %} <span class="page-link disabled">&lsaquo; Trước</span> {% endif
+    %}
+    {# Thông tin trang #}
+    <span class="page-current"> Trang {{ saved_configs_pagination.page }} / {{ saved_configs_pagination.total_pages }}
+    </span>
+    {# Nút Trang Sau #}
+    {% if saved_configs_pagination.has_next %} <a
+        href="{{ url_for('admin.view_ai_simulations', page=saved_configs_pagination.next_num) }}" class="page-link">Sau
+        &rsaquo;</a> {% else %} <span class="page-link disabled">Sau &rsaquo;</span> {% endif %}
+    {# Nút Trang Cuối #}
+    {% if saved_configs_pagination.page < saved_configs_pagination.total_pages %} <a
+        href="{{ url_for('admin.view_ai_simulations', page=saved_configs_pagination.total_pages) }}" class="page-link">
+        Cuối &raquo;</a> {% else %} <span class="page-link disabled">Cuối &raquo;</span> {% endif %}
+        {# Form nhảy trang #}
+        <form method="GET" action="{{ url_for('admin.view_ai_simulations') }}"
+            style="display: inline-block; margin-left: 15px;">
+            <label for="page_jump_saved" style="font-size: 0.9em;">Đi tới trang:</label>
+            <input type="number" name="page" id="page_jump_saved" min="1"
+                max="{{ saved_configs_pagination.total_pages }}" value="{{ saved_configs_pagination.page }}"
+                style="width: 60px; padding: 3px;">
+            <button type="submit" class="button small">Đi</button>
+        </form>
+</div>
+{% endif %}
+{# === KẾT THÚC PHÂN TRANG SAVED CONFIGS === #}
+
+{% elif saved_configs is none %}
+<p style="color: orange;">Không thể tải danh sách cấu hình đã lưu (Lỗi DB?).</p>
+{% else %}
+<p>Chưa có cấu hình mô phỏng nào được lưu. Nhấn nút "Thêm Cấu hình Mô phỏng Mới" ở trên để tạo.</p>
+{% endif %}
+
+
+{# ========================================================== #}
+{# === PHẦN 2: CÁC LẦN MÔ PHỎNG ĐANG CHẠY/CHỜ === #}
+{# ========================================================== #}
+<hr style="margin-top: 30px; margin-bottom: 20px;">
+<h2>Các Lần Mô phỏng Đang Chạy / Được Lên Lịch / Chờ Xử lý Lệnh</h2>
+{# Nút xóa hàng loạt lệnh như cũ #}
+<div style="margin-bottom: 10px;"> ... </div>
+{# Bảng hiển thị simulations_display như cũ #}
+{% if simulations_display is defined and simulations_display %}
+<table border="1" ...>
+    {# ... Nội dung bảng live/pending runs như cũ ... #}
+</table>
+{% else %}
+{# ... Thông báo khi không có live/pending runs ... #}
+{% endif %}
+
+{% endblock %}
+
+{# Khối styles và scripts giữ nguyên #}
+{% block styles %} ... {% endblock %}
+{% block scripts %} ... {% endblock %}

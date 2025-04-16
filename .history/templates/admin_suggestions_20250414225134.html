@@ -1,0 +1,100 @@
+{% extends "admin_base.html" %} {# Kế thừa từ layout admin cơ sở #}
+
+{% block content %}
+<h1>{{ title | default('Đề xuất từ AI') }}</h1>
+
+{# === THÊM PHẦN HIỂN THỊ TRẠNG THÁI JOB === #}
+{% if suggestion_job_status %}
+<div class="task-status-info"
+    style="margin-bottom: 15px; padding: 10px; border: 1px solid #eee; background-color: #f9f9f9; border-radius: 4px; font-size: 0.9em;">
+    <strong>Trạng thái Tác vụ Phân tích & Đề xuất (suggestion_job):</strong>
+    {% if suggestion_job_status.status == 'Scheduled' %}
+    <span style="color: blue; font-weight: bold;">Scheduled</span> - Lần chạy kế tiếp: {{
+    suggestion_job_status.next_run_time_str }}
+    {% elif suggestion_job_status.status == 'Paused' %}
+    <span style="color: orange; font-weight: bold;">Paused</span> (Đang tạm dừng)
+    {% elif suggestion_job_status.status == 'Disabled' %}
+    <span style="color: grey;">Disabled</span> (Đã tắt trong cấu hình)
+    {% elif 'Error' in suggestion_job_status.status %}
+    <span style="color: red; font-weight: bold;">Error</span> ({{ suggestion_job_status.status }})
+    {% else %}
+    <span style="color: red;">{{ suggestion_job_status.status | default('Không xác định') }}</span>
+    {% endif %}
+    {# Thêm nút Chạy Ngay ở đây nếu muốn #}
+    <form action="{{ url_for('admin.run_suggestion_job_now') }}" method="POST"
+        style="display:inline; margin-left: 15px;" onsubmit="return confirm('Chạy tác vụ đề xuất AI ngay bây giờ?');">
+        <button type="submit" class="button small">Chạy Ngay</button>
+    </form>
+</div>
+{% endif %}
+{# === KẾT THÚC PHẦN HIỂN THỊ TRẠNG THÁI JOB === #}
+
+
+{% if suggestions is defined and suggestions is iterable %}
+{# ... (Code hiển thị nút Duyệt tất cả và bảng suggestions như cũ) ... #}
+<div style="margin-bottom: 15px;">
+    <form action="{{ url_for('admin.start_approve_all_job') }}" method="POST" ...>
+        {# Nút Duyệt tất cả #}
+        <button type="submit" class="button">Duyệt tất cả ...</button>
+    </form>
+    ...
+</div>
+<table border="1" ...>
+    {# ... Nội dung bảng suggestions ... #}
+</table>
+{% elif suggestions is none %}
+<p style="color: red;">Có lỗi xảy ra khi tải danh sách đề xuất.</p>
+{% else %}
+<p>Hiện tại không có đề xuất nào đang chờ phê duyệt.</p>
+{% endif %}
+
+<br>
+<a href="{{ url_for('admin.index') }}">Quay lại Dashboard</a>
+
+{% endblock %}
+
+{# Thêm CSS nếu cần cho class button và pre #}
+{% block styles %}
+{{ super() }}
+<style>
+    td pre {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        background-color: #f9f9f9;
+        padding: 5px;
+        border: 1px solid #eee;
+        margin: 0;
+        font-size: 0.9em;
+    }
+
+    .button.small {
+        font-size: 0.8em;
+        padding: 3px 8px;
+        vertical-align: middle;
+    }
+
+    .button.secondary-button {
+        background-color: #6c757d;
+    }
+
+    .button.secondary-button:hover {
+        background-color: #5a6268;
+    }
+
+    th,
+    td {
+        vertical-align: middle;
+        padding: 8px 5px;
+    }
+
+    table {
+        table-layout: fixed;
+        width: 100%;
+    }
+
+    th,
+    td {
+        word-wrap: break-word;
+    }
+</style>
+{% endblock %}

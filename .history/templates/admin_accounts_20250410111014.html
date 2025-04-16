@@ -1,0 +1,46 @@
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+<p><a href="{{ url_for('admin.add_account') }}">Thêm Tài khoản Mới</a></p>
+
+{% if accounts %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%;">
+    <thead>
+        <tr>
+            <th>Account ID</th>
+            <th>Platform</th>
+            <th>Username</th>
+            <th>Status</th>
+            <th>Goal</th>
+            <th>Default Strategy</th>
+            <th>Notes</th>
+            <th>Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for acc in accounts %}
+        <tr>
+            <td>{{ acc.account_id }}</td>
+            <td>{{ acc.platform }}</td>
+            <td>{{ acc.username }}</td>
+            <td>{{ acc.status }}</td>
+            <td>{{ acc.goal | default('N/A') }}</td>
+            <td>{{ acc.default_strategy_id | default('N/A') }}</td>
+            <td>{{ acc.notes | default('') | truncate(80) }}</td>
+            <td>
+                <a href="{{ url_for('admin.edit_account', account_id=acc.account_id) }}">Sửa</a>
+                <form action="{{ url_for('admin.delete_account', account_id=acc.account_id) }}" method="POST"
+                    style="display:inline;"
+                    onsubmit="return confirm('Xác nhận xóa tài khoản \'{{ acc.username or acc.account_id }}\'? Hành động này không thể hoàn tác!');">
+                    <button type="submit">Xóa</button> {# Bỏ disabled #}
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>Chưa có tài khoản nào.</p>
+{% endif %}
+{% endblock %}
