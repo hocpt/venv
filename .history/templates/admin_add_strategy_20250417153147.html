@@ -1,0 +1,54 @@
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+
+{# Form POST về chính URL này (route add_strategy) #}
+<form method="POST" action="{{ url_for('admin.add_strategy') }}">
+    <label for="strategy_type">Strategy Type (Loại chiến lược - bắt buộc):</label><br> <select name="strategy_type"
+        id="strategy_type" required>
+        <option value="">-- Chọn Loại --</option> {# valid_types được truyền từ route #} {% set current_type =
+        current_data.strategy_type if current_data else '' %} {% for type_val in valid_types %} <option
+            value="{{ type_val }}" {% if current_type==type_val %}selected{% endif %}> {{ 'Language (Hội thoại)' if
+            type_val == 'language' else 'Control (Điều khiển)' }} </option> {% endfor %}
+    </select><br><br>
+    <label for="strategy_id">Strategy ID (mã định danh, vd: default_sales, friend_making - bắt buộc):</label><br>
+    {# Hiển thị lại giá trị cũ nếu có lỗi POST #}
+    <input type="text" id="strategy_id" name="strategy_id" required
+        value="{{ current_data.strategy_id if current_data else '' }}"><br><br>
+
+    <label for="name">Name (tên hiển thị - bắt buộc):</label><br>
+    {# Hiển thị lại giá trị cũ nếu có lỗi POST #}
+    <input type="text" id="name" name="name" required value="{{ current_data.name if current_data else '' }}"><br><br>
+
+    <label for="description">Description (mô tả):</label><br>
+    {# Hiển thị lại giá trị cũ nếu có lỗi POST #}
+    <textarea id="description" name="description" rows="3"
+        style="width: 80%;">{{ current_data.description if current_data else '' }}</textarea><br><br>
+
+    <label for="initial_stage_id">Initial Stage ID (stage bắt đầu - bắt buộc):</label><br>
+    <select name="initial_stage_id" id="initial_stage_id" required>
+        <option value="">-- Chọn Stage --</option>
+        {# Kiểm tra xem biến stages có tồn tại và có phần tử không #}
+        {% if stages %}
+        {% for stage in stages %} {# Giả sử stages là list of dicts từ strategy_stages #}
+        <option value="{{ stage.stage_id }}" {% if current_data and current_data.initial_stage_id==stage.stage_id
+            %}selected{% endif %}>
+            {# Hiển thị ID và một phần description nếu có #}
+            {{ stage.stage_id }} {{ ('('+stage.description[:30]+'...)') if stage.description else '' }}
+        </option>
+        {% endfor %}
+        {% else %}
+        {# Hiển thị thông báo nếu không có stage nào #}
+        <option value="" disabled>Không có stage nào để chọn</option>
+        {% endif %}
+    </select>
+    <br>
+    <small>(Lấy từ bảng `strategy_stages`. Nếu danh sách trống, hãy kiểm tra CSDL.)</small>
+    <br><br>
+
+    <button type="submit">Thêm Chiến lược</button>
+    <a href="{{ cancel_url }}">Hủy</a>
+</form>
+
+{% endblock %}

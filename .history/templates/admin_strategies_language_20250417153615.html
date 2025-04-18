@@ -1,0 +1,133 @@
+{# templates/admin_strategy_stages_language.html #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+{# === Tiêu đề và thông tin Strategy === #}
+<h1>{{ title }}</h1>
+{% if strategy %}
+<p>
+    <strong>ID:</strong> {{ strategy.strategy_id }} |
+    <strong>Type:</strong> {{ strategy.strategy_type | capitalize }} |
+    <strong>Initial Stage:</strong> {{ strategy.initial_stage_id }}
+</p>
+<p><strong>Description:</strong> {{ strategy.description | default('N/A') }}</p>
+{% else %}
+<p style="color:red;">Lỗi: Không tải được thông tin chiến lược.</p>
+{% endif %}
+<hr>
+
+{# === Phần Stages (Giống bên control) === #}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+    <h2>Stages thuộc Chiến lược này</h2>
+    {# Nút thêm Stage mới (dùng chung route add_stage) #}
+    <a href="{{ url_for('admin.add_stage', strategy_id=strategy.strategy_id) }}" class="button">Thêm Stage Mới</a>
+</div>
+{% if strategy_stages %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%; border-collapse: collapse;">
+    <thead>
+        <tr style="background-color: #f2f2f2;">
+            <th style="width: 20%;">Stage ID</th>
+            <th style="width: 50%;">Description</th>
+            <th style="width: 10%; text-align: center;">Order</th>
+            <th style="width: 20%;">Hành động Stage</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for stage in strategy_stages %}
+        <tr>
+            <td><code>{{ stage.stage_id }}</code></td>
+            <td>{{ stage.description | default('') }}</td>
+            <td style="text-align: center;">{{ stage.stage_order | default(0) }}</td>
+            <td style="white-space: nowrap; text-align: center;">
+                {# Nút Sửa Stage (dùng chung route edit_stage) #}
+                <a href="{{ url_for('admin.edit_stage', stage_id=stage.stage_id) }}"
+                    class="button small secondary-button">Sửa</a>
+                {# Nút Xóa Stage (dùng chung route delete_stage) #}
+                <form action="{{ url_for('admin.delete_stage', stage_id=stage.stage_id) }}" method="POST"
+                    style="display:inline;" onsubmit="return confirm('Xác nhận xóa stage \'{{ stage.stage_id }}\'?');">
+                    <button type="submit" class="button small secondary-button"
+                        style="background-color:#dc3545; margin-left: 5px;">Xóa</button>
+                </form>
+                {# Nút thêm transition BẮT ĐẦU TỪ stage này - trỏ đến route language #}
+                <a href="{{ url_for('admin.add_transition_language', strategy_id=strategy.strategy_id, current_stage_id=stage.stage_id) }}"
+                    class="button small" style="margin-left: 10px;">+ Transition</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% elif strategy_stages is none %}
+<p style="color:red;">Lỗi khi tải danh sách stages.</p>
+{% else %}
+<p>Chiến lược này chưa có stage nào.</p>
+{% endif %}
+
+<hr>
+
+{# === Phần Transitions (Chỉ hiển thị thông tin Language) === #}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+    <h2>Transitions của Chiến lược này</h2>
+    {# Nút thêm transition chung cho strategy này - trỏ đến route language #}
+    <a href="{{ url_for('admin.add_transition_language', strategy_id=strategy.strategy_id) }}" class="button">Thêm
+        Transition Mới</a>
+</div>
+{% if transitions %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%; border-collapse: collapse;">
+    <thead>
+        <tr style="background-color: #f2f2f2;">
+            <th style="width: 5%;">ID</th>
+            <th style="width: 20%;">Current Stage</th>
+            <th style="width: 20%;">User Intent</th>
+            <th style="width: 20%;">Next Stage</th>
+            {# === Cột quan trọng cho Language === #}
+            <th style="width: 20%;">Response Template Ref</th>
+            <th style="width: 5%; text-align: center;">Priority</th>
+            <th style="width: 10%;">Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {# transitions là list thô từ DB, đã bao gồm cả control và language #}
+        {# Lọc và chỉ hiển thị những transition phù hợp với language (có template ref hoặc không có action macro) #}
+        {% for trans in transitions %}
+        {# Kiểm tra xem transition này có vẻ là của language không #}
+        {% if trans.response_template_ref or not trans.action_to_suggest %}
+        <tr>
+            <td>{{ trans.transition_id }}</td>
+            <td><code>{{ trans.current_stage_id }}</code></td>
+            <td>{{ trans.user_intent }}</td>
+            <td><code>{{ trans.next_stage_id | default('N/A') }}</code></td>
+            {# === Hiển thị Response Template Ref === #}
+            <td><code>{{ trans.response_template_ref | default('(Dùng AI/Default)') }}</code></td>
+            <td style="text-align: center;">{{ trans.priority | default(0) }}</td>
+            <td style="white-space: nowrap; text-align: center;">
+                {# Link sửa transition - trỏ đến route language #}
+                <a href="{{ url_for('admin.edit_transition_language', transition_id=trans.transition_id) }}"
+                    class="button small secondary-button">Sửa</a>
+                {# Form xóa transition (dùng chung route delete_transition) #}
+                <form action="{{ url_for('admin.delete_transition', transition_id=trans.transition_id) }}" method="POST"
+                    style="display:inline;"
+                    onsubmit="return confirm('Xác nhận xóa transition ID {{ trans.transition_id }}?');">
+                    <button type="submit" class="button small secondary-button"
+                        style="background-color:#dc3545; margin-left: 5px;">Xóa</button>
+                </form>
+            </td>
+        </tr>
+        {% endif %} {# Kết thúc if kiểm tra transition language #}
+        {% endfor %} {# Kết thúc vòng lặp transitions #}
+    </tbody>
+</table>
+{% elif transitions is none %}
+<p style="color:red;">Lỗi khi tải danh sách transitions.</p>
+{% else %}
+<p>Không tìm thấy transition nào cho chiến lược này.</p>
+{% endif %}
+
+<br>
+{# Link quay lại danh sách language strategies #}
+<a href="{{ url_for('admin.view_strategies_language') }}">Quay lại danh sách Chiến lược Hội thoại</a>
+
+{% endblock %}
+
+{# CSS và JS có thể kế thừa từ base hoặc control #}
+{% block styles %}{{ super() }}{% endblock %}
+{% block scripts %}{{ super() }}{% endblock %}

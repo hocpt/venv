@@ -1,0 +1,94 @@
+{# templates/admin_strategies_language.html #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+{# === TIÊU ĐỀ TRANG === #}
+<h1>{{ title | default('Quản lý Chiến lược Hội thoại') }}</h1>
+
+{# === NÚT THÊM MỚI === #}
+{# Link đến route add_strategy, truyền tham số type='language' #}
+<p><a href="{{ url_for('admin.add_strategy', type='language') }}" class="button">Thêm Chiến lược Hội thoại Mới</a></p>
+
+{# === BẢNG HIỂN THỊ DANH SÁCH === #}
+{# Biến 'strategies' được truyền từ route view_strategies_language và chỉ chứa các strategy type 'language' #}
+{% if strategies is defined and strategies %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%; border-collapse: collapse;">
+    <thead>
+        <tr style="background-color: #f2f2f2;">
+            <th style="width: 15%;">Strategy ID</th>
+            <th style="width: 20%;">Name</th>
+            <th style="width: 30%;">Description</th>
+            <th style="width: 15%;">Initial Stage ID</th>
+            <th style="width: 20%;">Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {# Lặp qua danh sách strategies (chỉ chứa loại 'language') #}
+        {% for strat in strategies %}
+        <tr>
+            <td>{{ strat.strategy_id }}</td>
+            <td>{{ strat.name | default('(Chưa đặt tên)') }}</td>
+            <td>{{ strat.description | default('') | truncate(100) }}</td>
+            <td>{{ strat.initial_stage_id | default('N/A') }}</td>
+            <td style="white-space: nowrap; text-align: center;">
+                {# Nút Sửa Strategy (Vẫn dùng route edit_strategy chung) #}
+                <a href="{{ url_for('admin.edit_strategy', strategy_id=strat.strategy_id) }}"
+                    class="button small secondary-button" style="margin-right: 5px;">Sửa</a>
+
+                {# Nút Xem Chi Tiết (Trỏ đến route language) - Giả sử route tên là view_strategy_stages_language #}
+                <a href="{{ url_for('admin.view_strategy_stages_language', strategy_id=strat.strategy_id) }}"
+                    class="button small secondary-button" style="margin-right: 5px; background-color: #17a2b8;">Xem Chi
+                    Tiết</a>
+
+                {# Nút Xóa Strategy (Vẫn dùng route delete_strategy chung) #}
+                <form action="{{ url_for('admin.delete_strategy', strategy_id=strat.strategy_id) }}" method="POST"
+                    style="display:inline;"
+                    onsubmit="return confirm('Xác nhận xóa chiến lược \'{{ strat.name or strat.strategy_id }}\'? Các stages và transitions liên quan cũng có thể bị ảnh hưởng.');">
+                    <button type="submit" class="button small secondary-button"
+                        style="background-color:#dc3545;">Xóa</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %} {# Kết thúc vòng lặp #}
+    </tbody>
+</table>
+{% elif strategies is none %}
+<p style="color: red;">Lỗi khi tải danh sách chiến lược hội thoại từ CSDL.</p>
+{% else %} {# strategies là list rỗng #}
+<p>Chưa có chiến lược hội thoại nào được định nghĩa.</p>
+{% endif %} {# Kết thúc if strategies #}
+
+{% endblock %}
+
+
+{# Kế thừa hoặc thêm CSS nếu cần #}
+{% block styles %}
+{{ super() }}
+<style>
+    /* Các style cơ bản cho bảng và nút (có thể đã có trong style.css hoặc admin_base.html) */
+    th,
+    td {
+        padding: 8px;
+        vertical-align: middle;
+        word-wrap: break-word;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+    }
+
+    .button {
+        /* Kế thừa */
+    }
+
+    .button.small {
+        /* Kế thừa */
+    }
+
+    .button.secondary-button {
+        /* Kế thừa */
+    }
+</style>
+{% endblock %}

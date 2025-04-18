@@ -1,0 +1,47 @@
+Ok, để chuẩn bị cho các phiên làm việc tiếp theo về chủ đề "AI Điều khiển Điện thoại", tôi sẽ tổng hợp lại các điểm chính chúng ta đã thảo luận và hướng tiếp cận đã thống nhất:
+
+I. Mục tiêu & Thách thức:
+
+Mục tiêu chính: Xây dựng một hệ thống mà AI có thể tương tác với ứng dụng trên điện thoại thật (ví dụ: TikTok) để thực hiện các chiến lược phức tạp (như tăng follow, bình luận tương tác) và thu thập dữ liệu hoạt động thực tế.
+Thách thức lớn:
+"Học tập" thực sự: Việc để AI tự "học" điều khiển điện thoại từ đầu (như dùng Học tăng cường) là cực kỳ phức tạp về kỹ thuật và dữ liệu.
+Hiểu ngữ cảnh: Nếu AI chỉ nhận dữ liệu từng màn hình riêng lẻ, nó sẽ không hiểu được luồng hoạt động tổng thể của ứng dụng, giống như đi trong thành phố không có bản đồ.
+Giới hạn API & Độ trễ: Việc dựa vào server và AI để quyết định từng hành động nhỏ theo thời gian thực cho nhiều điện thoại sẽ gặp vấn đề về giới hạn quota API và độ trễ mạng.
+II. Hướng Tiếp Cận Đã Thống Nhất (Hybrid LLM Agent + "Offline Strategy"):
+
+Chúng ta đã đồng ý về một hướng tiếp cận thực tế và khả thi hơn, kết hợp giữa việc định nghĩa cấu trúc thủ công và sử dụng AI làm bộ não ra quyết định:
+
+Xây Dựng "Bản Đồ App" trên Server (Định nghĩa Thủ công):
+
+Ý tưởng: Thay vì bắt AI tự học toàn bộ cấu trúc app, chúng ta sẽ "vẽ bản đồ" cho AI bằng cách định nghĩa các thành phần chính của ứng dụng mục tiêu và luồng hoạt động của nó thông qua Giao diện Admin.
+Cách thực hiện:
+Sử dụng hoặc mở rộng hệ thống Strategies / Stages / Transitions hiện có trong CSDL.
+Stages = Screens: Mỗi stage_id đại diện cho một màn hình quan trọng (vd: tiktok_video_view, tiktok_comment_section). Cần định nghĩa các đặc điểm nhận dạng cho từng stage dựa trên dữ liệu UI mà AutoInput có thể lấy được (vd: sự hiện diện của element có ID/Text cụ thể).
+Transitions = Actions & Flows: Mỗi transition mô tả việc thực hiện một hành động cụ thể trên một element cụ thể ở màn hình hiện tại (current_stage_id) sẽ dẫn đến màn hình nào tiếp theo (next_stage_id).
+Action JSON (Quan trọng): Trường action_to_suggest trong stage_transitions sẽ lưu trữ lệnh hành động dưới dạng JSON chuẩn hóa mà server sẽ gửi về cho điện thoại để thực thi (ví dụ: {"action_type": "TAP", "target": {"resource_id": "..."}}).
+Nhập liệu: Bạn sẽ dùng Admin UI để tạo các Strategy, Stage, và Transition này, bao gồm cả việc nhập Action JSON.
+Tách biệt Vai trò Điện thoại và Server:
+
+Điện thoại (MacroDroid + AutoInput/Root Shell):
+Thu thập dữ liệu: Lấy thông tin UI hiện tại bằng AutoInput Query (cung cấp Text, ID, Tọa độ, Clickable...).
+Đóng gói & Gửi: Tạo JSON chứa dữ liệu UI và gửi lên Endpoint của Server.
+Nhận Lệnh: Chờ nhận phản hồi JSON chứa lệnh hành động từ Server.
+Thực thi: Phân tích JSON lệnh và thực hiện hành động tương ứng (tap, swipe, input...) bằng AutoInput hoặc lệnh Shell.
+Báo cáo (Tùy chọn): Có thể gửi trạng thái thực thi (thành công/thất bại) về server ở lần gửi dữ liệu tiếp theo.
+Server (Flask + AI Service):
+Nhận State: Endpoint API nhận JSON dữ liệu UI từ điện thoại.
+Xác định Vị trí trên Bản đồ: Phân tích dữ liệu UI (có thể dùng AI hoặc logic cứng) để xác định màn hình hiện tại tương ứng với stage_id nào trên "Bản đồ App" đã định nghĩa.
+Tham chiếu Bản đồ & Chiến lược: Dựa trên stage_id hiện tại và strategy_id (mục tiêu tổng thể), tìm các transition phù hợp trong CSDL.
+Quyết định Hành động:
+Nếu có transition khớp và chứa sẵn Action JSON -> Lấy Action JSON đó.
+Nếu không có transition phù hợp, hoặc cần suy luận phức tạp (vd: viết nội dung bình luận), hoặc xử lý tình huống bất ngờ -> Gọi AI Gemini (LLM Agent). Cung cấp cho AI ngữ cảnh đầy đủ (mục tiêu, vị trí trên bản đồ, dữ liệu màn hình, danh sách các hành động JSON có thể làm - "tools") và yêu cầu nó chọn hoặc tạo ra Action JSON tiếp theo.
+Gửi Lệnh: Gửi Action JSON đã quyết định về cho điện thoại.
+Ghi Log: Lưu lại toàn bộ quá trình (State nhận được -> Phân tích -> Quyết định -> Hành động gửi đi -> Kết quả thực thi) vào bảng phone_action_log mới.
+"Học Tập" Chủ yếu là Offline:
+
+Việc "tự học" và "tự tư duy" của hệ thống sẽ chủ yếu đến từ việc con người (bạn) hoặc các script phân tích offline xem lại dữ liệu trong phone_action_log.
+Dựa trên đó, bạn sẽ cập nhật và tinh chỉnh lại "Bản đồ App" (thêm/sửa Stages, Transitions, Action JSON) và cải thiện các prompt dùng để hướng dẫn AI ra quyết định trên server.
+Về lâu dài, dữ liệu log này có thể dùng để huấn luyện các mô hình AI chuyên biệt hơn.
+Tóm lại: Hướng đi chính là xây dựng một "bản đồ" ứng dụng có cấu trúc trên server do con người định nghĩa và cập nhật, kết hợp với khả năng phân tích trạng thái và ra quyết định dựa trên ngữ cảnh của AI (LLM) để điều khiển điện thoại thực thi các chiến lược một cách linh hoạt và có mục đích. Giao tiếp giữa server và điện thoại sẽ không cần real-time liên tục mà chủ yếu là gửi trạng thái và nhận lệnh hành động.
+
+Khi bạn tạo phiên làm việc mới, chúng ta có thể bắt đầu từ việc thiết kế chi tiết cấu trúc CSDL cho "Bản đồ App" (cách biểu diễn Screens, Elements, Transitions, Actions) và định nghĩa cấu trúc JSON cho việc giao tiếp giữa điện thoại và server.

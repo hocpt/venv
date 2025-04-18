@@ -1,0 +1,61 @@
+{# templates/admin_edit_stage.html #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+{# Title được truyền từ route #}
+<h1>{{ title }}</h1>
+
+{# Form POST về chính route edit_stage này #}
+<form method="POST">
+    <input type="hidden" name="stage_id" value="{{ stage.stage_id }}">
+    {# Có thể thêm hidden input cho strategy_id nếu cần trong logic POST #}
+    {# <input type="hidden" name="strategy_id" value="{{ stage.strategy_id }}"> #}
+
+    {# Trường Stage ID (không cho sửa) #}
+    <div class="form-group">
+        <label>Stage ID:</label><br>
+        <input type="text" value="{{ stage.stage_id }}" disabled>
+    </div>
+
+    {# Trường Strategy ID (không cho sửa) #}
+    <div class="form-group">
+        <label>Thuộc Strategy:</label><br>
+        <input type="text" value="{{ stage.strategy_id }}" disabled>
+    </div>
+
+    {# Trường Description #}
+    <div class="form-group">
+        <label for="description">Description:</label><br>
+        {# Lấy giá trị từ current_data nếu POST lỗi, nếu không lấy từ stage #}
+        <textarea id="description" name="description" rows="3"
+            style="width: 80%;">{{ current_data.description if current_data else stage.description | default('') }}</textarea>
+    </div>
+
+    {# Trường Stage Order #}
+    <div class="form-group">
+        <label for="stage_order">Stage Order (Thứ tự hiển thị):</label><br>
+        <input type="number" id="stage_order" name="stage_order"
+            value="{{ current_data.stage_order if current_data else stage.stage_order | default(0) }}">
+    </div>
+
+    {# === Trường Identifying Elements (Quan trọng cho Control) === #}
+    <div class="form-group">
+        <label for="identifying_elements">Identifying Elements (JSON - Dùng cho Control Strategy):</label><br>
+        {# Lấy giá trị từ current_data nếu POST lỗi, nếu không lấy từ stage.identifying_elements_str đã format #}
+        <textarea id="identifying_elements" name="identifying_elements" rows="5"
+            style="font-family: monospace; width:80%;"
+            placeholder='VD: {"has_text": ["Settings", "Network"]}'>{{ current_data.identifying_elements if current_data else stage.identifying_elements_str | default('{}') }}</textarea>
+        <small>Quy tắc JSON để nhận diện màn hình/stage này trên điện thoại.</small>
+    </div>
+    {# === KẾT THÚC Identifying Elements === #}
+
+
+    {# Nút Submit và Hủy #}
+    <div class="form-actions" style="margin-top: 20px;">
+        <button type="submit" class="button">Lưu Thay Đổi</button>
+        {# Nút Hủy trỏ về trang chi tiết strategy gốc (URL được truyền từ route) #}
+        <a href="{{ cancel_url | default(url_for('admin.view_strategies_language')) }}"
+            class="button secondary-button">Hủy</a>
+    </div>
+</form>
+{% endblock %}

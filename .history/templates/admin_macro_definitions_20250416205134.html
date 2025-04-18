@@ -1,0 +1,40 @@
+{% extends "admin_base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p><a href="{{ url_for('admin.add_macro_definition_view') }}" class="button">Thêm Định nghĩa Macro Mới</a></p>
+{% if macros %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%; border-collapse: collapse;">
+    <thead>
+        <tr>
+            <th>Macro Code</th>
+            <th>Description</th>
+            <th>App Target</th>
+            <th>Notes</th>
+            <th>Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for macro in macros %}
+        <tr>
+            <td><code>{{ macro.macro_code }}</code></td>
+            <td>{{ macro.description | default('') }}</td>
+            <td>{{ macro.app_target | default('system') }}</td>
+            <td>{{ macro.notes | default('') }}</td>
+            <td style="white-space: nowrap; text-align: center;">
+                <a href="{{ url_for('admin.edit_macro_definition_view', macro_code=macro.macro_code) }}"
+                    class="button small secondary-button">Sửa</a>
+                <form action="{{ url_for('admin.delete_macro_definition_view', macro_code=macro.macro_code) }}"
+                    method="POST" style="display:inline;"
+                    onsubmit="return confirm('Xóa macro code {{ macro.macro_code }}? Đảm bảo không còn transition nào sử dụng nó.');">
+                    <button type="submit" class="button small secondary-button"
+                        style="background-color:#dc3545;">Xóa</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p>Chưa có định nghĩa macro nào.</p>
+{% endif %}
+{% endblock %}

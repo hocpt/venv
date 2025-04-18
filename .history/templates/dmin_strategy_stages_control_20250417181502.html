@@ -1,0 +1,243 @@
+{# templates/admin_strategy_stages_control.html #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+{# === Tiêu đề và thông tin Strategy === #}
+<h1>{{ title | default('Chi tiết Chiến lược Điều khiển') }}</h1>
+{% if strategy %}
+<p>
+    <strong>ID:</strong> {{ strategy.strategy_id }} |
+    <strong>Type:</strong> {{ strategy.strategy_type | capitalize }} |
+    <strong>Initial Stage:</strong> <code>{{ strategy.initial_stage_id }}</code>
+    <a href="{{ url_for('admin.edit_strategy', strategy_id=strategy.strategy_id) }}"
+        class="button small secondary-button" style="margin-left: 15px;">Sửa Strategy Info</a>
+</p>
+<p><strong>Description:</strong> {{ strategy.description | default('N/A') }}</p>
+
+{# Link quay lại danh sách control strategies #}
+<p><a href="{{ url_for('admin.view_strategies_control') }}">&laquo; Quay lại Danh sách Chiến lược Điều khiển</a></p>
+{% else %}
+<p style="color:red;">Lỗi: Không tải được thông tin chiến lược.</p>
+<p><a href="{{ url_for('admin.view_strategies_control') }}">&laquo; Quay lại Danh sách Chiến lược Điều khiển</a></p>
+{% endif %}
+<hr>
+
+{# === Phần Stages === #}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+    <h2>Stages thuộc Chiến lược này</h2>
+    {# Nút thêm Stage mới (dùng chung route add_stage) #}
+    <a href="{{ url_for('admin.add_stage', strategy_id=strategy.strategy_id) }}" class="button">Thêm Stage Mới</a>
+</div>
+{% if strategy_stages is defined and strategy_stages %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%; border-collapse: collapse; margin-bottom: 20px;">
+    <thead>
+        <tr style="background-color: #f2f2f2;">
+            <th style="width: 15%;">Stage ID</th>
+            <th style="width: 40%;">Description</th>
+            <th style="width: 25%;">Identifying Elements (JSON)</th> {# Thêm cột này #}
+            <th style="width: 5%; text-align: center;">Order</th>
+            <th style="width: 15%;">Hành động Stage</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for stage in strategy_stages %}
+        <tr>
+            <td><code>{{ stage.stage_id }}</code></td>
+            <td>{{ stage.description | default('') }}</td>
+            {# Hiển thị Identifying Elements #}
+            <td>
+                {% if stage.identifying_elements %}
+                <pre
+                    style="font-size: 0.8em; max-height: 100px; overflow-y: auto; background-color:#f8f8f8; padding: 3px; border: 1px solid #eee;">{{ stage.identifying_elements | tojson(indent=1) }}</pre>
+                {% else %}
+                <span style="color: #888;">(Chưa định nghĩa)</span>
+                {% endif %}
+            </td>
+            <td style="text-align: center;">{{ stage.stage_order | default(0) }}</td>
+            <td style="white-space: nowrap; text-align: center;">
+                {# Nút Sửa Stage (dùng chung route edit_stage) #}
+                <a href="{{ url_for('admin.edit_stage', stage_id=stage.stage_id) }}"
+                    class="button small secondary-button">Sửa</a>
+                {# Nút Xóa Stage (dùng chung route delete_stage) #}
+                <form action="{{ url_for('admin.delete_stage', stage_id=stage.stage_id) }}" method="POST"
+                    style="display:inline;" onsubmit="return confirm('Xác nhận xóa stage \'{{ stage.stage_id }}\'?');">
+                    <button type="submit" class="button small secondary-button"
+                        style="background-color:#dc3545; margin-left: 5px;">Xóa</button>
+                </form>
+                {# Nút thêm transition BẮT ĐẦU TỪ stage này - trỏ đến route control #}
+                <a href="{{ url_for('admin.add_transition_control', strategy_id=strategy.strategy_id, current_stage_id=stage.stage_id) }}"
+                    class="button small" style="margin-left: 10px;">+ Transition</a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% elif strategy_stages is none %}
+<p style="color:red;">Lỗi khi tải danh sách stages.</p>
+{% else %}
+<p>Chiến lược này chưa có stage nào.</p>
+{% endif %}
+
+<hr>
+
+{# === Phần Transitions (Hiển thị thông tin Control) === #}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+    <h2>Transitions của Chiến lược này</h2>
+    {# Nút thêm transition chung cho strategy này - trỏ đến route control #}
+    <a href="{{ url_for('admin.add_transition_control', strategy_id=strategy.strategy_id) }}" class="button">Thêm
+        Transition Mới</a>
+</div>
+{% if transitions %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%; border-collapse: collapse;">
+    <thead>
+        <tr style="background-color: #f2f2f2;">
+            <th style="width: 5%;">ID</th>
+            <th style="width: 12%;">Current Stage</th>
+            <th style="width: 12%;">Intent/Trigger</th>
+            {# === Các cột cho Control === #}
+            <th style="width: 13%;">Condition</th>
+            <th style="width: 15%;">Action Macro Code</th>
+            <th style="width: 18%;">Action Params (JSON)</th>
+            {# === Kết thúc cột Control === #}
+            <th style="width: 10%;">Next Stage</th>
+            <th style="width: 5%; text-align: center;">Priority</th>
+            <th style="width: 10%;">Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {# transitions là list thô từ DB, bao gồm cả language và control #}
+        {# Lọc và chỉ hiển thị những transition có vẻ là của control (có action macro) #}
+        {% for trans in transitions %}
+        {% if trans.action_to_suggest and trans.action_to_suggest.macro_code %}
+        <tr>
+            <td>{{ trans.transition_id }}</td>
+            <td><code>{{ trans.current_stage_id }}</code></td>
+            <td>{{ trans.user_intent }}</td>
+            {# === Hiển thị Condition === #}
+            <td>
+                {% if trans.condition_type %}
+                <code>{{ trans.condition_type }}</code> = <code>{{ trans.condition_value | default('?')}}</code>
+                {% else %}
+                <span style="color: #888;">(Luôn chạy)</span>
+                {% endif %}
+            </td>
+            {# === Hiển thị Macro Code === #}
+            <td>
+                <code>{{ trans.action_to_suggest.macro_code | default('N/A') }}</code>
+            </td>
+            {# === Hiển thị Params === #}
+            <td>
+                {# Kiểm tra xem params có phải là dict không rỗng không #}
+                {% if trans.action_to_suggest.params and trans.action_to_suggest.params is mapping and
+                trans.action_to_suggest.params|length > 0 %}
+                <pre
+                    style="font-size: 0.8em; max-height: 100px; overflow-y: auto; background-color:#f8f8f8; padding: 3px; border: 1px solid #eee;">{{ trans.action_to_suggest.params | tojson(indent=1) }}</pre>
+                {% else %}
+                <span style="color: #888;">(Không có)</span>
+                {% endif %}
+            </td>
+            {# === Kết thúc hiển thị Control === #}
+            <td><code>{{ trans.next_stage_id | default('N/A') }}</code></td>
+            <td style="text-align: center;">{{ trans.priority | default(0) }}</td>
+            <td style="white-space: nowrap; text-align: center;">
+                {# Link sửa transition - trỏ đến route control #}
+                <a href="{{ url_for('admin.edit_transition_control', transition_id=trans.transition_id) }}"
+                    class="button small secondary-button">Sửa</a>
+                {# Form xóa transition (dùng chung route delete_transition) #}
+                <form action="{{ url_for('admin.delete_transition', transition_id=trans.transition_id) }}" method="POST"
+                    style="display:inline;"
+                    onsubmit="return confirm('Xác nhận xóa transition ID {{ trans.transition_id }}?');">
+                    <button type="submit" class="button small secondary-button"
+                        style="background-color:#dc3545; margin-left: 5px;">Xóa</button>
+                </form>
+            </td>
+        </tr>
+        {% endif %} {# Kết thúc if kiểm tra transition control #}
+        {% endfor %} {# Kết thúc vòng lặp transitions #}
+    </tbody>
+</table>
+{% elif transitions is none %}
+<p style="color:red;">Lỗi khi tải danh sách transitions.</p>
+{% else %}
+<p>Không tìm thấy transition nào phù hợp cho chiến lược điều khiển này.</p>
+{% endif %}
+
+<br>
+{# Link quay lại danh sách control strategies #}
+<a href="{{ url_for('admin.view_strategies_control') }}">Quay lại danh sách Chiến lược Điều khiển</a>
+
+{% endblock %}
+
+{# CSS và JS có thể kế thừa #}
+{% block styles %}
+{{ super() }}
+<style>
+    /* CSS cơ bản cho bảng, nút, form group... (Giống các trang khác) */
+    th,
+    td {
+        padding: 8px;
+        vertical-align: middle;
+        word-wrap: break-word;
+        border: 1px solid #ddd;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+        margin-bottom: 20px;
+    }
+
+    thead tr {
+        background-color: #f2f2f2;
+    }
+
+    td code,
+    pre {
+        background-color: #eee;
+        padding: 2px 4px;
+        border-radius: 3px;
+        font-size: 0.9em;
+        display: inline-block;
+        max-width: 100%;
+        white-space: pre-wrap;
+    }
+
+    pre {
+        background-color: #f8f8f8;
+        padding: 3px;
+        border: 1px solid #eee;
+        margin: 0;
+    }
+
+    .button {
+        /* Kế thừa */
+    }
+
+    .button.small {
+        /* Kế thừa */
+    }
+
+    .button.secondary-button {
+        /* Kế thừa */
+    }
+
+    .link-button.delete-button {
+        color: #dc3545;
+        background: none;
+        border: none;
+        padding: 0;
+        text-decoration: underline;
+        cursor: pointer;
+    }
+
+    .link-button.delete-button:hover {
+        color: #a71d2a;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{# Thêm script nếu cần #}
+{% endblock %}

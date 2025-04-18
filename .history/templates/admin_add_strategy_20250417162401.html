@@ -1,0 +1,51 @@
+{# templates/admin_add_strategy.html #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+{# Title được đặt động từ route dựa trên strategy_type #}
+<h1>{{ title | default("Thêm Chiến lược Mới") }}</h1>
+
+{# Form POST về route add_strategy #}
+<form method="POST" action="{{ url_for('admin.add_strategy') }}">
+
+    {# === INPUT ẨN ĐỂ GỬI STRATEGY_TYPE === #}
+    {# Giá trị strategy_type được truyền từ route GET #}
+    <input type="hidden" name="strategy_type" value="{{ strategy_type }}">
+
+    {# Các trường thông tin khác #}
+    <div class="form-group">
+        <label for="strategy_id">Strategy ID (mã định danh, vd: default_sales, friend_making - bắt buộc):</label><br>
+        {# Hiển thị lại giá trị cũ nếu có lỗi POST #}
+        <input type="text" id="strategy_id" name="strategy_id" required maxlength="50"
+            value="{{ current_data.strategy_id if current_data else '' }}">
+    </div>
+
+    <div class="form-group">
+        <label for="name">Name (tên hiển thị - bắt buộc):</label><br>
+        <input type="text" id="name" name="name" required maxlength="100"
+            value="{{ current_data.name if current_data else '' }}">
+    </div>
+
+    <div class="form-group">
+        <label for="description">Description (mô tả):</label><br>
+        <textarea id="description" name="description" rows="3"
+            style="width: 80%;">{{ current_data.description if current_data else '' }}</textarea>
+    </div>
+
+    <div class="form-group">
+        <label for="initial_stage_id">Initial Stage ID (stage bắt đầu - bắt buộc):</label><br>
+        <select name="initial_stage_id" id="initial_stage_id" required>
+            <option value="">-- Chọn Stage --</option>
+            {% if stages %}
+            {% for stage in stages %} {# stages là list các dict stage từ DB #}
+            <option value="{{ stage.stage_id }}" {% if current_data and current_data.initial_stage_id==stage.stage_id
+                %}selected{% endif %}>
+                {{ stage.stage_id }} {{ ('('+stage.description[:30]+'...)') if stage.description else '' }}
+            </option>
+            {% endfor %}
+            {% else %}
+            <option value="" disabled>Không có stage nào để chọn (Lỗi tải?)</option>
+            {% endif %}
+        </select>
+        <br>
+        <small>(Lấy từ bảng `strategy_stages`. Hãy chắc chắn stage này

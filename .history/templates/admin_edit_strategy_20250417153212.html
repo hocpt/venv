@@ -1,0 +1,44 @@
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+
+<form method="POST">
+    <label for="strategy_type">Strategy Type (bắt buộc):</label><br> <select name="strategy_type" id="strategy_type"
+        required>
+        <option value="">-- Chọn Loại --</option> {# Lấy giá trị từ current_data (nếu POST lỗi) hoặc từ strategy (khi
+        GET) #} {% set current_type = current_data.strategy_type if current_data else strategy.strategy_type %} {% for
+        type_val in valid_types %} <option value="{{ type_val }}" {% if current_type==type_val %}selected{% endif %}> {{
+            'Language (Hội thoại)' if type_val == 'language' else 'Control (Điều khiển)' }} </option> {% endfor %}
+    </select><br><br>
+    <label for="strategy_id">Strategy ID:</label><br>
+    <input type="text" id="strategy_id_display" name="strategy_id_display" value="{{ strategy.strategy_id }}"
+        disabled><br><br>
+    {# <input type="hidden" name="strategy_id" value="{{ strategy.strategy_id }}"> #}
+
+    <label for="name">Name (bắt buộc):</label><br>
+    <input type="text" id="name" name="name" required value="{{ strategy.name }}"><br><br>
+
+    <label for="description">Description:</label><br>
+    <textarea id="description" name="description" rows="3"
+        style="width: 80%;">{{ strategy.description | default('') }}</textarea><br><br>
+
+    <label for="initial_stage_id">Initial Stage ID (bắt buộc):</label><br>
+    <select name="initial_stage_id" id="initial_stage_id" required>
+        <option value="">-- Chọn Stage Bắt Đầu --</option>
+        {% for stage in stages %} {# Lấy từ db.get_all_stages() #}
+        <option value="{{ stage.stage_id }}" {% if strategy.initial_stage_id==stage.stage_id %}selected{% endif %}>
+            {{ stage.stage_id }} {{ ('('+stage.description[:30]+'...)') if stage.description else '' }}
+        </option>
+        {% endfor %}
+    </select>
+    {# Hoặc input text nếu bạn không muốn dùng dropdown #}
+    {# <input type="text" id="initial_stage_id" name="initial_stage_id" required
+        value="{{ strategy.initial_stage_id }}"><br><br> #}
+    <small>(Stage này phải tồn tại trong bảng `strategy_stages`)</small>
+    <br><br>
+
+    <button type="submit">Lưu Thay Đổi</button>
+    <a href="{{ cancel_url }}">Hủy</a>
+</form>
+{% endblock %}

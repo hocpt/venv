@@ -1,0 +1,260 @@
+{% extends "admin_base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p><a href="{{ url_for('admin.add_macro_definition_view') }}" class="button">Thêm Định nghĩa Macro Mới</a></p>
+
+{# === FORM BỘ LỌC === #}
+<form method="GET" action="{{ url_for('admin.view_macro_definitions') }}" class="filter-form"
+    style="margin-bottom: 20px;">
+    <fieldset>
+        <legend>Bộ lọc Macro Definitions</legend>
+        <div class="filter-row">
+            <div class="filter-group">
+                <label for="filter_code">Macro Code (chứa):</label>
+                {# filters là dict được truyền từ route, ví dụ filters.filter_code #}
+                <input type="text" id="filter_code" name="filter_code" value="{{ filters.filter_code | default('') }}">
+            </div>
+            <div class="filter-group">
+                <label for="filter_desc">Description (chứa):</label>
+                <input type="text" id="filter_desc" name="filter_desc" value="{{ filters.filter_desc | default('') }}">
+            </div>
+            <div class="filter-group">
+                <label for="filter_target">App Target:</label>
+                <select id="filter_target" name="filter_target">
+                    {# Thêm giá trị đặc biệt cho "Tất cả" #}
+                    <option value="__all__" {% if filters.filter_target=='__all__' %}selected{% endif %}>-- Tất cả Apps
+                        --</option>
+                    <option value="system" {% if filters.filter_target=='system' %}selected{% endif %}>System</option>
+                    <option value="generic" {% if filters.filter_target=='generic' %}selected{% endif %}>Generic
+                    </option>
+                    {# Lấy từ app_targets truyền vào (ví dụ: ['tiktok', 'zalo', 'facebook']) #}
+                    {% for target in app_targets %}
+                    {% if target not in ['system', 'generic'] %} {# Chỉ hiển thị các app cụ thể #}
+                    <option value="{{ target }}" {% if filters.filter_target==target %}selected{% endif %}>{{
+                        target.capitalize() }}</option>
+                    {% endif %}
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="filter-actions">
+            <button type="submit" class="button">Lọc</button>
+            {# Link xóa lọc trỏ về trang không có tham số filter #}
+            <a href="{{ url_for('admin.view_macro_definitions') }}">Xóa lọc</a>
+        </div>
+    </fieldset>
+</form>
+{# === KẾT THÚC FORM BỘ LỌC === #}
+
+{# Thông tin tóm tắt phân trang #}
+{% if pagination and pagination.total_items > 0 %}
+<p>Hiển thị {{ macros | length }} trong tổng số {{ pagination.total_items }} định nghĩa. Trang {{ pagination.page }} /
+    {{ pagination.total_pages }}.</p>
+{% endif %}
+
+{# Bảng hiển thị danh sách macro definitions #}
+{# Kiểm tra biến macros tồn tại và có thể lặp #}
+{% if macros is defined and macros %} {# Chỉ hiển thị bảng nếu list không rỗng #}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%; border-collapse: collapse;">
+    <thead>
+        <tr style="background-color: #f2f2f2;">
+            <th style="width: 20%;">Macro Code</th>
+            <th style="width: 35%;">Description</th>
+            <th style="width: 15%;">App Target</th>
+            <th style="width: 15%;">Notes</th>
+            <th style="width: 15%;">Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {# Vòng lặp hiển thị từng macro #}
+        {% for macro in macros %}
+        <tr>
+            <td><code>{{ macro.macro_code }}</code></td>
+            <td>{{ macro.description | default('') | truncate(100) }}</td> {# Thêm truncate #}
+            <td>{{ macro.app_target | default('system') }}</td>
+            <td>{{ macro.notes | default('') | truncate(80) }}</td> {# Thêm truncate #}
+            {# Ô Hành động #}
+            <td style="white-space: nowrap; text-align: center;">
+                <a href="{{ url_for('admin.edit_macro_definition_view', macro_code=macro.macro_code) }}"
+                    class="button small secondary-button" style="margin-right: 5px;">Sửa</a>
+                <form action="{{ url_for('admin.delete_macro_definition_view', macro_code=macro.macro_code) }}"
+                    method="POST" style="display:inline;"
+                    onsubmit="return confirm('Xóa macro code \'{{ macro.macro_code }}\'?');">
+                    <button type="submit" class="button small secondary-button"
+                        style="background-color:#dc3545;">Xóa</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %} {# Kết thúc vòng lặp #}
+    </tbody>
+</table>
+
+{# === PHẦN ĐIỀU HƯỚNG PHÂN TRANG === #}
+{% if pagination and pagination.total_pages > 1 %}
+<div class="pagination" style="margin-top: 20px; text-align: center;">
+    {# Nút Trang Đầu #}
+    {% if pagination.page > 1 %}
+    {# ** Quan trọng: Truyền lại các tham số filter đang áp dụng vào url_for ** #}
+    <a href="{{ url_for('admin.view_macro_definitions', page=1, **filters) }}" class="page-link">&laquo; Đầu</a>
+    {% else %}
+    <span class="page-link disabled">&laquo; Đầu</span>
+    {% endif %}
+    {# Nút Trang Trước #}
+    {% if pagination.has_prev %}
+    <a href="{{ url_for('admin.view_macro_definitions', page=pagination.prev_num, **filters) }}"
+        class="page-link">&lsaquo; Trước</a>
+    {% else %}
+    <span class="page-link disabled">&lsaquo; Trước</span>
+    {% endif %}
+    {# Thông tin trang #}
+    <span class="page-current"> Trang {{ pagination.page }} / {{ pagination.total_pages }} </span>
+    {# Nút Trang Sau #}
+    {% if pagination.has_next %}
+    <a href="{{ url_for('admin.view_macro_definitions', page=pagination.next_num, **filters) }}" class="page-link">Sau
+        &rsaquo;</a>
+    {% else %}
+    <span class="page-link disabled">Sau &rsaquo;</span>
+    {% endif %}
+    {# Nút Trang Cuối #}
+    {% if pagination.page < pagination.total_pages %} <a
+        href="{{ url_for('admin.view_macro_definitions', page=pagination.total_pages, **filters) }}" class="page-link">
+        Cuối &raquo;</a>
+        {% else %}
+        <span class="page-link disabled">Cuối &raquo;</span>
+        {% endif %}
+        {# Form nhảy trang #}
+        <form method="GET" action="{{ url_for('admin.view_macro_definitions') }}"
+            style="display: inline-block; margin-left: 15px;">
+            {# Truyền lại filter qua hidden input để giữ filter khi nhảy trang #}
+            {% for key, value in filters.items() %}
+            {% if value %} {# Chỉ truyền filter có giá trị #}
+            <input type="hidden" name="{{ key }}" value="{{ value }}">
+            {% endif %}
+            {% endfor %}
+            <label for="page_jump" style="font-size: 0.9em;">Đi tới trang:</label>
+            <input type="number" name="page" id="page_jump" min="1" max="{{ pagination.total_pages }}"
+                value="{{ pagination.page }}" style="width: 60px; padding: 3px;">
+            <button type="submit" class="button small">Đi</button>
+        </form>
+</div>
+{% endif %}
+{# === KẾT THÚC PHÂN TRANG === #}
+
+{# Các trường hợp không có dữ liệu #}
+{% elif filters and (filters.filter_code or filters.filter_desc or filters.filter_target != '__all__') %} {# Có filter
+nhưng không có kết quả #}
+<p>Không tìm thấy định nghĩa macro nào khớp với bộ lọc của bạn.</p>
+{% else %} {# Không có filter và bảng rỗng #}
+<p>Chưa có định nghĩa macro nào.</p>
+{% endif %} {# Kết thúc if macros is defined #}
+
+{% endblock %}
+
+{# Khối styles nên kế thừa và thêm style cho filter form, pagination nếu chưa có #}
+{% block styles %}
+{{ super() }}
+<style>
+    /* Style cho form filter (tương tự các trang khác) */
+    .filter-form fieldset {
+        border: 1px solid #ccc;
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 5px;
+    }
+
+    .filter-form legend {
+        font-weight: bold;
+        padding: 0 10px;
+    }
+
+    .filter-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        margin-bottom: 10px;
+    }
+
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 200px;
+    }
+
+    .filter-group label {
+        margin-bottom: 5px;
+        font-size: 0.9em;
+        color: #555;
+    }
+
+    .filter-group input[type="text"],
+    .filter-group select {
+        padding: 6px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+
+    .filter-actions {
+        margin-top: 15px;
+    }
+
+    .filter-actions a {
+        margin-left: 10px;
+    }
+
+    /* Style cho pagination (tương tự các trang khác) */
+    .pagination a,
+    .pagination span {
+        display: inline-block;
+        padding: 5px 10px;
+        margin: 0 2px;
+        border: 1px solid #ddd;
+        color: #007bff;
+        text-decoration: none;
+        border-radius: 4px;
+        font-size: 0.9em;
+    }
+
+    .pagination span.disabled {
+        color: #aaa;
+        border-color: #eee;
+        background-color: #f8f9fa;
+    }
+
+    .pagination a:hover {
+        background-color: #f0f0f0;
+    }
+
+    .pagination span.page-current {
+        font-weight: bold;
+        color: #333;
+        border: none;
+        padding: 6px 10px;
+    }
+
+    .pagination form {
+        vertical-align: middle;
+    }
+
+    /* Style bảng và nút */
+    th,
+    td {
+        padding: 8px;
+        vertical-align: middle;
+        word-wrap: break-word;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+    }
+
+    td code {
+        background-color: #eee;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 0.9em;
+    }
+</style>
+{% endblock %}

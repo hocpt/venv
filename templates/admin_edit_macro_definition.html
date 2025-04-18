@@ -1,0 +1,46 @@
+{% extends "admin_base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<form method="POST">
+    <div class="form-group">
+        <label>Macro Code:</label><br>
+        <input type="text" value="{{ macro_def.macro_code }}" disabled> {# Không cho sửa code #}
+    </div>
+    {# Các trường còn lại tương tự form Add, nhưng value lấy từ macro_def #}
+    <div class="form-group">
+        <label for="description">Description:</label><br>
+        <textarea id="description" name="description"
+            rows="2">{{ current_data.description if current_data else macro_def.description | default('') }}</textarea>
+    </div>
+    <div class="form-group">
+        <label for="app_target">App Target:</label><br>
+        {% set current_target = current_data.app_target if current_data else macro_def.app_target %}
+        <select name="app_target" id="app_target">
+            <option value="system" {% if current_target=='system' %}selected{% endif %}>System</option>
+            <option value="generic" {% if current_target=='generic' %}selected{% endif %}>Generic</option>
+            {% for target in app_targets %}
+            {% if target not in ['system', 'generic'] %}
+            <option value="{{ target }}" {% if current_target==target %}selected{% endif %}>{{ target.capitalize() }}
+            </option>
+            {% endif %}
+            {% endfor %}
+            <option value="">Khác (Nhập)</option>
+        </select>
+        <input type="text" name="app_target_other" placeholder="Nhập tên app khác nếu chọn Khác"
+            style="margin-top: 5px;" value="{{ current_data.app_target_other if current_data else '' }}">
+    </div>
+    <div class="form-group">
+        <label for="params_schema">Params Schema (JSON):</label><br>
+        {# Dùng params_schema_str đã chuẩn bị từ route #}
+        <textarea id="params_schema" name="params_schema" rows="5"
+            style="font-family: monospace;">{{ current_data.params_schema if current_data else macro_def.params_schema_str | default('{}') }}</textarea>
+    </div>
+    <div class="form-group">
+        <label for="notes">Notes:</label><br>
+        <textarea id="notes" name="notes"
+            rows="2">{{ current_data.notes if current_data else macro_def.notes | default('') }}</textarea>
+    </div>
+    <button type="submit">Lưu Thay Đổi</button>
+    <a href="{{ url_for('admin.view_macro_definitions') }}">Hủy</a>
+</form>
+{% endblock %}

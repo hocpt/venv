@@ -1,0 +1,69 @@
+{% extends "admin_base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<form method="POST">
+    <input type="hidden" name="strategy_id" value="{{ strategy_id }}">
+
+    <label for="current_stage_id">Current Stage (Stage bắt đầu - bắt buộc):</label><br>
+    <select name="current_stage_id" id="current_stage_id" required>
+        <option value="">-- Chọn Stage --</option>
+        {% for stage in strategy_stages %} {# Chỉ các stage của strategy này #}
+        <option value="{{ stage.stage_id }}" {% if current_stage_id_prefill==stage.stage_id or (current_data and
+            current_data.current_stage_id==stage.stage_id) %}selected{% endif %}>
+            {{ stage.stage_id }} {{ ('('+stage.description[:30]+'...)') if stage.description else '' }}
+        </option>
+        {% endfor %}
+    </select><br><br>
+
+    <label for="user_intent">User Intent (Ý định người dùng - bắt buộc):</label><br>
+    <select name="user_intent" id="user_intent" required>
+        <option value="">-- Chọn Intent --</option>
+        {% for intent in valid_intents %}
+        <option value="{{ intent }}" {% if current_data and current_data.user_intent==intent %}selected{% endif %}>{{
+            intent }}</option>
+        {% endfor %}
+    </select>
+    <small>(Chọn 'any' nếu áp dụng cho mọi intent)</small>
+    <br><br>
+
+    <label for="condition_logic">Condition Logic (Điều kiện bổ sung - tùy chọn):</label><br>
+    <input type="text" id="condition_logic" name="condition_logic"
+        value="{{ current_data.condition_logic if current_data else '' }}"><br><br>
+
+    <label for="next_stage_id">Next Stage (Stage tiếp theo - tùy chọn):</label><br>
+    <select name="next_stage_id" id="next_stage_id">
+        <option value="">-- Không chuyển Stage --</option>
+        {% for stage in all_stages %} {# Tất cả các stage có thể có #}
+        <option value="{{ stage.stage_id }}" {% if current_data and current_data.next_stage_id==stage.stage_id
+            %}selected{% endif %}>
+            {{ stage.stage_id }} {{ ('('+stage.description[:30]+'...)') if stage.description else '' }}
+        </option>
+        {% endfor %}
+    </select><br><br>
+
+    <label for="action_to_suggest">Action Suggest (Hành động gợi ý cho Agent - tùy chọn):</label><br>
+    <input type="text" id="action_to_suggest" name="action_to_suggest"
+        value="{{ current_data.action_to_suggest if current_data else '' }}"><br><br>
+
+    <label for="action_macro_code">Action Macro Code (Hành động thực thi - tùy chọn):</label><br> <select
+        name="action_macro_code" id="action_macro_code">
+        <option value="">-- Không thực thi Macro --</option> {% set current_macro = (current_data.action_macro_code if
+        current_data else transition.action_macro_code) if transition else (current_data.action_macro_code if
+        current_data) %} {% for macro in all_macros %} {# all_macros được truyền từ route #} <option
+            value="{{ macro.macro_code }}" {% if current_macro==macro.macro_code %}selected{% endif %}> {{
+            macro.macro_code }} ({{ macro.app_target | default('?') }}) - {{ macro.description | truncate(50) }}
+        </option> {% endfor %}
+    </select> <small><a href="{{ url_for('admin.view_macro_definitions') }}" target="_blank">(Quản lý
+            Macros)</a></small> <br><br> <label for="action_params_str">Action Params (Tham số cho Macro -
+        JSON):</label><br> <textarea id="action_params_str" name="action_params_str" rows="4"
+        style="width: 80%; font-family: monospace;"
+        placeholder='Nhập tham số dạng JSON nếu macro cần, ví dụ: {"duration_ms": 1000}'>{{ (current_data.action_params_str if current_data else transition.action_params_str) if transition else (current_data.action_params_str if current_data else '{}') }}</textarea><br><br>
+
+    <label for="priority">Priority (Ưu tiên, số cao ưu tiên hơn, mặc định 0):</label><br>
+    <input type="number" id="priority" name="priority"
+        value="{{ current_data.priority if current_data else 0 }}"><br><br>
+
+    <button type="submit">Thêm Transition</button>
+    <a href="{{ url_for('admin.view_strategy_stages', strategy_id=strategy_id) }}">Hủy</a>
+</form>
+{% endblock %}

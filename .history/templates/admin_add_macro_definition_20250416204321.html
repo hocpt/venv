@@ -1,0 +1,48 @@
+{% extends "admin_base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<form method="POST">
+    <div class="form-group">
+        <label for="macro_code">Macro Code (Unique ID - bắt buộc):</label><br>
+        <input type="text" id="macro_code" name="macro_code" required
+            value="{{ current_data.macro_code if current_data else '' }}" placeholder="VD: SYS_WAIT, UI_CLICK_TEXT...">
+    </div>
+    <div class="form-group">
+        <label for="description">Description (Mô tả chức năng):</label><br>
+        <textarea id="description" name="description"
+            rows="2">{{ current_data.description if current_data else '' }}</textarea>
+    </div>
+    <div class="form-group">
+        <label for="app_target">App Target (Ứng dụng mục tiêu):</label><br>
+        <select name="app_target" id="app_target">
+            <option value="system" {% if (current_data and current_data.app_target=='system' ) or not current_data
+                %}selected{% endif %}>System (Hệ thống)</option>
+            <option value="generic" {% if current_data and current_data.app_target=='generic' %}selected{% endif %}>
+                Generic (Dùng chung)</option>
+            {% for target in app_targets %}{# Giả sử app_targets=['tiktok', 'zalo'] được truyền vào #}
+            {% if target not in ['system', 'generic'] %}
+            <option value="{{ target }}" {% if current_data and current_data.app_target==target %}selected{% endif %}>{{
+                target.capitalize() }}</option>
+            {% endif %}
+            {% endfor %}
+            <option value="">Khác (Nhập)</option> {# Cho phép nhập nếu cần #}
+        </select>
+        <input type="text" name="app_target_other" placeholder="Nhập tên app khác nếu chọn Khác"
+            style="margin-top: 5px;">
+    </div>
+    <div class="form-group">
+        <label for="params_schema">Params Schema (Cấu trúc tham số - JSON, tùy chọn):</label><br>
+        <textarea id="params_schema" name="params_schema" rows="5"
+            placeholder='VD: {"type": "object", "properties": {"duration_ms": {"type": "integer"}}, "required": ["duration_ms"]}'
+            style="font-family: monospace;">{{ current_data.params_schema if current_data else '' }}</textarea>
+        <small>Mô tả cấu trúc JSON mà params của macro này cần tuân theo (dùng JSON Schema).</small>
+    </div>
+    <div class="form-group">
+        <label for="notes">Notes (Ghi chú thêm):</label><br>
+        <textarea id="notes" name="notes" rows="2">{{ current_data.notes if current_data else '' }}</textarea>
+    </div>
+    <button type="submit">Thêm Định nghĩa</button>
+    <a href="{{ url_for('admin.view_macro_definitions') }}">Hủy</a>
+</form>
+{% endblock %}
+{# Nhớ thêm CSS cho .form-group nếu chưa có trong base #}

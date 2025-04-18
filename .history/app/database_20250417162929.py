@@ -1,0 +1,4721 @@
+# database.py
+import psycopg2
+import psycopg2.extras
+import config # Import từ file config.py
+import traceback
+from flask import current_app
+from datetime import datetime, timedelta
+import random
+import json
+import os
+from cryptography.fernet import Fernet, InvalidToken
+# --- Connection Helper ---
+# --- Encryption Helper ---
+__fernet_instance = None
+
+def _get_fernet() -> Fernet | None:
+    """Lấy hoặc khởi tạo Fernet instance để mã hóa/giải mã."""
+    global __fernet_instance
+    if __fernet_instance:
+        return __fernet_instance
+
+    # Đọc khóa mã hóa từ biến môi trường
+    encryption_key = os.environ.get('API_ENCRYPTION_KEY')
+    if not encryption_key:
+        print("CRITICAL ERROR (database.py): API_ENCRYPTION_KEY is not set in environment variables!")
+        # Trong production, nên raise Exception ở đây thay vì trả về None
+        return None
+    try:
+        # Đảm bảo key là bytes
+        key_bytes = encryption_key.encode('utf-8')
+        __fernet_instance = Fernet(key_bytes)
+        print("DEBUG (database.py): Fernet instance initialized successfully.")
+        return __fernet_instance
+    except Exception as e:
+        print(f"CRITICAL ERROR (database.py): Failed to initialize Fernet with key: {e}")
+        return None
+
+# --- API Key Management Functions ---
+
+def add_api_key(key_name: str, provider: str, api_key_value: str, status: str = 'active', notes: str | None = None) -> bool:
+    """Thêm API key mới, mã hóa giá trị key trước khi lưu."""
+    if not all([key_name, provider, api_key_value]):
+        print("ERROR (db - add_api_key): key_name, provider, api_key_value là bắt buộc.")
+        return False
+
+    fernet = _get_fernet()
+    if not fernet:
+        print("ERROR (db - add_api_key): Cannot proceed without encryption key.")
+        return False
+
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        # Mã hóa API key value (dạng bytes)
+        encrypted_key_bytes = fernet.encrypt(api_key_value.encode('utf-8'))
+
+        sql = """
+            INSERT INTO public.api_keys
+                (key_name, provider, api_key_value, status, notes, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, NOW(), NOW());
+        """
+        # Lưu ý: psycopg2 có thể xử lý bytes trực tiếp cho cột TEXT hoặc BYTEA
+        params = (key_name, provider, encrypted_key_bytes.decode('utf-8'), status, notes) # Lưu dạng string đã mã hóa base64
+        cur.execute(sql, params)
+        conn.commit()
+        success = True
+        print(f"DEBUG (db): Added encrypted API key '{key_name}'.")
+    except psycopg2.IntegrityError as e:
+        print(f"ERROR (db - add_api_key): Integrity Error (key_name exists?): {e}")
+        if conn: conn.rollback()
+    except psycopg2.Error as e:
+        print(f"ERROR (db - add_api_key): DB Error: {e}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"ERROR (db - add_api_key): Unexpected error: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def get_all_api_keys() -> list[dict] | None:
+    """Lấy danh sách tất cả API keys (không bao gồm giá trị key)."""
+    keys_list = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        # Không lấy cột api_key_value trong danh sách chung
+        sql = """
+            SELECT key_id, key_name, provider, status, notes, created_at, updated_at, last_used_at, rate_limited_until
+            FROM public.api_keys ORDER BY provider, key_name;
+        """
+        cur.execute(sql)
+        rows = cur.fetchall()
+        keys_list = [dict(row) for row in rows] if rows else []
+    except psycopg2.Error as e: print(f"ERROR (db - get_all_api_keys): {e}"); keys_list = None
+    except Exception as e: print(f"ERROR (db - get_all_api_keys): {e}"); keys_list = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return keys_list
+
+def get_api_key_details(key_id: int) -> dict | None:
+    """Lấy chi tiết một API key bằng ID (không bao gồm giá trị key)."""
+    if not key_id: return None
+    details = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        sql = """
+            SELECT key_id, key_name, provider, status, notes, created_at, updated_at, last_used_at, rate_limited_until
+            FROM public.api_keys WHERE key_id = %s;
+        """
+        cur.execute(sql, (key_id,))
+        row = cur.fetchone()
+        if row: details = dict(row)
+    except psycopg2.Error as e: print(f"ERROR (db - get_api_key_details) ID {key_id}: {e}")
+    except Exception as e: print(f"ERROR (db - get_api_key_details) ID {key_id}: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return details
+
+def get_decrypted_api_key_value(key_id: int) -> str | None:
+    """Lấy giá trị API key đã được giải mã từ DB."""
+    if not key_id: return None
+    encrypted_value_str = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor()
+        sql = "SELECT api_key_value FROM public.api_keys WHERE key_id = %s;"
+        cur.execute(sql, (key_id,))
+        row = cur.fetchone()
+        if row: encrypted_value_str = row[0]
+    except psycopg2.Error as e: print(f"ERROR (db - get_decrypted_api_key_value) reading key ID {key_id}: {e}")
+    except Exception as e: print(f"ERROR (db - get_decrypted_api_key_value) reading key ID {key_id}: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+
+    if not encrypted_value_str: return None
+
+    # Giải mã
+    fernet = _get_fernet()
+    if not fernet: return None # Không giải mã được nếu thiếu key
+    try:
+        decrypted_bytes = fernet.decrypt(encrypted_value_str.encode('utf-8'))
+        return decrypted_bytes.decode('utf-8')
+    except InvalidToken:
+        print(f"ERROR (db - get_decrypted_api_key_value): Invalid token for key ID {key_id}. Decryption failed (wrong key?).")
+    except Exception as e:
+        print(f"ERROR (db - get_decrypted_api_key_value): Decryption failed for key ID {key_id}: {e}")
+    return None
+
+def get_active_api_keys_by_provider(provider: str) -> list[dict] | None:
+    """Lấy danh sách các key đang active của một nhà cung cấp, kèm giá trị đã giải mã."""
+    active_keys = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    fernet = _get_fernet() # Lấy Fernet instance trước
+    if not fernet: return None # Cần key để giải mã
+
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        # Lấy các key active và chưa bị rate limit (hoặc đã hết hạn rate limit)
+        sql = """
+            SELECT key_id, api_key_value, last_used_at, rate_limited_until
+            FROM public.api_keys
+            WHERE provider = %s
+              AND status = 'active'
+              AND (rate_limited_until IS NULL OR rate_limited_until <= NOW())
+            ORDER BY last_used_at ASC NULLS FIRST; -- Ưu tiên key chưa dùng hoặc dùng lâu nhất
+        """
+        cur.execute(sql, (provider,))
+        rows = cur.fetchall()
+        active_keys = []
+        if rows:
+            for row in rows:
+                key_info = dict(row)
+                encrypted_value_str = key_info.pop('api_key_value', None) # Lấy và xóa khỏi dict
+                if encrypted_value_str:
+                    try:
+                        decrypted_bytes = fernet.decrypt(encrypted_value_str.encode('utf-8'))
+                        key_info['decrypted_value'] = decrypted_bytes.decode('utf-8')
+                        active_keys.append(key_info) # Chỉ thêm nếu giải mã thành công
+                    except InvalidToken:
+                        print(f"WARN (db - get_active_keys): Invalid token for key ID {key_info['key_id']}. Skipping.")
+                    except Exception as decrypt_err:
+                         print(f"WARN (db - get_active_keys): Decryption error for key ID {key_info['key_id']}: {decrypt_err}. Skipping.")
+        print(f"DEBUG: Found {len(active_keys)} active and usable keys for provider '{provider}'.")
+
+    except psycopg2.Error as e: print(f"ERROR (db - get_active_keys) provider {provider}: {e}"); active_keys = None
+    except Exception as e: print(f"ERROR (db - get_active_keys) provider {provider}: {e}"); active_keys = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return active_keys
+
+def update_api_key(key_id: int, key_name: str, status: str, notes: str | None) -> bool:
+    """Cập nhật thông tin (không phải giá trị key) của một API key."""
+    if not key_id or not key_name or not status: return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = """
+            UPDATE public.api_keys
+            SET key_name = %s, status = %s, notes = %s, updated_at = NOW()
+            WHERE key_id = %s;
+        """
+        params = (key_name, status, notes, key_id)
+        cur.execute(sql, params)
+        conn.commit()
+        success = cur.rowcount > 0
+    except psycopg2.IntegrityError as e: # Lỗi unique key_name
+        print(f"ERROR (db - update_api_key): Integrity Error ID {key_id}: {e}"); conn.rollback()
+    except psycopg2.Error as e: print(f"ERROR (db - update_api_key): DB Error ID {key_id}: {e}"); conn.rollback()
+    except Exception as e: print(f"ERROR (db - update_api_key): Unexpected error ID {key_id}: {e}"); conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def delete_api_key(key_id: int) -> bool:
+    """Xóa một API key."""
+    if not key_id: return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = "DELETE FROM public.api_keys WHERE key_id = %s;"
+        cur.execute(sql, (key_id,))
+        conn.commit()
+        success = cur.rowcount > 0
+    except psycopg2.Error as e: print(f"ERROR (db - delete_api_key) ID {key_id}: {e}"); conn.rollback()
+    except Exception as e: print(f"ERROR (db - delete_api_key) ID {key_id}: {e}"); conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def update_key_last_used(key_id: int) -> bool:
+    """Cập nhật thời gian sử dụng cuối cùng cho một key."""
+    if not key_id: return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = "UPDATE public.api_keys SET last_used_at = NOW() WHERE key_id = %s;"
+        cur.execute(sql, (key_id,))
+        conn.commit()
+        success = cur.rowcount > 0
+    except Exception as e: print(f"ERROR updating last_used for key {key_id}: {e}"); conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def set_key_rate_limit_expiry(key_id: int, expiry_timestamp: datetime) -> bool:
+    """Đặt trạng thái rate_limited và thời gian hết hạn cho key."""
+    if not key_id or not expiry_timestamp: return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        # Cập nhật cả status và thời gian hết hạn
+        sql = "UPDATE public.api_keys SET status = 'rate_limited', rate_limited_until = %s, updated_at = NOW() WHERE key_id = %s;"
+        cur.execute(sql, (expiry_timestamp, key_id))
+        conn.commit()
+        success = cur.rowcount > 0
+    except Exception as e: print(f"ERROR setting rate limit expiry for key {key_id}: {e}"); conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+
+def get_db_connection():
+    conn = None
+    try:
+        # !!! THAY ĐỔI CÁCH LẤY CONFIG: DÙNG os.environ.get !!!
+        # Sử dụng cùng tên biến môi trường và giá trị mặc định như trong config.py
+        db_host = os.environ.get('DB_HOST', 'localhost')
+        db_port = os.environ.get('DB_PORT', '5432')
+        db_name = os.environ.get('DB_NAME')
+        db_user = os.environ.get('DB_USER')
+        db_password = os.environ.get('DB_PASSWORD')
+
+        # --- Bỏ khối kiểm tra và log dùng current_app ---
+        # print("--- DEBUG DB Connect Params (from current_app) ---")
+        # ... (bỏ các dòng print dùng current_app.config) ...
+
+        # Kiểm tra xem các biến môi trường cần thiết có được đặt không
+        if not db_name or not db_user or not db_password:
+            print("LỖI (database.py): Thiếu cấu hình CSDL (DB_NAME, DB_USER, DB_PASSWORD) trong biến môi trường!")
+            return None
+
+        # Tạo chuỗi DSN (Data Source Name) để kết nối
+        # Dùng f-string hoặc cách khác đều được
+        dsn = f"dbname='{db_name}' user='{db_user}' host='{db_host}' password='{db_password}' port='{db_port}'"
+        #print(f"DEBUG (database.py): Connecting with DSN: dbname='{db_name}' user='{db_user}' host='{db_host}' port='{db_port}' password='***'") # Che password
+
+        # Lệnh kết nối sử dụng DSN
+        conn = psycopg2.connect(dsn)
+        #print("DEBUG (database.py): Kết nối CSDL thành công (dùng DSN).")
+        return conn
+
+    # --- Bỏ khối except RuntimeError vì không còn dùng current_app ---
+    # except RuntimeError as rt_err: ...
+
+    except psycopg2.Error as db_err: # Giữ lại bắt lỗi psycopg2
+        print(f"LỖI KẾT NỐI CSDL (psycopg2.Error): {db_err}")
+        print(traceback.format_exc())
+        return None
+    except Exception as e: # Giữ lại bắt lỗi chung
+         print(f"LỖI (database.py): Lỗi không xác định khi kết nối CSDL: {e}")
+         print(traceback.format_exc())
+         return None
+
+def find_transition(current_stage_id: str | None, user_intent: str | None) -> dict | None:
+    """
+    Tìm luật chuyển tiếp giai đoạn phù hợp nhất từ CSDL.
+
+    Args:
+        current_stage_id: ID của giai đoạn hiện tại.
+        user_intent: Ý định của người dùng vừa được phát hiện.
+
+    Returns:
+        Một dictionary chứa thông tin luật chuyển tiếp (next_stage_id,
+        action_to_suggest, response_template_ref), hoặc None nếu không tìm thấy/lỗi.
+    """
+    if not current_stage_id or not user_intent:
+        print("DEBUG (database.py - find_transition): Thiếu current_stage_id hoặc user_intent.")
+        return None
+
+    transition_rule = None
+    conn = get_db_connection()
+    if not conn:
+        return None
+
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        print(f"DEBUG (database.py): Tìm transition cho stage='{current_stage_id}', intent='{user_intent}'")
+        # Câu lệnh SQL tìm luật khớp chính xác intent HOẶC khớp intent 'any'
+        # Ưu tiên luật khớp chính xác intent trước (priority cao hơn hoặc intent <> 'any')
+        # Sau đó mới đến luật khớp 'any'
+        # Sắp xếp theo độ ưu tiên (priority) giảm dần
+        sql = """
+            SELECT next_stage_id, action_to_suggest, response_template_ref
+            FROM stage_transitions
+            WHERE current_stage_id = %s AND (user_intent = %s OR user_intent = 'any')
+            ORDER BY
+                CASE user_intent WHEN 'any' THEN 0 ELSE 1 END DESC, -- Ưu tiên luật không phải 'any'
+                priority DESC -- Ưu tiên luật có priority cao hơn
+            LIMIT 1; -- Chỉ lấy luật phù hợp nhất
+        """
+        cur.execute(sql, (current_stage_id, user_intent))
+        row = cur.fetchone()
+
+        if row:
+            transition_rule = dict(row) # Chuyển kết quả thành dictionary
+            print(f"DEBUG (database.py): Transition tìm thấy: {transition_rule}")
+        else:
+            print(f"DEBUG (database.py): Không tìm thấy transition phù hợp cho stage='{current_stage_id}', intent='{user_intent}'.")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - find_transition): Truy vấn thất bại: {db_err}")
+        print(traceback.format_exc())
+    except Exception as e:
+        print(f"LỖI (database.py - find_transition): Lỗi không xác định: {e}")
+        print(traceback.format_exc())
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+
+    return transition_rule
+
+# --- Account Functions ---
+
+
+
+def add_new_account(account_id: str, platform: str, username: str, status: str = 'active', notes: str | None = None, goal: str | None = None, default_strategy_id: str | None = None) -> bool:
+    """Thêm một tài khoản mới vào bảng accounts.
+       Đã thêm account_id vào INSERT và tham số hàm.
+    """
+    # <<< Thêm kiểm tra account_id >>>
+    if not account_id or not platform or not username:
+        print("WARNING (database.py - add_new_account): Account ID, Platform và Username là bắt buộc.")
+        return False
+
+    conn = get_db_connection()
+    if not conn:
+        return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        print(f"DEBUG (database.py): Thêm account mới: account_id='{account_id}', platform='{platform}', username='{username}'")
+
+        # <<< Thêm account_id vào danh sách cột và VALUES >>>
+        sql = """
+            INSERT INTO accounts
+            (account_id, platform, username, status, notes, goal, default_strategy_id, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
+        """
+        # <<< Thêm account_id vào tuple params >>>
+        params = (account_id, platform, username, status, notes, goal, default_strategy_id, None) # Giữ updated_at là None khi tạo mới
+        cur.execute(sql, params)
+        conn.commit()
+        success = True
+        print(f"DEBUG (database.py): Thêm account mới thành công.")
+
+    except psycopg2.IntegrityError as int_err: # Bắt lỗi nếu account_id đã tồn tại (PRIMARY KEY)
+         print(f"LỖI (database.py - add_new_account): Lỗi ràng buộc CSDL (Account ID đã tồn tại?): {int_err}")
+         if conn: conn.rollback()
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - add_new_account): INSERT thất bại: {db_err}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (database.py - add_new_account): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+
+    return success
+
+def update_account(account_id: str, platform: str, username: str, status: str, notes: str | None, goal: str | None, default_strategy_id: str | None) -> bool:
+    """Cập nhật thông tin một tài khoản.
+       Đã thêm updated_at vào UPDATE.
+    """
+    if not account_id or not platform or not username:
+        return False
+
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = """
+            UPDATE accounts
+            SET platform = %s, username = %s, status = %s, notes = %s, goal = %s, default_strategy_id = %s, updated_at = %s
+            WHERE account_id = %s;
+        """
+        # Truyền datetime.now() cho updated_at
+        params = (platform, username, status, notes, goal, default_strategy_id, datetime.now(), account_id)
+        cur.execute(sql, params)
+        conn.commit()
+        success = cur.rowcount > 0
+        if not success:
+             print(f"WARNING (database.py - update_account): Không tìm thấy account_id {account_id} để cập nhật.")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - update_account): UPDATE thất bại: {db_err}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (database.py - update_account): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+
+def get_rules_by_category(account_id: str,category=None): # Ví dụ sửa hàm lấy rules
+    rules = []
+    conn = get_db_connection()
+    if not conn:
+        return None # Trả về None nếu không kết nối được DB
+
+    cur = None # Khởi tạo cur là None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        print(f"DEBUG (database.py): Đang truy vấn thông tin tài khoản: {account_id}")
+        cur.execute("""
+            SELECT account_id, platform, username, status, notes, goal, default_strategy_id
+            FROM accounts
+            WHERE account_id = %s
+            """, (account_id,))
+        row = cur.fetchone()
+        if row:
+            account_info = dict(row)
+            print(f"DEBUG (database.py): Tìm thấy thông tin cho {account_id}")
+        else:
+            print(f"WARNING (database.py): Không tìm thấy tài khoản {account_id} trong CSDL")
+
+    except psycopg2.Error as db_err: # Bắt lỗi truy vấn CSDL
+        print(f"LỖI (database.py - get_account_details): Truy vấn thất bại: {db_err}")
+        print(traceback.format_exc())
+        account_info = None # Đảm bảo trả về None khi lỗi
+    except Exception as e: # Bắt lỗi chung khác
+        print(f"LỖI (database.py - get_account_details): Lỗi không xác định: {e}")
+        print(traceback.format_exc())
+        account_info = None
+    finally:
+        # Luôn đóng cursor và connection trong finally để tránh rò rỉ
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+            print("DEBUG (database.py - get_account_details): Đã đóng kết nối CSDL.")
+
+    return account_info
+
+def get_account_goal(account_id: str) -> str | None:
+    """
+    Lấy default_strategy_id được gán cho một tài khoản từ CSDL.
+
+    Args:
+        account_id: ID của tài khoản cần kiểm tra.
+
+    Returns:
+        Chuỗi default_strategy_id, hoặc None nếu không tìm thấy/lỗi.
+    """
+    if not account_id:
+        return None
+
+    default_strategy = None
+    conn = get_db_connection() # Dùng hàm kết nối đã có
+    if not conn:
+        return None
+
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        print(f"DEBUG (database.py): Truy vấn default_strategy_id cho account_id: {account_id}")
+        # Lấy giá trị từ cột default_strategy_id trong bảng accounts
+        cur.execute("""
+            SELECT default_strategy_id
+            FROM accounts
+            WHERE account_id = %s;
+            """, (account_id,))
+        row = cur.fetchone()
+        if row and row['default_strategy_id']:
+            default_strategy = row['default_strategy_id']
+            print(f"DEBUG (database.py): Default strategy tìm thấy: {default_strategy}")
+        else:
+            print(f"WARNING (database.py): Không tìm thấy default_strategy_id cho account_id {account_id} trong bảng accounts")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - get_account_goal): Truy vấn thất bại: {db_err}")
+        print(traceback.format_exc())
+    except Exception as e:
+        print(f"LỖI (database.py - get_account_goal): Lỗi không xác định: {e}")
+        print(traceback.format_exc())
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+        # print("DEBUG (database.py - get_account_goal): Đã đóng kết nối CSDL.")
+
+    return default_strategy
+
+def get_account_details(account_id: str) -> dict | None:
+    """Lấy thông tin chi tiết của tài khoản từ CSDL."""
+    account_info = None
+    conn = get_db_connection() # Dùng hàm kết nối đã sửa ở trên
+    if not conn:
+        return None # Trả về None nếu không kết nối được DB
+
+    cur = None # Khởi tạo cur là None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        print(f"DEBUG (database.py): Đang truy vấn thông tin tài khoản: {account_id}")
+        cur.execute("""
+            SELECT account_id, platform, username, status, notes, goal, default_strategy_id
+            FROM accounts
+            WHERE account_id = %s
+            """, (account_id,))
+        row = cur.fetchone()
+        if row:
+            account_info = dict(row)
+            print(f"DEBUG (database.py): Tìm thấy thông tin cho {account_id}")
+        else:
+            print(f"WARNING (database.py): Không tìm thấy tài khoản {account_id} trong CSDL")
+
+    except psycopg2.Error as db_err: # Bắt lỗi truy vấn CSDL
+        print(f"LỖI (database.py - get_account_details): Truy vấn thất bại: {db_err}")
+        print(traceback.format_exc())
+        account_info = None # Đảm bảo trả về None khi lỗi
+    except Exception as e: # Bắt lỗi chung khác
+        print(f"LỖI (database.py - get_account_details): Lỗi không xác định: {e}")
+        print(traceback.format_exc())
+        account_info = None
+    finally:
+        # Luôn đóng cursor và connection trong finally để tránh rò rỉ
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+            print("DEBUG (database.py - get_account_details): Đã đóng kết nối CSDL.")
+
+    return account_info
+    
+# --- Rule & Template Functions ---
+
+def get_formatted_history(thread_id: str | None, limit: int = 5) -> str:
+    """
+    Truy vấn CSDL lấy N tin nhắn/bình luận cuối cùng của một thread_id
+    và định dạng thành chuỗi lịch sử hội thoại.
+
+    Args:
+        thread_id: ID của luồng hội thoại. Nếu None hoặc rỗng, trả về chuỗi rỗng.
+        limit: Số lượng bản ghi lịch sử gần nhất cần lấy.
+
+    Returns:
+        Một chuỗi string chứa lịch sử đã định dạng, hoặc chuỗi rỗng nếu không có lịch sử/lỗi.
+    """
+    if not thread_id:
+        return "" # Trả về rỗng nếu không có thread_id
+
+    history_lines = []
+    conn = get_db_connection() # Dùng hàm kết nối đã có
+    if not conn:
+        return "" # Trả về rỗng nếu không kết nối được DB
+
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        # Lấy các bản ghi gần nhất, sắp xếp từ cũ đến mới để dễ format
+        cur.execute("""
+            SELECT received_text, sent_text
+            FROM interaction_history
+            WHERE thread_id = %s
+            ORDER BY timestamp DESC
+            LIMIT %s;
+            """, (thread_id, limit)) # Truyền thread_id và limit
+
+        rows = cur.fetchall()
+        cur.close()
+
+        # Format lại theo thứ tự thời gian (đảo ngược list)
+        for row in reversed(rows):
+            if row['received_text']:
+                 history_lines.append(f"Người dùng: {row['received_text']}")
+            # Chỉ thêm sent_text nếu nó không rỗng (tránh thêm dòng "Bạn: " khi chưa trả lời)
+            if row['sent_text']:
+                 history_lines.append(f"Bạn: {row['sent_text']}")
+
+        print(f"DEBUG (database.py - get_formatted_history): Lấy được {len(rows)} bản ghi cho thread_id '{thread_id}'")
+
+    except psycopg2.Error as e:
+        print(f"LỖI (database.py - get_formatted_history): Truy vấn lịch sử thất bại: {e}")
+    except Exception as e:
+        print(f"LỖI (database.py - get_formatted_history): Lỗi không xác định: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+    # Nối các dòng lại bằng ký tự xuống dòng
+    return "\n".join(history_lines)
+
+def get_template_variations(template_ref: str | None) -> list[dict] | None:
+    """
+    Lấy tất cả các biến thể text cho một template_ref từ CSDL.
+
+    Args:
+        template_ref: Mã tham chiếu của template cần lấy biến thể.
+
+    Returns:
+        List các dictionary (ví dụ: [{'variation_text': 'text1'}, ...]),
+        hoặc list rỗng [] nếu không có biến thể,
+        hoặc None nếu có lỗi CSDL.
+    """
+    if not template_ref:
+        return [] # Trả về list rỗng nếu không có ref
+
+    variations_list = None # Khởi tạo là None để phân biệt lỗi và không có dữ liệu
+    conn = get_db_connection()
+    if not conn:
+        return None # Lỗi kết nối -> trả về None
+
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        print(f"DEBUG (database.py): Truy vấn các biến thể cho template_ref: {template_ref}")
+        cur.execute("""
+            SELECT variation_id, variation_text
+            FROM template_variations
+            WHERE template_ref = %s;
+            """, (template_ref,))
+        rows = cur.fetchall() # Lấy tất cả các dòng khớp
+
+        if rows:
+            variations_list = [dict(row) for row in rows] # Trả về list các dict
+            print(f"DEBUG (database.py): Tìm thấy {len(variations_list)} biến thể cho {template_ref}")
+        else:
+            print(f"WARNING (database.py): Không tìm thấy biến thể nào cho template_ref {template_ref}")
+            variations_list = [] # Trả về list rỗng nếu ref đúng nhưng chưa có biến thể
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - get_template_variations): Truy vấn thất bại: {db_err}")
+        print(traceback.format_exc())
+        # variations_list vẫn là None
+    except Exception as e:
+        print(f"LỖI (database.py - get_template_variations): Lỗi không xác định: {e}")
+        print(traceback.format_exc())
+        # variations_list vẫn là None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+
+    return variations_list # Trả về list (có thể rỗng) hoặc None nếu lỗi
+    
+def get_last_stage(thread_id: str | None) -> str | None:
+    """
+    Lấy stage_id gần nhất của một luồng hội thoại từ lịch sử.
+
+    Args:
+        thread_id: ID của luồng hội thoại.
+
+    Returns:
+        Chuỗi stage_id gần nhất, hoặc None nếu không có lịch sử hoặc lỗi.
+    """
+    if not thread_id:
+        return None # Không có thread_id thì không có stage cuối
+
+    last_stage = None
+    conn = get_db_connection()
+    if not conn:
+        return None
+
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        print(f"DEBUG (database.py): Truy vấn stage cuối cùng cho thread_id: {thread_id}")
+        # Lấy stage_id từ bản ghi interaction_history gần nhất của thread này
+        # Giả sử bạn lưu stage *trước khi* tương tác vào cột stage_id
+        # Hoặc nếu bạn lưu stage *tiếp theo* vào cột next_stage_id thì SELECT cột đó
+        cur.execute("""
+            SELECT stage_id
+            FROM interaction_history
+            WHERE thread_id = %s
+            ORDER BY timestamp DESC
+            LIMIT 1;
+            """, (thread_id,))
+        row = cur.fetchone()
+        if row:
+            last_stage = row['stage_id']
+            print(f"DEBUG (database.py): Stage cuối cùng tìm thấy: {last_stage}")
+        else:
+            print(f"DEBUG (database.py): Không tìm thấy lịch sử cho thread_id {thread_id}")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - get_last_stage): Truy vấn thất bại: {db_err}")
+        print(traceback.format_exc())
+    except Exception as e:
+        print(f"LỖI (database.py - get_last_stage): Lỗi không xác định: {e}")
+        print(traceback.format_exc())
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+            # print("DEBUG (database.py - get_last_stage): Đã đóng kết nối CSDL.") # Có thể bỏ log này
+
+    return last_stage    
+    
+def get_initial_stage(strategy_id: str) -> str | None:
+    """
+    Lấy initial_stage_id (giai đoạn bắt đầu) của một chiến lược từ CSDL.
+
+    Args:
+        strategy_id: ID của chiến lược cần lấy giai đoạn bắt đầu.
+
+    Returns:
+        Chuỗi initial_stage_id, hoặc None nếu không tìm thấy hoặc lỗi.
+    """
+    if not strategy_id:
+        return None
+
+    initial_stage = None
+    conn = get_db_connection() # Dùng hàm kết nối đã có
+    if not conn:
+        return None
+
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        print(f"DEBUG (database.py): Truy vấn initial_stage cho strategy_id: {strategy_id}")
+        cur.execute("""
+            SELECT initial_stage_id
+            FROM strategies
+            WHERE strategy_id = %s;
+            """, (strategy_id,))
+        row = cur.fetchone()
+        if row and row['initial_stage_id']:
+            initial_stage = row['initial_stage_id']
+            print(f"DEBUG (database.py): Initial stage tìm thấy: {initial_stage}")
+        else:
+            print(f"WARNING (database.py): Không tìm thấy initial_stage cho strategy_id {strategy_id} trong bảng strategies")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - get_initial_stage): Truy vấn thất bại: {db_err}")
+        print(traceback.format_exc())
+    except Exception as e:
+        print(f"LỖI (database.py - get_initial_stage): Lỗi không xác định: {e}")
+        print(traceback.format_exc())
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+            # print("DEBUG (database.py - get_initial_stage): Đã đóng kết nối CSDL.")
+
+    return initial_stage    
+
+def log_interaction_received(account_id: str | None, app_name: str | None, thread_id: str | None, received_text: str, strategy_id: str | None, current_stage_id: str | None, user_intent: str | None) -> int | None:
+    """
+    Ghi log ban đầu khi nhận được tương tác, bao gồm context chiến lược.
+    Đã cập nhật để nhận đủ 7 tham số.
+    Trả về history_id nếu thành công, None nếu lỗi.
+    """
+    history_id = None
+    conn = get_db_connection()
+    if not conn:
+        return None
+
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        print(f"DEBUG (database.py): Ghi log nhận: acc='{account_id}', app='{app_name}', thread='{thread_id}', strategy='{strategy_id}', stage='{current_stage_id}', intent='{user_intent}'")
+
+        # !!! Cập nhật câu lệnh INSERT để bao gồm các cột mới và tham số mới !!!
+        sql = """
+            INSERT INTO interaction_history
+            (account_id, app, thread_id, received_text, strategy_id, stage_id, detected_user_intent, status, timestamp)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING history_id;
+        """
+        # Đảm bảo thứ tự và số lượng giá trị trong tuple khớp với số lượng %s và định nghĩa hàm
+        params = (account_id, app_name, thread_id, received_text, strategy_id, current_stage_id, user_intent, 'received', datetime.now()) # Thêm các giá trị mới và timestamp
+        cur.execute(sql, params)
+        result = cur.fetchone()
+        if result:
+            history_id = result['history_id']
+        conn.commit() # Commit sau khi execute thành công
+        print(f"DEBUG (database.py): Ghi log nhận thành công, history_id = {history_id}")
+
+    except psycopg2.Error as db_err: # Bắt lỗi CSDL cụ thể
+        print(f"LỖI (database.py - log_interaction_received): INSERT thất bại: {db_err}")
+        print(traceback.format_exc())
+        if conn: conn.rollback() # Rollback nếu có lỗi CSDL
+        history_id = None
+    except Exception as e: # Bắt các lỗi khác
+        print(f"LỖI (database.py - log_interaction_received): Lỗi không xác định: {e}")
+        print(traceback.format_exc())
+        if conn: conn.rollback() # Cũng nên rollback
+        history_id = None
+    finally:
+        # Luôn đóng cursor và connection
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+            # print("DEBUG (database.py - log_interaction_received): Đã đóng kết nối.")
+
+    return history_id
+
+def delete_template_ref(template_ref: str) -> bool:
+    """Xóa một template_ref khỏi response_templates.
+       Do có ràng buộc ON DELETE CASCADE trong DB, các variations liên quan
+       trong template_variations cũng sẽ tự động bị xóa.
+       Hàm sẽ thất bại (ném ForeignKeyViolation) nếu template_ref đang được
+       tham chiếu bởi simple_rules hoặc stage_transitions (do không có ON DELETE).
+    """
+    if not template_ref: return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        print(f"DEBUG (database.py): Xóa template_ref='{template_ref}'...")
+        # Chỉ cần xóa từ response_templates, variations sẽ tự xóa theo CASCADE
+        sql = "DELETE FROM response_templates WHERE template_ref = %s;"
+        cur.execute(sql, (template_ref,))
+        conn.commit()
+        # Kiểm tra xem có dòng nào thực sự bị xóa không
+        success = cur.rowcount > 0
+        if not success:
+            print(f"WARNING (database.py - delete_template_ref): Không tìm thấy template_ref '{template_ref}' để xóa.")
+
+    except psycopg2.Error as db_err:
+         # Không bắt lỗi ForeignKeyViolation ở đây, để route xử lý
+         print(f"LỖI (database.py - delete_template_ref): DELETE thất bại: {db_err}")
+         if conn: conn.rollback()
+         # Ném lại lỗi để route có thể bắt cụ thể lỗi FK
+         raise db_err
+    except Exception as e:
+        print(f"LỖI (database.py - delete_template_ref): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+        raise e # Ném lại lỗi để route bắt
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success # Chỉ trả về True nếu không có Exception và rowcount > 0
+
+# --- History Functions ---
+
+
+def update_interaction_log(history_id: int | None, sent_text: str | None, status: str, next_stage_id: str | None):
+    """Cập nhật bản ghi lịch sử với text đã gửi và status cuối cùng."""
+    if not history_id:
+        print("WARNING (database.py - update_log): Không có history_id để cập nhật.")
+        return False # Hoặc True tùy bạn muốn xử lý thế nào
+
+    conn = get_db_connection()
+    if not conn:
+        return False
+
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        print(f"DEBUG (database.py): Cập nhật log history_id={history_id}, status={status}, next_stage={next_stage_id}")
+        # Cập nhật các cột cần thiết
+        # Lưu ý: Cột stage_id lưu stage *trước khi* xử lý, next_stage_id có thể lưu vào cột riêng hoặc dùng để tính toán ở lần sau
+        sql = """
+            UPDATE interaction_history
+            SET sent_text = %s,
+                status = %s,
+                stage_id = %s -- Lưu lại stage trước đó (hoặc bạn có thể tạo cột next_stage để lưu next_stage_id_for_log)
+            WHERE history_id = %s;
+        """
+        params = (sent_text, status, next_stage_id, history_id) # Giả sử next_stage_id_for_log được lưu vào stage_id cho lần sau
+        cur.execute(sql, params)
+        conn.commit()
+        success = True
+        print(f"DEBUG (database.py): Cập nhật log thành công cho history_id {history_id}")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - update_interaction_log): UPDATE thất bại: {db_err}")
+        print(traceback.format_exc())
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (database.py - update_interaction_log): Lỗi không xác định: {e}")
+        print(traceback.format_exc())
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+
+    return success
+
+# --- Strategy Functions ---
+
+def find_transition(current_stage_id: str | None, user_intent: str | None) -> dict | None:
+    """Tìm luật chuyển tiếp phù hợp nhất dựa trên stage hiện tại và intent."""
+    if not current_stage_id or not user_intent:
+        return None
+
+    transition_rule = None
+    conn = get_db_connection()
+    if not conn:
+        return None
+
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        print(f"DEBUG (database.py): Tìm transition cho stage='{current_stage_id}', intent='{user_intent}'")
+        # Tìm luật khớp chính xác intent hoặc khớp 'any', ưu tiên luật không phải 'any' và có priority cao nhất
+        cur.execute("""
+            SELECT next_stage_id, action_to_suggest, response_template_ref
+            FROM stage_transitions
+            WHERE current_stage_id = %s AND (user_intent = %s OR user_intent = 'any')
+            ORDER BY CASE user_intent WHEN 'any' THEN 0 ELSE 1 END DESC, -- Ưu tiên không phải 'any'
+                     priority DESC -- Ưu tiên priority cao hơn
+            LIMIT 1;
+            """, (current_stage_id, user_intent))
+        row = cur.fetchone()
+        if row:
+            transition_rule = dict(row)
+            print(f"DEBUG (database.py): Transition tìm thấy: {transition_rule}")
+        else:
+            print(f"DEBUG (database.py): Không tìm thấy transition phù hợp.")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - find_transition): Truy vấn thất bại: {db_err}")
+        print(traceback.format_exc())
+    except Exception as e:
+        print(f"LỖI (database.py - find_transition): Lỗi không xác định: {e}")
+        print(traceback.format_exc())
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+
+    return transition_rule
+
+def add_new_strategy(strategy_id: str, name: str, description: str | None, initial_stage_id: str, strategy_type: str) -> tuple[bool, str | None]:
+    """
+    Thêm một chiến lược mới vào bảng strategies, bao gồm cả strategy_type và updated_at.
+
+    Args:
+        strategy_id: ID định danh duy nhất cho chiến lược.
+        name: Tên hiển thị của chiến lược.
+        description: Mô tả chi tiết về chiến lược (có thể None).
+        initial_stage_id: ID của stage bắt đầu cho chiến lược này.
+        strategy_type: Loại chiến lược ('language' hoặc 'control').
+
+    Returns:
+        Tuple (bool, str | None): (True nếu thành công, None) hoặc (False, thông báo lỗi).
+    """
+    print(f"DEBUG (db.add_new_strategy): Attempting to add strategy '{strategy_id}' with type '{strategy_type}'") # Log khi bắt đầu hàm
+
+    # --- Kiểm tra đầu vào ---
+    if not strategy_id:
+        return False, "Strategy ID là bắt buộc."
+    if not name:
+        return False, "Tên chiến lược (Name) là bắt buộc."
+    if not initial_stage_id:
+        return False, "Initial Stage ID là bắt buộc."
+    if not strategy_type:
+        return False, "Strategy Type là bắt buộc."
+    if strategy_type not in ['language', 'control']:
+        return False, "Strategy Type không hợp lệ (phải là 'language' hoặc 'control')."
+
+    # --- Thực hiện thao tác CSDL ---
+    conn = get_db_connection()
+    if not conn:
+        return False, "Không thể kết nối đến cơ sở dữ liệu."
+
+    cur = None
+    success = False
+    error_msg = None
+    try:
+        cur = conn.cursor()
+        # Câu lệnh SQL INSERT với đầy đủ các cột cần thiết
+        # Đảm bảo bảng 'strategies' đã có cột 'strategy_type' và 'updated_at'
+        sql = """
+            INSERT INTO public.strategies
+                (strategy_id, name, description, initial_stage_id, strategy_type, updated_at)
+            VALUES (%s, %s, %s, %s, %s, NOW()); -- Sử dụng NOW() cho updated_at khi thêm mới
+        """
+        params = (
+            strategy_id,
+            name,
+            description, # Sẽ là NULL nếu giá trị là None
+            initial_stage_id,
+            strategy_type
+        )
+        print(f"DEBUG SQL (add_new_strategy): {cur.mogrify(sql, params).decode('utf-8', 'ignore')}") # Log câu lệnh SQL
+        cur.execute(sql, params)
+        conn.commit() # Commit transaction
+        success = True
+        print(f"INFO (db.add_new_strategy): Thêm strategy '{strategy_id}' thành công.")
+
+    except psycopg2.IntegrityError as int_err:
+        # Lỗi ràng buộc khóa chính (strategy_id) hoặc khóa duy nhất (name)
+        error_msg = f"Lỗi ràng buộc CSDL (ID hoặc Name '{strategy_id}'/'{name}' đã tồn tại?): {int_err}"
+        print(f"ERROR (db.add_new_strategy): {error_msg}")
+        if conn: conn.rollback() # Quan trọng: Rollback khi lỗi
+
+    except psycopg2.Error as db_err:
+        # Các lỗi CSDL khác
+        error_msg = f"Lỗi CSDL khi thêm strategy: {db_err}"
+        print(f"ERROR (db.add_new_strategy): {error_msg}\n{traceback.format_exc()}")
+        if conn: conn.rollback()
+
+    except Exception as e:
+        # Các lỗi không mong muốn khác
+        error_msg = f"Lỗi không xác định khi thêm strategy: {e}"
+        print(f"ERROR (db.add_new_strategy): {error_msg}\n{traceback.format_exc()}")
+        if conn: conn.rollback()
+
+    finally:
+        # Luôn đóng kết nối và con trỏ
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+            # print("DEBUG (db.add_new_strategy): Database connection closed.")
+
+    return success, error_msg
+
+def update_strategy(strategy_id: str, name: str, description: str | None, initial_stage_id: str, strategy_type: str) -> tuple[bool, str | None]: # <<< Thêm strategy_type
+    """Cập nhật một chiến lược, bao gồm strategy_type."""
+    # <<< Thêm strategy_type vào kiểm tra bắt buộc >>>
+    if not strategy_id or not name or not initial_stage_id or not strategy_type:
+         return False, "Strategy ID, Name, Initial Stage ID, và Strategy Type là bắt buộc."
+    if strategy_type not in ['language', 'control']:
+        return False, "Strategy Type không hợp lệ."
+
+    conn = get_db_connection()
+    if not conn: return False, "Không thể kết nối CSDL."
+    cur = None
+    success = False
+    error_msg = None
+    try:
+        cur = conn.cursor()
+        # <<< Thêm cột strategy_type vào UPDATE >>>
+        sql = """
+            UPDATE strategies
+            SET name = %s, description = %s, initial_stage_id = %s, strategy_type = %s, updated_at = NOW() -- Thêm updated_at
+            WHERE strategy_id = %s;
+        """
+        params = (name, description, initial_stage_id, strategy_type, strategy_id) # <<< Thêm strategy_type vào params
+        cur.execute(sql, params)
+        conn.commit()
+        success = cur.rowcount > 0
+        if not success:
+             error_msg = f"Không tìm thấy strategy_id {strategy_id} để cập nhật."
+    except psycopg2.IntegrityError as int_err:
+         error_msg = f"Lỗi ràng buộc CSDL (Name đã tồn tại?): {int_err}"
+         if conn: conn.rollback()
+    except psycopg2.Error as db_err:
+        error_msg = f"Lỗi CSDL: {db_err}"
+        if conn: conn.rollback()
+    except Exception as e:
+        error_msg = f"Lỗi không xác định: {e}"
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success, error_msg
+
+def get_strategy_details(strategy_id: str) -> dict | None:
+    """Lấy chi tiết một chiến lược, bao gồm strategy_type."""
+    if not strategy_id: return None
+    details = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        # <<< Thêm strategy_type vào SELECT >>>
+        cur.execute("""
+            SELECT strategy_id, name, description, initial_stage_id, strategy_type, updated_at
+            FROM strategies WHERE strategy_id = %s;
+            """, (strategy_id,))
+        row = cur.fetchone()
+        if row: details = dict(row)
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - get_strategy_details): Truy vấn thất bại: {db_err}")
+    except Exception as e:
+        print(f"LỖI (database.py - get_strategy_details): Lỗi không xác định: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return details
+
+def get_all_strategies(strategy_type_filter: str | None = None) -> list[dict] | None: # <<< THÊM tham số strategy_type_filter
+    """
+    Lấy danh sách các chiến lược, có thể lọc theo strategy_type.
+    """
+    strategies_list = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        # <<< Thêm cột strategy_type vào SELECT >>>
+        sql = """
+            SELECT strategy_id, name, description, initial_stage_id, strategy_type, updated_at
+            FROM strategies
+        """
+        params = []
+        # <<< Thêm logic lọc theo type NẾU tham số được truyền vào >>>
+        if strategy_type_filter and strategy_type_filter in ['language', 'control']:
+            sql += " WHERE strategy_type = %s"
+            params.append(strategy_type_filter)
+
+        sql += " ORDER BY strategy_type, name;" # Sắp xếp theo type rồi đến name
+
+        print(f"DEBUG SQL (get_all_strategies): {cur.mogrify(sql, tuple(params)).decode('utf-8','ignore')}") # Debug SQL
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
+        strategies_list = [dict(row) for row in rows] if rows else []
+        print(f"DEBUG DB (get_all_strategies): Fetched {len(strategies_list)} strategies with filter '{strategy_type_filter}'.")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - get_all_strategies): Truy vấn thất bại: {db_err}")
+        print(traceback.format_exc())
+        strategies_list = None # Trả về None khi lỗi
+    except Exception as e:
+        print(f"LỖI (database.py - get_all_strategies): Lỗi không xác định: {e}")
+        print(traceback.format_exc())
+        strategies_list = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return strategies_list
+
+def get_all_stages() -> list[dict] | None:
+    """Lấy danh sách tất cả các stage ID và description từ bảng strategy_stages."""
+    stages_list = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        print("DEBUG (database.py): Truy vấn tất cả stages từ strategy_stages...")
+        # Truy vấn trực tiếp bảng strategy_stages
+        cur.execute("""
+            SELECT stage_id, description, strategy_id, stage_order
+            FROM strategy_stages
+            ORDER BY strategy_id, stage_order, stage_id;
+            """)
+        rows = cur.fetchall()
+        if rows:
+            stages_list = [dict(row) for row in rows]
+        else:
+            stages_list = []
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - get_all_stages): Truy vấn thất bại: {db_err}")
+    except Exception as e:
+        print(f"LỖI (database.py - get_all_stages): Lỗi không xác định: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return stages_list
+
+
+#---------------------------web-------------------------------------------------------
+def get_pending_suggestions() -> list[dict] | None:
+    """Lấy tất cả các đề xuất đang chờ (đã thêm category, ref)."""
+    suggestions = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        print(f"DEBUG (database.py): Truy vấn các đề xuất đang chờ...")
+        # <<< THÊM CỘT MỚI VÀO SELECT >>>
+        cur.execute("""
+            SELECT suggestion_id, suggested_keywords, suggested_template_text,
+                   suggested_category, suggested_template_ref,
+                   source_examples, created_at
+            FROM suggested_rules
+            WHERE status = 'pending'
+            ORDER BY created_at DESC;
+            """)
+        rows = cur.fetchall()
+        if rows:
+            suggestions = [dict(row) for row in rows]
+            print(f"DEBUG (database.py): Tìm thấy {len(suggestions)} đề xuất đang chờ.")
+        else:
+            print(f"DEBUG (database.py): Không có đề xuất nào đang chờ.")
+            suggestions = []
+    # ... (Except và Finally như cũ) ...
+    except psycopg2.Error as db_err: # Giữ lại để handle lỗi cụ thể nếu cần
+        print(f"LỖI DB trong get_pending_suggestions: {db_err}")
+        suggestions = None
+    except Exception as e:
+        print(f"LỖI không xác định trong get_pending_suggestions: {e}")
+        suggestions = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return suggestions
+
+def get_suggestion_by_id(suggestion_id: int) -> dict | None:
+    """Lấy chi tiết một đề xuất bằng ID (đã thêm category, ref)."""
+    if not suggestion_id: return None
+    suggestion = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        print(f"DEBUG (database.py): Truy vấn đề xuất ID: {suggestion_id}")
+        # <<< THÊM CỘT MỚI VÀO SELECT >>>
+        cur.execute("""
+            SELECT suggestion_id, suggested_keywords, suggested_template_text,
+                   suggested_category, suggested_template_ref,
+                   source_examples, status
+            FROM suggested_rules
+            WHERE suggestion_id = %s;
+            """, (suggestion_id,))
+        row = cur.fetchone()
+        if row: suggestion = dict(row)
+        else: print(f"WARNING (database.py): Không tìm thấy đề xuất ID: {suggestion_id}")
+    # ... (Except và Finally như cũ) ...
+    except psycopg2.Error as db_err: # Giữ lại để handle lỗi cụ thể nếu cần
+        print(f"LỖI DB trong get_suggestion_by_id: {db_err}")
+        suggestion = None
+    except Exception as e:
+        print(f"LỖI không xác định trong get_suggestion_by_id: {e}")
+        suggestion = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return suggestion
+def update_suggestion_status(suggestion_id: int, new_status: str) -> bool:
+    """Cập nhật trạng thái (status) cho một đề xuất."""
+    if not suggestion_id or not new_status:
+        return False
+    conn = get_db_connection()
+    if not conn:
+        return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        print(f"DEBUG (database.py): Cập nhật status='{new_status}' cho suggestion_id={suggestion_id}")
+        cur.execute("""
+            UPDATE suggested_rules
+            SET status = %s
+            WHERE suggestion_id = %s;
+            """, (new_status, suggestion_id))
+        conn.commit()
+        success = cur.rowcount > 0 # Kiểm tra xem có dòng nào được cập nhật không
+        if success:
+             print(f"DEBUG (database.py): Cập nhật status đề xuất thành công.")
+        else:
+             print(f"WARNING (database.py): Không tìm thấy suggestion_id {suggestion_id} để cập nhật status.")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - update_suggestion_status): UPDATE thất bại: {db_err}")
+        print(traceback.format_exc())
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (database.py - update_suggestion_status): Lỗi không xác định: {e}")
+        print(traceback.format_exc())
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def add_new_template(template_ref: str, first_variation_text: str, description: str | None = None, category: str | None = None) -> str | None:
+    """
+    Thêm template_ref vào response_templates (nếu chưa có)
+    VÀ thêm biến thể đầu tiên vào template_variations.
+    Trả về template_ref nếu thành công, None nếu lỗi.
+    """
+    if not template_ref or not first_variation_text:
+        return None
+
+    conn = get_db_connection()
+    if not conn:
+        return None
+    cur = None
+    success_ref = False
+    success_var = False
+    try:
+        cur = conn.cursor()
+        # Bước 1: Thêm vào response_templates, bỏ qua nếu đã tồn tại
+        print(f"DEBUG (database.py): Thêm/Đảm bảo template_ref '{template_ref}' tồn tại...")
+        sql_ref = """
+            INSERT INTO response_templates (template_ref, description, category)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (template_ref) DO NOTHING;
+        """
+        cur.execute(sql_ref, (template_ref, description, category))
+        # Không cần commit ngay, làm trong 1 transaction
+
+        # Bước 2: Thêm biến thể vào template_variations
+        print(f"DEBUG (database.py): Thêm variation cho '{template_ref}'...")
+        sql_var = """
+            INSERT INTO template_variations (template_ref, variation_text)
+            VALUES (%s, %s)
+            ON CONFLICT (template_ref, variation_text) DO NOTHING; -- <<< THÊM DÒNG NÀY
+        """
+        # Cân nhắc thêm ON CONFLICT cho variations nếu cần (ví dụ UNIQUE(template_ref, variation_text))
+        cur.execute(sql_var, (template_ref, first_variation_text))
+
+        conn.commit() # Commit cả hai lệnh insert
+        print(f"DEBUG (database.py): Thêm template và variation thành công cho '{template_ref}'.")
+        return template_ref # Trả về ref nếu thành công
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - add_new_template): INSERT thất bại: {db_err}")
+        print(traceback.format_exc())
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (database.py - add_new_template): Lỗi không xác định: {e}")
+        print(traceback.format_exc())
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+
+    return None # Trả về None nếu có lỗi
+
+def get_all_rules() -> list[dict] | None:
+    """Lấy tất cả luật (gọi hàm lọc không có filter)."""
+    print("DEBUG (database.py - get_all_rules): Calling get_filtered_rules with no filters.")
+    return get_filtered_rules(filters=None)
+
+
+def get_all_accounts(page: int = 1, per_page: int = 30) -> tuple[list[dict] | None, int | None]:
+    """
+    Lấy danh sách tất cả các tài khoản từ CSDL với phân trang.
+
+    Args:
+        page: Số trang hiện tại.
+        per_page: Số lượng mục mỗi trang.
+
+    Returns:
+        Tuple: (list các account của trang hiện tại hoặc None nếu lỗi,
+                tổng số account hoặc None nếu lỗi)
+    """
+    accounts_list = None
+    total_items = None
+    conn = get_db_connection()
+    if not conn: return None, None
+    cur = None
+    try:
+        # Query đếm tổng số tài khoản
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM public.accounts;")
+        total_items = cur.fetchone()[0]
+        cur.close()
+
+        # Query lấy dữ liệu cho trang hiện tại
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        offset = (page - 1) * per_page
+        sql = """
+            SELECT account_id, platform, username, status, notes, goal, default_strategy_id
+            FROM accounts
+            ORDER BY account_id -- Hoặc sắp xếp theo tiêu chí khác
+            LIMIT %s OFFSET %s;
+        """
+        cur.execute(sql, (per_page, offset))
+        rows = cur.fetchall()
+        accounts_list = [dict(row) for row in rows] if rows else []
+        print(f"DEBUG (database.py - get_all_accounts): Fetched {len(accounts_list)} accounts for page {page}.")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - get_all_accounts): Truy vấn thất bại: {db_err}")
+        accounts_list = None; total_items = None
+    except Exception as e:
+        print(f"LỖI (database.py - get_all_accounts): Lỗi không xác định: {e}")
+        accounts_list = None; total_items = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+
+    return accounts_list, total_items
+# === Thêm hàm này vào backup/app/database.py ===
+
+def get_pending_suggestion_interaction_count(min_history_id: int, status_filter: list = None) -> int | None:
+    """
+    Đếm số lượng bản ghi interaction_history thỏa mãn điều kiện để tạo đề xuất.
+
+    Args:
+        min_history_id: ID tối thiểu (chỉ đếm các bản ghi có ID lớn hơn giá trị này).
+        status_filter: List các status cần đếm (ví dụ: ['success_ai']).
+
+    Returns:
+        Số lượng bản ghi (integer) hoặc None nếu có lỗi.
+    """
+    count = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+
+    # --- Xây dựng mệnh đề WHERE động ---
+    params = [min_history_id]
+    where_clauses = ["history_id > %s", "sent_text IS NOT NULL", "received_text IS NOT NULL"]
+
+    if status_filter:
+        where_clauses.append("status = ANY(%s::varchar[])")
+        params.append(status_filter)
+
+    where_sql = " AND ".join(where_clauses)
+    sql = f"SELECT COUNT(*) FROM interaction_history WHERE {where_sql};"
+
+    try:
+        cur = conn.cursor()
+        print(f"DEBUG SQL (count_pending_interactions): {cur.mogrify(sql, tuple(params)).decode('utf-8')}")
+        cur.execute(sql, tuple(params))
+        count = cur.fetchone()[0]
+        print(f"DEBUG: Found {count} pending interactions after ID {min_history_id} with status {status_filter}.")
+    except psycopg2.Error as db_err:
+        print(f"LỖI DB trong get_pending_suggestion_interaction_count: {db_err}")
+        count = None # Lỗi thì trả về None
+    except Exception as e:
+        print(f"LỖI không xác định trong get_pending_suggestion_interaction_count: {e}")
+        count = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return count
+
+# ... (Các hàm khác) ...
+
+def update_account(account_id: str, platform: str, username: str, status: str, notes: str | None, goal: str | None, default_strategy_id: str | None) -> bool:
+    """Cập nhật thông tin một tài khoản."""
+    # Thêm validation nếu cần
+    if not account_id or not platform or not username:
+        return False
+
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = """
+            UPDATE accounts
+            SET platform = %s, username = %s, status = %s, notes = %s, goal = %s, default_strategy_id = %s, updated_at = %s
+            WHERE account_id = %s;
+        """
+        params = (platform, username, status, notes, goal, default_strategy_id, datetime.now(), account_id)
+        cur.execute(sql, params)
+        conn.commit()
+        success = cur.rowcount > 0 # Kiểm tra xem có dòng nào được cập nhật không
+        if not success:
+             print(f"WARNING (database.py - update_account): Không tìm thấy account_id {account_id} để cập nhật.")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - update_account): UPDATE thất bại: {db_err}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (database.py - update_account): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def delete_account(account_id: str) -> bool:
+    """Xóa một tài khoản."""
+    if not account_id: return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = "DELETE FROM accounts WHERE account_id = %s;"
+        cur.execute(sql, (account_id,))
+        conn.commit()
+        success = cur.rowcount > 0
+        if not success:
+             print(f"WARNING (database.py - delete_account): Không tìm thấy account_id {account_id} để xóa.")
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - delete_account): DELETE thất bại: {db_err}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (database.py - delete_account): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+# --- Template/Variation Functions ---
+
+def get_all_template_refs() -> list[dict] | None:
+    """Lấy danh sách tất cả các template_ref."""
+    refs_list = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        print("DEBUG (database.py): Truy vấn tất cả template refs...")
+        # !!! Đảm bảo tên bảng và cột khớp !!!
+        cur.execute("SELECT template_ref FROM response_templates ORDER BY template_ref;")
+        rows = cur.fetchall()
+        if rows:
+            refs_list = [dict(row) for row in rows]
+        else:
+            refs_list = []
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - get_all_template_refs): Truy vấn thất bại: {db_err}")
+    except Exception as e:
+        print(f"LỖI (database.py - get_all_template_refs): Lỗi không xác định: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return refs_list
+
+def get_all_template_refs_with_details() -> list[dict] | None:
+    """Lấy danh sách template refs cùng mô tả, category và số lượng variations."""
+    templates_data = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        print("DEBUG (database.py): Truy vấn templates với details và variation count...")
+        # !!! Đảm bảo tên bảng và cột khớp !!!
+        # Sử dụng LEFT JOIN và COUNT để đếm variations
+        sql = """
+            SELECT
+                rt.template_ref,
+                rt.description,
+                rt.category,
+                COUNT(tv.variation_id) AS variation_count
+            FROM response_templates rt
+            LEFT JOIN template_variations tv ON rt.template_ref = tv.template_ref
+            GROUP BY rt.template_ref, rt.description, rt.category
+            ORDER BY rt.template_ref;
+        """
+        cur.execute(sql)
+        rows = cur.fetchall()
+        if rows:
+            templates_data = [dict(row) for row in rows]
+        else:
+            templates_data = []
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - get_all_template_refs_with_details): Truy vấn thất bại: {db_err}")
+    except Exception as e:
+        print(f"LỖI (database.py - get_all_template_refs_with_details): Lỗi không xác định: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return templates_data
+
+def get_template_ref_details(template_ref: str) -> dict | None:
+    """Lấy thông tin chi tiết (description, category) của một template_ref."""
+    if not template_ref: return None
+    details = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        print(f"DEBUG (database.py): Truy vấn details cho template_ref '{template_ref}'...")
+        # !!! Đảm bảo tên bảng và cột khớp !!!
+        cur.execute("""
+            SELECT template_ref, description, category
+            FROM response_templates
+            WHERE template_ref = %s;
+            """, (template_ref,))
+        row = cur.fetchone()
+        if row:
+            details = dict(row)
+        else:
+            print(f"WARNING (database.py): Không tìm thấy template_ref '{template_ref}'.")
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - get_template_ref_details): Truy vấn thất bại: {db_err}")
+    except Exception as e:
+        print(f"LỖI (database.py - get_template_ref_details): Lỗi không xác định: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return details
+
+def add_single_variation(template_ref: str, variation_text: str) -> bool:
+    """Thêm một variation mới cho một template_ref đã tồn tại."""
+    if not template_ref or not variation_text:
+        return False
+
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        print(f"DEBUG (database.py): Thêm variation cho '{template_ref}'...")
+        # !!! Đảm bảo tên bảng và cột khớp !!!
+        # Cân nhắc thêm ràng buộc UNIQUE(template_ref, variation_text) trong DB
+        sql = """
+            INSERT INTO template_variations (template_ref, variation_text)
+            VALUES (%s, %s)
+            ON CONFLICT (template_ref, variation_text) DO NOTHING; -- <<< THÊM DÒNG NÀY
+        """
+        params = (template_ref, variation_text)
+        cur.execute(sql, params)
+        conn.commit()
+        success = True
+        print(f"DEBUG (database.py): Thêm variation thành công.")
+
+    except psycopg2.IntegrityError as int_err: # Bắt lỗi nếu vi phạm ràng buộc (vd: UNIQUE)
+         print(f"LỖI (database.py - add_single_variation): Lỗi ràng buộc CSDL (có thể text đã tồn tại?): {int_err}")
+         if conn: conn.rollback()
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - add_single_variation): INSERT thất bại: {db_err}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (database.py - add_single_variation): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+
+    return success
+
+def update_template_details(template_ref: str, description: str | None, category: str | None) -> bool:
+    """Cập nhật description và category cho một template_ref."""
+    if not template_ref: return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = """
+            UPDATE response_templates SET description = %s, category = %s
+            WHERE template_ref = %s;
+        """
+        params = (description, category, template_ref)
+        cur.execute(sql, params)
+        conn.commit()
+        success = cur.rowcount > 0
+    except psycopg2.Error as e:
+        print(f"LỖI (database.py - update_template_details): UPDATE thất bại: {e}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (database.py - update_template_details): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def get_variation_details(variation_id: int) -> dict | None:
+    """Lấy chi tiết một variation (bao gồm cả template_ref)."""
+    if not variation_id: return None
+    details = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        # Lấy cả template_ref để tiện redirect hoặc hiển thị
+        sql = """
+            SELECT variation_id, template_ref, variation_text
+            FROM template_variations
+            WHERE variation_id = %s;
+        """
+        cur.execute(sql, (variation_id,))
+        row = cur.fetchone()
+        if row: details = dict(row)
+    except psycopg2.Error as e:
+        print(f"LỖI (database.py - get_variation_details): Truy vấn thất bại: {e}")
+    except Exception as e:
+        print(f"LỖI (database.py - get_variation_details): Lỗi không xác định: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return details
+
+def update_variation(variation_id: int, variation_text: str) -> bool:
+    """Cập nhật nội dung text của một variation."""
+    if not variation_id or variation_text is None: # Variation text không nên null
+         return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = """
+            UPDATE template_variations SET variation_text = %s
+            WHERE variation_id = %s;
+        """
+        params = (variation_text, variation_id)
+        cur.execute(sql, params)
+        conn.commit()
+        success = cur.rowcount > 0
+        if not success:
+             print(f"WARNING (database.py - update_variation): Không tìm thấy variation_id {variation_id} để cập nhật.")
+    except psycopg2.Error as e:
+        print(f"LỖI (database.py - update_variation): UPDATE thất bại: {e}")
+        if conn: conn.rollback()
+        raise e # Ném lỗi lên
+    except Exception as e:
+        print(f"LỖI (database.py - update_variation): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+        raise e
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def get_distinct_template_categories() -> list[str] | None:
+    """Lấy danh sách các category duy nhất đã tồn tại trong response_templates."""
+    categories_list = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor() # Không cần DictCursor vì chỉ lấy 1 cột
+        print("DEBUG (database.py): Truy vấn các template categories duy nhất...")
+        # Lấy các category khác NULL và không rỗng
+        cur.execute("""
+            SELECT DISTINCT category
+            FROM response_templates
+            WHERE category IS NOT NULL AND category <> ''
+            ORDER BY category;
+            """)
+        rows = cur.fetchall()
+        if rows:
+            # rows sẽ là list các tuple, ví dụ [('cat1',), ('cat2',)], cần lấy phần tử đầu tiên
+            categories_list = [row[0] for row in rows]
+        else:
+            categories_list = []
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - get_distinct_template_categories): Truy vấn thất bại: {db_err}")
+    except Exception as e:
+        print(f"LỖI (database.py - get_distinct_template_categories): Lỗi không xác định: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return categories_list
+
+# --- Strategy/Stage Functions ---
+
+def get_strategy_details(strategy_id: str) -> dict | None:
+    """Lấy chi tiết một chiến lược."""
+    if not strategy_id: return None
+    details = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        # !!! Đảm bảo tên bảng và cột khớp !!!
+        cur.execute("""
+            SELECT strategy_id, name, description, initial_stage_id
+            FROM strategies WHERE strategy_id = %s;
+            """, (strategy_id,))
+        row = cur.fetchone()
+        if row: details = dict(row)
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - get_strategy_details): Truy vấn thất bại: {db_err}")
+    except Exception as e:
+        print(f"LỖI (database.py - get_strategy_details): Lỗi không xác định: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return details
+
+def update_strategy(strategy_id: str, name: str, description: str | None, initial_stage_id: str) -> tuple[bool, str | None]:
+    """Cập nhật một chiến lược (KHÔNG cập nhật strategy_type)."""
+    # <<< Bỏ strategy_type khỏi validate >>>
+    if not strategy_id or not name or not initial_stage_id:
+         return False, "Strategy ID, Name, Initial Stage ID là bắt buộc."
+
+    conn = get_db_connection()
+    if not conn: return False, "Không thể kết nối CSDL."
+    cur = None
+    success = False
+    error_msg = None
+    try:
+        cur = conn.cursor()
+        # <<< Bỏ cột strategy_type khỏi UPDATE >>>
+        sql = """
+            UPDATE strategies
+            SET name = %s, description = %s, initial_stage_id = %s, updated_at = NOW()
+            WHERE strategy_id = %s;
+        """
+        params = (name, description, initial_stage_id, strategy_id) # <<< Bỏ strategy_type khỏi params
+        cur.execute(sql, params)
+        conn.commit()
+        success = cur.rowcount > 0
+        # ... (phần xử lý lỗi giữ nguyên) ...
+    except psycopg2.IntegrityError as int_err:
+            error_msg = f"Lỗi ràng buộc CSDL (Name đã tồn tại?): {int_err}"
+            if conn: conn.rollback()
+    except psycopg2.Error as db_err:
+        error_msg = f"Lỗi CSDL: {db_err}"
+        if conn: conn.rollback()
+    except Exception as e:
+        error_msg = f"Lỗi không xác định: {e}"
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success, error_msg
+
+def get_all_stages() -> list[dict] | None:
+    """Lấy danh sách tất cả các stage ID và tên (nếu có)."""
+    stages_list = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        print("DEBUG (database.py): Truy vấn tất cả stages...")
+        # !!! Giả sử bạn có bảng 'stages' hoặc lấy DISTINCT từ 'stage_transitions' ???
+        # Cách 1: Nếu có bảng 'stages' riêng
+        # cur.execute("SELECT stage_id, name, description FROM stages ORDER BY stage_id;")
+        # Cách 2: Lấy các stage_id duy nhất từ bảng transitions (có thể thiếu stage cuối)
+        cur.execute("""
+             SELECT DISTINCT current_stage_id AS stage_id FROM stage_transitions
+             UNION
+             SELECT DISTINCT next_stage_id AS stage_id FROM stage_transitions WHERE next_stage_id IS NOT NULL
+             ORDER BY stage_id;
+             """)
+        rows = cur.fetchall()
+        if rows:
+            # Nếu không có cột name, bạn có thể chỉ trả về [{'stage_id': 'id1'}, ...]
+            stages_list = [dict(row) for row in rows]
+        else:
+            stages_list = []
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - get_all_stages): Truy vấn thất bại: {db_err}")
+    except Exception as e:
+        print(f"LỖI (database.py - get_all_stages): Lỗi không xác định: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return stages_list
+
+def get_stages_for_strategy(strategy_id: str) -> list[dict] | None:
+     """Lấy các stages liên quan đến một chiến lược (cần định nghĩa rõ hơn logic này)."""
+     # Logic này phức tạp: có thể là tất cả các current_stage và next_stage trong transitions
+     # thuộc về các stages bắt đầu từ initial_stage của strategy đó.
+     # Hoặc đơn giản là lấy tất cả stages được định nghĩa trong 1 bảng riêng liên kết với strategy.
+     # Tạm thời trả về None hoặc list rỗng.
+     print(f"WARNING (database.py - get_stages_for_strategy): Hàm chưa được triển khai đầy đủ logic.")
+     # return get_all_stages() # Tạm thời trả về tất cả stages
+     return []
+
+def delete_strategy(strategy_id: str) -> bool:
+    """Xóa một chiến lược khỏi bảng strategies.
+       Lưu ý: Các bảng khác tham chiếu đến strategy_id này
+       sẽ bị ảnh hưởng dựa trên ràng buộc khóa ngoại (ON DELETE CASCADE/SET NULL)."""
+    if not strategy_id: return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        print(f"DEBUG (database.py): Xóa strategy ID={strategy_id}")
+        # Xóa từ bảng strategies, các bảng khác sẽ tự xử lý qua FK constraints
+        sql = "DELETE FROM strategies WHERE strategy_id = %s;"
+        cur.execute(sql, (strategy_id,))
+        conn.commit()
+        success = cur.rowcount > 0 # Kiểm tra xem có dòng nào bị xóa không
+        if not success:
+             print(f"WARNING (database.py - delete_strategy): Không tìm thấy strategy_id {strategy_id} để xóa.")
+
+    except psycopg2.Error as db_err:
+        # Có thể bắt lỗi khóa ngoại cụ thể nếu cần (vd: psycopg2.errors.ForeignKeyViolation)
+        print(f"LỖI (database.py - delete_strategy): DELETE thất bại: {db_err}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (database.py - delete_strategy): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def get_stages_for_strategy(strategy_id: str) -> list[dict] | None:
+     """Lấy danh sách các stages thuộc về một strategy_id cụ thể từ bảng strategy_stages."""
+     if not strategy_id: return None
+     stages_list = None
+     conn = get_db_connection()
+     if not conn: return None
+     cur = None
+     try:
+         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+         print(f"DEBUG (database.py): Truy vấn stages cho strategy_id='{strategy_id}'...")
+         # Truy vấn bảng strategy_stages
+         cur.execute("""
+             SELECT stage_id, description, strategy_id, stage_order
+             FROM strategy_stages
+             WHERE strategy_id = %s
+             ORDER BY stage_order, stage_id;
+             """, (strategy_id,))
+         rows = cur.fetchall()
+         if rows:
+             stages_list = [dict(row) for row in rows]
+         else:
+             print(f"DEBUG (database.py): Không tìm thấy stage nào cho strategy_id='{strategy_id}'.")
+             stages_list = []
+     except psycopg2.Error as db_err:
+         print(f"LỖI (database.py - get_stages_for_strategy): Truy vấn thất bại: {db_err}")
+     except Exception as e:
+         print(f"LỖI (database.py - get_stages_for_strategy): Lỗi không xác định: {e}")
+     finally:
+         if cur: cur.close()
+         if conn: conn.close()
+     return stages_list
+
+def get_transitions_for_strategy(strategy_id: str) -> list[dict] | None:
+     """Lấy danh sách các transitions có current_stage_id thuộc về một strategy_id."""
+     if not strategy_id: return None
+     transitions_list = None
+     conn = get_db_connection()
+     if not conn: return None
+     cur = None
+     try:
+         cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+         print(f"DEBUG (database.py): Truy vấn transitions cho strategy_id='{strategy_id}'...")
+         # Lấy transitions mà current_stage_id nằm trong danh sách các stage của strategy đó
+         sql = """
+             SELECT
+                 t.transition_id, t.current_stage_id, t.user_intent, t.condition_logic,
+                 t.next_stage_id, t.action_to_suggest, t.response_template_ref, t.priority
+             FROM stage_transitions t
+             JOIN strategy_stages ss ON t.current_stage_id = ss.stage_id
+             WHERE ss.strategy_id = %s
+             ORDER BY t.current_stage_id, t.priority DESC, t.user_intent;
+         """
+         cur.execute(sql, (strategy_id,))
+         rows = cur.fetchall()
+         if rows:
+             transitions_list = [dict(row) for row in rows]
+         else:
+             print(f"DEBUG (database.py): Không tìm thấy transition nào cho strategy_id='{strategy_id}'.")
+             transitions_list = []
+     except psycopg2.Error as db_err:
+         print(f"LỖI (database.py - get_transitions_for_strategy): Truy vấn thất bại: {db_err}")
+     except Exception as e:
+         print(f"LỖI (database.py - get_transitions_for_strategy): Lỗi không xác định: {e}")
+     finally:
+         if cur: cur.close()
+         if conn: conn.close()
+     return transitions_list
+
+def delete_single_variation(variation_id: int) -> bool:
+    """Xóa một variation cụ thể bằng variation_id."""
+    if not variation_id: return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        print(f"DEBUG (database.py): Xóa variation ID={variation_id}...")
+        sql = "DELETE FROM template_variations WHERE variation_id = %s;"
+        cur.execute(sql, (variation_id,))
+        conn.commit()
+        success = cur.rowcount > 0 # Kiểm tra xem có dòng nào bị xóa không
+        if not success:
+            print(f"WARNING (database.py - delete_single_variation): Không tìm thấy variation_id {variation_id} để xóa.")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - delete_single_variation): DELETE thất bại: {db_err}")
+        if conn: conn.rollback()
+        # Ném lỗi lên để route xử lý nếu cần
+        raise db_err
+    except Exception as e:
+        print(f"LỖI (database.py - delete_single_variation): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+        raise e
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+# --- Stage Management Functions ---
+
+def add_new_stage(stage_id: str, strategy_id: str, description: str | None, order: int = 0) -> bool:
+    """Thêm một stage mới vào bảng strategy_stages."""
+    if not stage_id or not strategy_id:
+        print("WARNING (database.py - add_new_stage): stage_id và strategy_id là bắt buộc.")
+        return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        print(f"DEBUG: Thêm stage mới: stage_id='{stage_id}', strategy_id='{strategy_id}'")
+        sql = """
+            INSERT INTO strategy_stages (stage_id, strategy_id, description, stage_order)
+            VALUES (%s, %s, %s, %s);
+        """
+        params = (stage_id, strategy_id, description, order)
+        cur.execute(sql, params)
+        conn.commit()
+        success = True
+    except psycopg2.IntegrityError as e: # Bắt lỗi nếu stage_id đã tồn tại (PK)
+        print(f"LỖI (database.py - add_new_stage): Lỗi ràng buộc CSDL (Stage ID đã tồn tại?): {e}")
+        if conn: conn.rollback()
+    except psycopg2.Error as e:
+        print(f"LỖI (database.py - add_new_stage): INSERT thất bại: {e}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (database.py - add_new_stage): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def get_stage_details(stage_id: str) -> dict | None:
+    """Lấy chi tiết một stage từ strategy_stages."""
+    if not stage_id: return None
+    details = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        cur.execute("""
+            SELECT stage_id, strategy_id, description, stage_order
+            FROM strategy_stages WHERE stage_id = %s;
+            """, (stage_id,))
+        row = cur.fetchone()
+        if row: details = dict(row)
+    except psycopg2.Error as e:
+        print(f"LỖI (database.py - get_stage_details): Truy vấn thất bại: {e}")
+    except Exception as e:
+        print(f"LỖI (database.py - get_stage_details): Lỗi không xác định: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return details
+
+def update_stage(stage_id: str, description: str | None, order: int) -> bool:
+    """Cập nhật description và order cho một stage."""
+    if not stage_id: return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = """
+            UPDATE strategy_stages SET description = %s, stage_order = %s
+            WHERE stage_id = %s;
+        """
+        params = (description, order, stage_id)
+        cur.execute(sql, params)
+        conn.commit()
+        success = cur.rowcount > 0
+    except psycopg2.Error as e:
+        print(f"LỖI (database.py - update_stage): UPDATE thất bại: {e}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (database.py - update_stage): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def delete_stage(stage_id: str) -> bool:
+    """Xóa một stage khỏi strategy_stages.
+       LƯU Ý: Transitions có current_stage_id=stage_id sẽ bị CASCADE DELETE.
+             Transitions có next_stage_id=stage_id sẽ bị SET NULL.
+             Strategy có initial_stage_id=stage_id sẽ bị SET NULL.
+    """
+    if not stage_id: return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        print(f"DEBUG: Xóa stage ID={stage_id}...")
+        sql = "DELETE FROM strategy_stages WHERE stage_id = %s;"
+        cur.execute(sql, (stage_id,))
+        conn.commit()
+        success = cur.rowcount > 0
+        if not success:
+             print(f"WARNING (database.py - delete_stage): Không tìm thấy stage_id {stage_id} để xóa.")
+    except psycopg2.Error as e:
+        print(f"LỖI (database.py - delete_stage): DELETE thất bại: {e}")
+        if conn: conn.rollback()
+        raise e # Ném lỗi lên để route xử lý
+    except Exception as e:
+        print(f"LỖI (database.py - delete_stage): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+        raise e
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+# --- Transition Management Functions ---
+
+def add_new_transition(current_stage_id: str, user_intent: str, condition_logic: str | None,
+                       next_stage_id: str | None, action_to_suggest: str | None,
+                       response_template_ref: str | None, priority: int = 0) -> bool:
+    """Thêm một transition mới vào stage_transitions."""
+    if not current_stage_id or not user_intent:
+        print("WARNING (database.py - add_new_transition): current_stage_id và user_intent là bắt buộc.")
+        return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        print(f"DEBUG: Thêm transition: current='{current_stage_id}', intent='{user_intent}'")
+        sql = """
+            INSERT INTO stage_transitions (current_stage_id, user_intent, condition_logic,
+                                           next_stage_id, action_to_suggest, response_template_ref, priority)
+            VALUES (%s, %s, %s, %s, %s, %s, %s);
+        """
+        params = (current_stage_id, user_intent, condition_logic,
+                  next_stage_id if next_stage_id else None, # Đảm bảo NULL nếu trống
+                  action_to_suggest if action_to_suggest else None,
+                  response_template_ref if response_template_ref else None,
+                  priority)
+        cur.execute(sql, params)
+        conn.commit()
+        success = True
+    except psycopg2.Error as e:
+        print(f"LỖI (database.py - add_new_transition): INSERT thất bại: {e}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (database.py - add_new_transition): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def get_transition_details(transition_id: int) -> dict | None:
+    """Lấy chi tiết một transition bằng transition_id."""
+    if not transition_id: return None
+    details = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        # Lấy cả strategy_id để tiện redirect
+        sql = """
+            SELECT t.*, ss.strategy_id
+            FROM stage_transitions t
+            JOIN strategy_stages ss ON t.current_stage_id = ss.stage_id
+            WHERE t.transition_id = %s;
+        """
+        cur.execute(sql, (transition_id,))
+        row = cur.fetchone()
+        if row: details = dict(row)
+    except psycopg2.Error as e:
+        print(f"LỖI (database.py - get_transition_details): Truy vấn thất bại: {e}")
+    except Exception as e:
+        print(f"LỖI (database.py - get_transition_details): Lỗi không xác định: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return details
+
+def update_transition(transition_id: int, current_stage_id: str, user_intent: str, condition_logic: str | None,
+                      next_stage_id: str | None, action_to_suggest: str | None,
+                      response_template_ref: str | None, priority: int) -> bool:
+    """Cập nhật một transition."""
+    if not transition_id or not current_stage_id or not user_intent:
+        return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = """
+            UPDATE stage_transitions
+            SET current_stage_id = %s, user_intent = %s, condition_logic = %s, next_stage_id = %s,
+                action_to_suggest = %s, response_template_ref = %s, priority = %s
+            WHERE transition_id = %s;
+        """
+        params = (current_stage_id, user_intent, condition_logic,
+                  next_stage_id if next_stage_id else None,
+                  action_to_suggest if action_to_suggest else None,
+                  response_template_ref if response_template_ref else None,
+                  priority, transition_id)
+        cur.execute(sql, params)
+        conn.commit()
+        success = cur.rowcount > 0
+    except psycopg2.Error as e:
+        print(f"LỖI (database.py - update_transition): UPDATE thất bại: {e}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (database.py - update_transition): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def delete_transition(transition_id: int) -> bool:
+    """Xóa một transition khỏi stage_transitions."""
+    if not transition_id: return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        print(f"DEBUG: Xóa transition ID={transition_id}...")
+        sql = "DELETE FROM stage_transitions WHERE transition_id = %s;"
+        cur.execute(sql, (transition_id,))
+        conn.commit()
+        success = cur.rowcount > 0
+        if not success:
+             print(f"WARNING (database.py - delete_transition): Không tìm thấy transition_id {transition_id} để xóa.")
+    except psycopg2.Error as e:
+        print(f"LỖI (database.py - delete_transition): DELETE thất bại: {e}")
+        if conn: conn.rollback()
+        raise e
+    except Exception as e:
+        print(f"LỖI (database.py - delete_transition): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+        raise e
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+
+# --- History Functions ---
+
+
+
+def get_interaction_history_paginated(page: int = 1, per_page: int = 20, filters: dict = None) -> tuple[list[dict] | None, int | None]:
+    """
+    Lấy lịch sử tương tác với phân trang và bộ lọc.
+
+    Args:
+        page: Số trang hiện tại (bắt đầu từ 1).
+        per_page: Số lượng mục mỗi trang.
+        filters: Dictionary chứa các bộ lọc, ví dụ:
+                 {'account_id': '...', 'thread_id': '...', 'status': '...',
+                  'date_from': 'YYYY-MM-DD', 'date_to': 'YYYY-MM-DD'}
+
+    Returns:
+        Tuple: (list các bản ghi của trang hiện tại hoặc None nếu lỗi,
+                tổng số bản ghi khớp bộ lọc hoặc None nếu lỗi)
+    """
+    history_list = None
+    total_items = None
+    conn = get_db_connection()
+    if not conn: return None, None
+    cur = None
+
+    # --- Xây dựng mệnh đề WHERE động và params ---
+    where_clauses = []
+    params = []
+    if filters:
+        if filters.get('account_id'):
+            where_clauses.append("account_id = %s")
+            params.append(filters['account_id'])
+        if filters.get('thread_id'):
+            # Dùng ILIKE để tìm kiếm không phân biệt hoa thường nếu cần
+            where_clauses.append("thread_id ILIKE %s")
+            params.append(f"%{filters['thread_id']}%") # Tìm kiếm chứa chuỗi
+        if filters.get('status'):
+            where_clauses.append("status = %s")
+            params.append(filters['status'])
+        if filters.get('date_from'):
+            # Cần try-except để xử lý lỗi format ngày tháng nếu cần
+            try:
+                 date_from_dt = datetime.strptime(filters['date_from'], '%Y-%m-%d').date()
+                 where_clauses.append("timestamp >= %s")
+                 params.append(date_from_dt)
+            except ValueError:
+                 print(f"WARNING: Định dạng date_from không hợp lệ: {filters['date_from']}")
+        if filters.get('date_to'):
+             try:
+                 # Cộng thêm 1 ngày để bao gồm cả ngày kết thúc
+                 from datetime import timedelta
+                 date_to_dt = datetime.strptime(filters['date_to'], '%Y-%m-%d').date() + timedelta(days=1)
+                 where_clauses.append("timestamp < %s")
+                 params.append(date_to_dt)
+             except ValueError:
+                 print(f"WARNING: Định dạng date_to không hợp lệ: {filters['date_to']}")
+        # Thêm các bộ lọc khác nếu cần (strategy_id, stage_id,...)
+
+    where_sql = ""
+    if where_clauses:
+        where_sql = "WHERE " + " AND ".join(where_clauses)
+
+    try:
+        # --- Query đếm tổng số mục ---
+        cur = conn.cursor()
+        count_sql = f"SELECT COUNT(*) FROM interaction_history {where_sql};"
+        print(f"DEBUG Count SQL: {count_sql}")
+        print(f"DEBUG Count Params: {params}")
+        cur.execute(count_sql, tuple(params)) # Truyền params vào query count
+        total_items = cur.fetchone()[0]
+        cur.close() # Đóng cursor sau khi đếm
+
+        # --- Query lấy dữ liệu cho trang hiện tại ---
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        offset = (page - 1) * per_page
+        data_sql = f"""
+            SELECT history_id, account_id, app, thread_id, received_text, sent_text,
+                   status, strategy_id, stage_id, detected_user_intent, timestamp
+            FROM interaction_history
+            {where_sql}
+            ORDER BY timestamp DESC
+            LIMIT %s OFFSET %s;
+        """
+        # Thêm limit và offset vào cuối params list
+        data_params = params + [per_page, offset]
+        print(f"DEBUG Data SQL: {data_sql}")
+        print(f"DEBUG Data Params: {data_params}")
+        cur.execute(data_sql, tuple(data_params))
+        rows = cur.fetchall()
+        history_list = [dict(row) for row in rows] if rows else []
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - get_interaction_history_paginated): Truy vấn thất bại: {db_err}")
+        print(traceback.format_exc())
+        history_list = None
+        total_items = None # Đặt là None khi có lỗi DB
+    except Exception as e:
+        print(f"LỖI (database.py - get_interaction_history_paginated): Lỗi không xác định: {e}")
+        print(traceback.format_exc())
+        history_list = None
+        total_items = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+
+    return history_list, total_items
+
+
+# --- Rule Functions (simple_rules) ---
+
+def get_rule_by_id(rule_id: int) -> dict | None:
+    """Lấy chi tiết một luật trong simple_rules bằng ID."""
+    if not rule_id: return None
+    rule = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        print(f"DEBUG (database.py): Truy vấn rule ID: {rule_id}")
+        # !!! Đảm bảo tên bảng và cột khớp !!!
+        cur.execute("""
+            SELECT rule_id, trigger_keywords, category, response_template_ref, priority, notes
+            FROM simple_rules
+            WHERE rule_id = %s;
+            """, (rule_id,))
+        row = cur.fetchone()
+        if row:
+            rule = dict(row)
+        else:
+            print(f"WARNING (database.py): Không tìm thấy rule ID: {rule_id}")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - get_rule_by_id): Truy vấn thất bại: {db_err}")
+    except Exception as e:
+        print(f"LỖI (database.py - get_rule_by_id): Lỗi không xác định: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return rule
+
+
+def update_rule(rule_id: int, keywords: str, category: str | None, template_ref: str | None, priority: int, notes: str | None) -> bool:
+    """Cập nhật một luật trong simple_rules."""
+    if not rule_id or not keywords: # Keywords là bắt buộc
+        return False
+
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        print(f"DEBUG (database.py): Cập nhật rule ID={rule_id}")
+        # !!! Đảm bảo tên bảng và cột khớp !!!
+        sql = """
+            UPDATE simple_rules
+            SET trigger_keywords = %s, category = %s, response_template_ref = %s, priority = %s, notes = %s
+            WHERE rule_id = %s;
+        """
+        params = (keywords, category, template_ref, priority, notes, rule_id)
+        cur.execute(sql, params)
+        conn.commit()
+        success = cur.rowcount > 0 # Kiểm tra xem có dòng nào được cập nhật không
+        if not success:
+            print(f"WARNING (database.py - update_rule): Không tìm thấy rule_id {rule_id} để cập nhật.")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - update_rule): UPDATE thất bại: {db_err}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (database.py - update_rule): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+
+    return success
+
+def delete_rule(rule_id: int) -> bool:
+    """Xóa một luật khỏi simple_rules."""
+    if not rule_id: return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        print(f"DEBUG (database.py): Xóa rule ID={rule_id}")
+        # !!! Đảm bảo tên bảng khớp !!!
+        sql = "DELETE FROM simple_rules WHERE rule_id = %s;"
+        cur.execute(sql, (rule_id,))
+        conn.commit()
+        success = cur.rowcount > 0 # Kiểm tra xem có dòng nào bị xóa không
+        if not success:
+             print(f"WARNING (database.py - delete_rule): Không tìm thấy rule_id {rule_id} để xóa.")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - delete_rule): DELETE thất bại: {db_err}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (database.py - delete_rule): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+
+    return success
+
+def add_new_rule(keywords: str, category: str | None, template_ref: str, priority: int = 0, notes: str | None = None) -> bool:
+
+    """Thêm một luật mới vào bảng simple_rules."""
+    if not keywords or not template_ref:
+        return False
+
+    conn = get_db_connection()
+    if not conn:
+        return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        print(f"DEBUG (database.py): Thêm rule mới: keywords='{keywords[:50]}...', category='{category}', ref='{template_ref}'")
+        sql = """
+            INSERT INTO simple_rules
+            (trigger_keywords, category, response_template_ref, priority, notes)
+            VALUES (%s, %s, %s, %s, %s);
+            ON CONFLICT (trigger_keywords, category, response_template_ref) DO NOTHING;
+        """
+        params = (keywords, category, template_ref, priority, notes)
+        cur.execute(sql, params)
+        conn.commit()
+        success = True
+        if cur.rowcount > 0:
+             print(f"DEBUG (database.py): Added new rule successfully.")
+        else:
+             print(f"DEBUG (database.py): Rule with KW='{keywords[:50]}...', Cat='{category}', Ref='{template_ref}' already exists. Skipped insertion.")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - add_new_rule): INSERT thất bại: {db_err}")
+        print(traceback.format_exc())
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (database.py - add_new_rule): Lỗi không xác định: {e}")
+        print(traceback.format_exc())
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+
+    return success
+# --- ReportReport (simple_rules) ---
+
+# === Cập nhật hàm này trong backup/app/database.py ===
+
+def get_interactions_for_suggestion(min_timestamp, status_filter: list = None, limit: int = 100) -> list[dict] | None:
+    """
+    Lấy các bản ghi interaction_history phù hợp để tạo đề xuất,
+    dựa trên thời gian tối thiểu và bộ lọc trạng thái.
+
+    Args:
+        min_timestamp: Thời gian sớm nhất để lấy (chỉ lấy các bản ghi mới hơn hoặc bằng thời gian này).
+        status_filter: List các status cần lấy (ví dụ: ['success_ai']). Nếu None hoặc rỗng, không lọc theo status.
+        limit: Số lượng bản ghi tối đa cần lấy.
+
+    Returns:
+        List các dictionary chứa thông tin interaction, hoặc None nếu lỗi.
+    """
+    interactions = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+
+    # --- Xây dựng câu lệnh SQL động ---
+    params = []
+    where_clauses = ["timestamp >= %s", "sent_text IS NOT NULL", "received_text IS NOT NULL"] # Điều kiện cơ bản
+    params.append(min_timestamp)
+
+    if status_filter:
+        # Sử dụng toán tử ANY của PostgreSQL để kiểm tra với list status
+        where_clauses.append("status = ANY(%s::varchar[])") # Ép kiểu thành mảng varchar
+        params.append(status_filter)
+        # Lưu ý: Nếu dùng cách placeholder %s cho từng status thì cần tạo placeholder động
+
+    # TODO: Thêm cơ chế đánh dấu hoặc lọc các interaction đã được xử lý để tránh lặp lại.
+    # Ví dụ: Thêm một cột 'suggestion_processed BOOLEAN DEFAULT FALSE' vào interaction_history
+    # và thêm "AND suggestion_processed = FALSE" vào where_clauses.
+    # Hoặc lưu lại timestamp của lần xử lý cuối cùng và dùng "timestamp > last_processed_time".
+    # Hiện tại, hàm này sẽ lấy lại các bản ghi cũ nếu min_timestamp không thay đổi.
+
+    where_sql = " AND ".join(where_clauses)
+    sql = f"""
+        SELECT history_id, received_text, sent_text, detected_user_intent, stage_id, strategy_id
+        FROM interaction_history
+        WHERE {where_sql}
+        ORDER BY timestamp ASC -- Xử lý các tương tác cũ trước
+        LIMIT %s;
+    """
+    params.append(limit) # Thêm limit vào cuối params
+
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        print(f"DEBUG SQL (get_interactions_for_suggestion): {cur.mogrify(sql, tuple(params)).decode('utf-8')}") # Log câu lệnh SQL đầy đủ với params
+        # print(f"DEBUG PARAMS (get_interactions_for_suggestion): {params}") # Log params riêng nếu cần
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
+        interactions = [dict(row) for row in rows] if rows else []
+        print(f"DEBUG: Tìm thấy {len(interactions)} interactions để phân tích.")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI DB trong get_interactions_for_suggestion: {db_err}")
+        print(traceback.format_exc())
+        interactions = None # Trả về None khi lỗi
+    except Exception as e:
+        print(f"LỖI không xác định trong get_interactions_for_suggestion: {e}")
+        print(traceback.format_exc())
+        interactions = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+
+    return interactions
+
+def add_suggestion(keywords: str | None, category: str | None, template_ref: str | None, template_text: str | None, source_examples: dict) -> bool:
+    """Lưu một đề xuất mới vào bảng suggested_rules (đã thêm category, ref)."""
+    # Chỉ cần ít nhất keywords hoặc template_text
+    if not keywords and not template_text:
+         print("WARNING (add_suggestion): Cần có ít nhất Keywords hoặc Template Text.")
+         return False
+    if source_examples is None: source_examples = {}
+
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        import json # Đảm bảo json được import
+        source_examples_json = json.dumps(source_examples)
+
+        print(f"DEBUG (add_suggestion): Lưu đề xuất: keywords='{str(keywords)[:50]}...', category='{category}', ref='{template_ref}', template='{str(template_text)[:50]}...'")
+        # <<< THÊM CỘT MỚI VÀO INSERT >>>
+        sql = """
+            INSERT INTO suggested_rules
+            (suggested_keywords, suggested_template_text, source_examples, status, suggested_category, suggested_template_ref)
+            VALUES (%s, %s, %s, %s, %s, %s);
+        """
+        params = (keywords, template_text, source_examples_json, 'pending', category, template_ref)
+        cur.execute(sql, params)
+        conn.commit()
+        success = True
+        print("DEBUG (add_suggestion): Lưu đề xuất thành công.")
+
+    # ... (Except và Finally như cũ) ...
+    except psycopg2.Error as db_err:
+        print(f"LỖI DB trong add_suggestion: {db_err}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI không xác định trong add_suggestion: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+# --- ReportReport (simple_rules) ---
+
+def get_dashboard_stats() -> dict | None:
+
+    """Lấy các số liệu thống kê tổng quan cho Dashboard."""
+    stats = {}
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor() # Không cần DictCursor cho COUNT
+
+        # Hàm helper để chạy COUNT và gán vào dict stats
+        def _get_count(key_name, sql, params=None):
+            try:
+                cur.execute(sql, params or ())
+                count = cur.fetchone()[0]
+                stats[key_name] = count
+            except Exception as e:
+                print(f"Lỗi khi đếm '{key_name}': {e}")
+                stats[key_name] = 'Lỗi' # Hoặc None, hoặc 0 tùy cách muốn hiển thị
+
+        # Thực hiện các truy vấn COUNT
+        _get_count('total_accounts', "SELECT COUNT(*) FROM accounts;")
+        _get_count('active_accounts', "SELECT COUNT(*) FROM accounts WHERE status = 'active';")
+        _get_count('total_strategies', "SELECT COUNT(*) FROM strategies;")
+        _get_count('total_stages', "SELECT COUNT(*) FROM strategy_stages;")
+        _get_count('total_transitions', "SELECT COUNT(*) FROM stage_transitions;")
+        _get_count('total_rules', "SELECT COUNT(*) FROM simple_rules;")
+        _get_count('total_templates', "SELECT COUNT(*) FROM response_templates;")
+        _get_count('total_variations', "SELECT COUNT(*) FROM template_variations;")
+        _get_count('pending_suggestions', "SELECT COUNT(*) FROM suggested_rules WHERE status = 'pending';")
+
+        # Đếm tương tác trong 24 giờ qua
+        time_24h_ago = datetime.now() - timedelta(hours=24)
+        _get_count('interactions_24h',
+                   "SELECT COUNT(*) FROM interaction_history WHERE timestamp >= %s;",
+                   (time_24h_ago,))
+
+        # Đếm lỗi trong 24 giờ qua (ví dụ status bắt đầu bằng 'error_')
+        _get_count('errors_24h',
+                   "SELECT COUNT(*) FROM interaction_history WHERE status LIKE 'error%%' AND timestamp >= %s;",
+                   (time_24h_ago,))
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI DB trong get_dashboard_stats: {db_err}")
+        return None # Trả về None nếu có lỗi kết nối hoặc lỗi DB nghiêm trọng ban đầu
+    except Exception as e:
+        print(f"LỖI không xác định trong get_dashboard_stats: {e}")
+        return None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+
+    return stats
+
+# --- AI promptprompt ---
+
+def get_prompt_template_by_task(task_type: str) -> str | None:
+    
+    """Lấy nội dung template_content từ prompt_templates dựa trên task_type.
+       Ưu tiên lấy bản ghi mới nhất nếu có nhiều bản ghi cùng task_type (mặc dù name là unique).
+    """
+    if not task_type: return None
+    template_content = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor() # Chỉ cần lấy 1 cột
+        # Lấy template_content của bản ghi phù hợp (có thể thêm ORDER BY created_at DESC nếu cần chọn mới nhất)
+        sql = """
+            SELECT template_content
+            FROM prompt_templates
+            WHERE task_type = %s
+            ORDER BY prompt_template_id DESC -- Ưu tiên ID lớn nhất (mới nhất) nếu có trùng task_type
+            LIMIT 1;
+        """
+        cur.execute(sql, (task_type,))
+        row = cur.fetchone()
+        if row:
+            template_content = row[0]
+        else:
+             print(f"WARNING (get_prompt_template_by_task): Không tìm thấy prompt template cho task_type='{task_type}'.")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI DB trong get_prompt_template_by_task: {db_err}")
+    except Exception as e:
+        print(f"LỖI không xác định trong get_prompt_template_by_task: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return template_content
+
+# === Thêm các hàm này vào backup/app/database.py ===
+
+def get_task_state(task_name: str) -> int | None:
+    """Lấy ID bản ghi cuối cùng đã xử lý cho một tác vụ."""
+    last_id = None # Trả về None nếu lỗi hoặc không tìm thấy
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor()
+        sql = "SELECT last_processed_id FROM task_state WHERE task_name = %s;"
+        cur.execute(sql, (task_name,))
+        row = cur.fetchone()
+        if row:
+            last_id = row[0]
+        else:
+            # Nếu chưa có trạng thái cho task này, trả về 0 để bắt đầu từ đầu
+            last_id = 0
+            print(f"INFO (get_task_state): Không tìm thấy trạng thái cho task '{task_name}', bắt đầu từ ID 0.")
+    except psycopg2.Error as db_err:
+        print(f"LỖI DB trong get_task_state cho '{task_name}': {db_err}")
+    except Exception as e:
+        print(f"LỖI không xác định trong get_task_state cho '{task_name}': {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return last_id if last_id is not None else 0 # Đảm bảo trả về số nguyên >= 0
+
+def update_task_state(task_name: str, last_processed_id: int) -> bool:
+    """Cập nhật ID bản ghi cuối cùng đã xử lý cho một tác vụ (UPSERT)."""
+    if not task_name or last_processed_id is None: return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        now = datetime.now()
+        # Sử dụng INSERT ... ON CONFLICT (UPSERT) để chèn nếu chưa có, cập nhật nếu đã có
+        sql = """
+            INSERT INTO task_state (task_name, last_processed_id, last_run_timestamp)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (task_name) DO UPDATE SET
+                last_processed_id = EXCLUDED.last_processed_id,
+                last_run_timestamp = EXCLUDED.last_run_timestamp;
+        """
+        params = (task_name, last_processed_id, now)
+        cur.execute(sql, params)
+        conn.commit()
+        success = True
+    except psycopg2.Error as db_err:
+        print(f"LỖI DB trong update_task_state cho '{task_name}': {db_err}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI không xác định trong update_task_state cho '{task_name}': {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+# --- Sửa lại hàm get_interactions_for_suggestion ---
+
+def get_interactions_for_suggestion(min_history_id: int, status_filter: list = None, limit: int = 100) -> list[dict] | None:
+    """
+    Lấy các bản ghi interaction_history phù hợp để tạo đề xuất,
+    dựa trên history_id tối thiểu và bộ lọc trạng thái.
+
+    Args:
+        min_history_id: ID tối thiểu (chỉ lấy các bản ghi có ID lớn hơn giá trị này).
+        status_filter: List các status cần lấy (ví dụ: ['success_ai']).
+        limit: Số lượng bản ghi tối đa cần lấy.
+
+    Returns:
+        List các dictionary chứa thông tin interaction, hoặc None nếu lỗi.
+    """
+    interactions = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+
+    # --- Xây dựng câu lệnh SQL động ---
+    params = [min_history_id] # Tham số đầu tiên cho history_id
+    where_clauses = ["history_id > %s", "sent_text IS NOT NULL", "received_text IS NOT NULL"] # Điều kiện cơ bản
+
+    if status_filter:
+        where_clauses.append("status = ANY(%s::varchar[])")
+        params.append(status_filter) # Thêm status_filter vào params
+
+    # TODO: Vẫn có thể thêm cột 'suggestion_processed' để tăng độ tin cậy
+    # if use_processed_flag: where_clauses.append("suggestion_processed = FALSE")
+
+    where_sql = " AND ".join(where_clauses)
+    sql = f"""
+        SELECT history_id, received_text, sent_text, detected_user_intent, stage_id, strategy_id
+        FROM interaction_history
+        WHERE {where_sql}
+        ORDER BY history_id ASC -- Xử lý theo thứ tự ID tăng dần
+        LIMIT %s;
+    """
+    params.append(limit) # Thêm limit vào cuối params
+
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        # cur.mogrify có thể không hoạt động tốt với ANY(%s::varchar[]) nên log riêng
+        print(f"DEBUG SQL (get_interactions_for_suggestion): {sql}")
+        print(f"DEBUG PARAMS (get_interactions_for_suggestion): {params}")
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
+        interactions = [dict(row) for row in rows] if rows else []
+        print(f"DEBUG: Tìm thấy {len(interactions)} interactions mới để phân tích (sau ID {min_history_id}).")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI DB trong get_interactions_for_suggestion: {db_err}")
+        print(traceback.format_exc())
+        interactions = None
+    except Exception as e:
+        print(f"LỖI không xác định trong get_interactions_for_suggestion: {e}")
+        print(traceback.format_exc())
+        interactions = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+
+    return interactions
+
+# --- AI Persona CRUD Functions ---
+def get_all_personas(page: int = 1, per_page: int = 30) -> tuple[list[dict] | None, int | None]:
+    """
+    Lấy danh sách tất cả các AI personas với phân trang.
+
+    Args:
+        page: Số trang hiện tại.
+        per_page: Số lượng mục mỗi trang.
+
+    Returns:
+        Tuple: (list các persona của trang hiện tại hoặc None nếu lỗi,
+                tổng số persona hoặc None nếu lỗi)
+    """
+    personas = None
+    total_items = None
+    conn = get_db_connection()
+    if not conn: return None, None
+    cur = None
+    try:
+        # Query đếm tổng số personas
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM public.ai_personas;")
+        total_items = cur.fetchone()[0]
+        cur.close()
+
+        # Query lấy dữ liệu cho trang hiện tại
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        offset = (page - 1) * per_page
+        # Lấy các cột cần thiết cho bảng danh sách
+        sql = """
+            SELECT persona_id, name, description, model_name
+            FROM ai_personas
+            ORDER BY name ASC -- Sắp xếp theo tên
+            LIMIT %s OFFSET %s;
+        """
+        cur.execute(sql, (per_page, offset))
+        rows = cur.fetchall()
+        personas = [dict(row) for row in rows] if rows else []
+        print(f"DEBUG (database.py - get_all_personas): Fetched {len(personas)} personas for page {page}.")
+
+    except psycopg2.Error as e:
+        print(f"LỖI khi lấy danh sách personas: {e}")
+        personas = None; total_items = None
+    except Exception as e:
+        print(f"LỖI không xác định khi lấy personas: {e}")
+        personas = None; total_items = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return personas, total_items
+
+def get_persona_details(persona_id: str) -> dict | None:
+    """Lấy chi tiết một AI persona bằng ID."""
+    if not persona_id: return None
+    details = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        cur.execute("""
+            SELECT persona_id, name, description, base_prompt, model_name, generation_config
+            FROM ai_personas WHERE persona_id = %s;
+            """, (persona_id,))
+        row = cur.fetchone()
+        if row:
+            details = dict(row)
+            # Chuyển đổi generation_config từ dict/None sang chuỗi JSON để hiển thị trong textarea nếu cần
+            if details.get('generation_config') is not None:
+                 try:
+                      details['generation_config_str'] = json.dumps(details['generation_config'], indent=2)
+                 except TypeError:
+                      details['generation_config_str'] = str(details['generation_config']) # Fallback nếu không phải JSON hợp lệ
+            else:
+                 details['generation_config_str'] = ''
+    except Exception as e:
+        print(f"LỖI khi lấy chi tiết persona {persona_id}: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return details
+
+def add_new_persona(persona_id: str, name: str, description: str | None, base_prompt: str,
+                    model_name: str | None, generation_config_str: str | None) -> bool:
+    """Thêm một AI persona mới."""
+    if not persona_id or not name or not base_prompt:
+        print("WARNING (add_new_persona): persona_id, name, base_prompt là bắt buộc.")
+        return False
+
+    # Xử lý generation_config từ chuỗi JSON
+    gen_config = None
+    if generation_config_str:
+        try:
+            gen_config = json.loads(generation_config_str) # Chuyển chuỗi JSON thành dict Python
+        except json.JSONDecodeError:
+            print("WARNING (add_new_persona): generation_config không phải là JSON hợp lệ. Sẽ lưu là NULL.")
+            # Hoặc có thể báo lỗi và không cho lưu tùy yêu cầu
+
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = """
+            INSERT INTO ai_personas (persona_id, name, description, base_prompt, model_name, generation_config, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s);
+        """
+        # generation_config có thể là None nếu json.loads thất bại hoặc chuỗi rỗng
+        params = (persona_id, name, description, base_prompt, model_name if model_name else None,
+                  json.dumps(gen_config) if gen_config else None, # Lưu lại dạng JSON string hoặc NULL
+                  datetime.now())
+        cur.execute(sql, params)
+        conn.commit()
+        success = True
+    except psycopg2.IntegrityError as e:
+        print(f"LỖI (add_new_persona): Lỗi ràng buộc CSDL (ID hoặc Name đã tồn tại?): {e}")
+        if conn: conn.rollback()
+    except psycopg2.Error as e:
+        print(f"LỖI (add_new_persona): INSERT thất bại: {e}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (add_new_persona): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def update_persona(persona_id: str, name: str, description: str | None, base_prompt: str,
+                   model_name: str | None, generation_config_str: str | None) -> bool:
+    """Cập nhật một AI persona."""
+    if not persona_id or not name or not base_prompt:
+        print("WARNING (update_persona): persona_id, name, base_prompt là bắt buộc.")
+        return False
+
+    # Xử lý generation_config từ chuỗi JSON
+    gen_config = None
+    if generation_config_str:
+        try:
+            gen_config = json.loads(generation_config_str)
+        except json.JSONDecodeError:
+            print("WARNING (update_persona): generation_config không phải là JSON hợp lệ. Sẽ lưu là NULL.")
+
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = """
+            UPDATE ai_personas
+            SET name = %s, description = %s, base_prompt = %s, model_name = %s, generation_config = %s, updated_at = %s
+            WHERE persona_id = %s;
+        """
+        params = (name, description, base_prompt, model_name if model_name else None,
+                  json.dumps(gen_config) if gen_config else None, # Lưu lại dạng JSON string hoặc NULL
+                  datetime.now(), persona_id)
+        cur.execute(sql, params)
+        conn.commit()
+        success = cur.rowcount > 0 # True nếu có ít nhất 1 dòng được cập nhật
+    except psycopg2.IntegrityError as e:
+        print(f"LỖI (update_persona): Lỗi ràng buộc CSDL (Name đã tồn tại?): {e}")
+        if conn: conn.rollback()
+    except psycopg2.Error as e:
+        print(f"LỖI (update_persona): UPDATE thất bại: {e}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (update_persona): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def delete_persona(persona_id: str) -> bool:
+    """Xóa một AI persona.
+       Lưu ý: Cột default_persona_id trong accounts sẽ tự động thành NULL do FK constraint.
+    """
+    if not persona_id: return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = "DELETE FROM ai_personas WHERE persona_id = %s;"
+        cur.execute(sql, (persona_id,))
+        conn.commit()
+        success = cur.rowcount > 0
+    except psycopg2.Error as e: # Bắt lỗi DB chung
+        print(f"LỖI DB khi xóa persona {persona_id}: {e}")
+        if conn: conn.rollback()
+        # Không cần raise lại nếu muốn route chỉ báo lỗi chung
+    except Exception as e:
+        print(f"LỖI không xác định khi xóa persona {persona_id}: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+# --- Prompt Template CRUD Functions ---
+
+def get_all_prompt_templates(page: int = 1, per_page: int = 30) -> tuple[list[dict] | None, int | None]:
+    """
+    Lấy danh sách tất cả các prompt templates với phân trang.
+
+    Args:
+        page: Số trang hiện tại.
+        per_page: Số lượng mục mỗi trang.
+
+    Returns:
+        Tuple: (list các template của trang hiện tại hoặc None nếu lỗi,
+                tổng số template hoặc None nếu lỗi)
+    """
+    templates = None
+    total_items = None
+    conn = get_db_connection()
+    if not conn: return None, None
+    cur = None
+    try:
+        # Query đếm tổng số prompt templates
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM public.prompt_templates;")
+        total_items = cur.fetchone()[0]
+        cur.close()
+
+        # Query lấy dữ liệu cho trang hiện tại
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        offset = (page - 1) * per_page
+        # Lấy các cột cần thiết cho bảng danh sách
+        sql = """
+            SELECT prompt_template_id, name, task_type, updated_at
+            FROM prompt_templates
+            ORDER BY name ASC -- Sắp xếp theo tên
+            LIMIT %s OFFSET %s;
+        """
+        cur.execute(sql, (per_page, offset))
+        rows = cur.fetchall()
+        templates = [dict(row) for row in rows] if rows else []
+        print(f"DEBUG (database.py - get_all_prompt_templates): Fetched {len(templates)} prompt templates for page {page}.")
+
+    except psycopg2.Error as e:
+        print(f"LỖI khi lấy danh sách prompt templates: {e}")
+        templates = None; total_items = None
+    except Exception as e:
+        print(f"LỖI không xác định khi lấy prompt templates: {e}")
+        templates = None; total_items = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return templates, total_items
+
+def get_prompt_template_details(prompt_template_id: int) -> dict | None:
+    """Lấy chi tiết một prompt template bằng ID."""
+    if not prompt_template_id: return None
+    details = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        cur.execute("""
+            SELECT prompt_template_id, name, task_type, template_content
+            FROM prompt_templates WHERE prompt_template_id = %s;
+            """, (prompt_template_id,))
+        row = cur.fetchone()
+        if row: details = dict(row)
+    except Exception as e:
+        print(f"LỖI khi lấy chi tiết prompt template {prompt_template_id}: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return details
+
+def add_new_prompt_template(name: str, task_type: str, template_content: str) -> bool:
+    """Thêm một prompt template mới."""
+    if not name or not task_type or not template_content:
+        print("WARNING (add_new_prompt_template): name, task_type, template_content là bắt buộc.")
+        return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = """
+            INSERT INTO prompt_templates (name, task_type, template_content, updated_at)
+            VALUES (%s, %s, %s, %s);
+        """
+        params = (name, task_type, template_content, datetime.now())
+        cur.execute(sql, params)
+        conn.commit()
+        success = True
+    except psycopg2.IntegrityError as e:
+        print(f"LỖI (add_new_prompt_template): Lỗi ràng buộc CSDL (Name đã tồn tại?): {e}")
+        if conn: conn.rollback()
+    except psycopg2.Error as e:
+        print(f"LỖI (add_new_prompt_template): INSERT thất bại: {e}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (add_new_prompt_template): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def update_prompt_template(prompt_template_id: int, name: str, task_type: str, template_content: str) -> bool:
+    """Cập nhật một prompt template."""
+    if not prompt_template_id or not name or not task_type or not template_content:
+        print("WARNING (update_prompt_template): id, name, task_type, template_content là bắt buộc.")
+        return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = """
+            UPDATE prompt_templates
+            SET name = %s, task_type = %s, template_content = %s, updated_at = %s
+            WHERE prompt_template_id = %s;
+        """
+        params = (name, task_type, template_content, datetime.now(), prompt_template_id)
+        cur.execute(sql, params)
+        conn.commit()
+        success = cur.rowcount > 0
+    except psycopg2.IntegrityError as e:
+        print(f"LỖI (update_prompt_template): Lỗi ràng buộc CSDL (Name đã tồn tại?): {e}")
+        if conn: conn.rollback()
+    except psycopg2.Error as e:
+        print(f"LỖI (update_prompt_template): UPDATE thất bại: {e}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI (update_prompt_template): Lỗi không xác định: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def delete_prompt_template(prompt_template_id: int) -> bool:
+
+    """Xóa một prompt template."""
+    if not prompt_template_id: return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = "DELETE FROM prompt_templates WHERE prompt_template_id = %s;"
+        cur.execute(sql, (prompt_template_id,))
+        conn.commit()
+        success = cur.rowcount > 0
+    except psycopg2.Error as e: # Hiện tại không có FK rõ ràng trỏ đến bảng này
+        print(f"LỖI DB khi xóa prompt template {prompt_template_id}: {e}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"LỖI không xác định khi xóa prompt template {prompt_template_id}: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+# --- Scheduled Job CRUD Functions ---
+
+def get_all_job_configs() -> list[dict] | None:
+    """Lấy cấu hình của tất cả các scheduled jobs từ DB."""
+    jobs = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        # Lấy các cột cần thiết để hiển thị và quản lý
+        cur.execute("""
+            SELECT job_id, job_function_path, trigger_type, trigger_args, is_enabled, description, updated_at
+            FROM scheduled_jobs ORDER BY job_id;
+        """)
+        rows = cur.fetchall()
+        jobs = [dict(row) for row in rows] if rows else []
+        # Chuyển đổi trigger_args từ JSON (thường là dict) thành chuỗi để hiển thị dễ hơn nếu cần
+        # for job in jobs:
+        #     if job.get('trigger_args'):
+        #         try: job['trigger_args_str'] = json.dumps(job['trigger_args'])
+        #         except TypeError: job['trigger_args_str'] = str(job['trigger_args'])
+        #     else: job['trigger_args_str'] = '{}'
+    except Exception as e:
+        print(f"LỖI khi lấy danh sách job configs: {e}")
+        jobs = None # Trả về None nếu lỗi
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return jobs
+
+def get_job_config_details(job_id: str) -> dict | None:
+    """Lấy chi tiết cấu hình một job bằng job_id."""
+    if not job_id: return None
+    details = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        cur.execute("""
+            SELECT job_id, job_function_path, trigger_type, trigger_args, is_enabled, description
+            FROM scheduled_jobs WHERE job_id = %s;
+            """, (job_id,))
+        row = cur.fetchone()
+        if row:
+            details = dict(row)
+            # Chuyển đổi trigger_args JSON thành chuỗi để dễ sửa trong textarea
+            if details.get('trigger_args') is not None:
+                 try:
+                      details['trigger_args_str'] = json.dumps(details['trigger_args'], indent=2)
+                 except TypeError:
+                      details['trigger_args_str'] = str(details['trigger_args']) # Fallback
+            else:
+                 details['trigger_args_str'] = '{}' # Mặc định là JSON object rỗng
+    except Exception as e:
+        print(f"LỖI khi lấy chi tiết job config {job_id}: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return details
+
+def add_job_config(job_id: str, function_path: str, trigger_type: str, trigger_args_str: str,
+                   is_enabled: bool, description: str | None) -> tuple[bool, str | None]:
+    """Thêm cấu hình job mới vào DB. Trả về (success, error_message)."""
+    if not job_id or not function_path or not trigger_type or not trigger_args_str:
+        return False, "Job ID, Function Path, Trigger Type, và Trigger Args là bắt buộc."
+
+    # Validate và parse JSON cho trigger_args
+    trigger_args_json = None
+    try:
+        trigger_args_dict = json.loads(trigger_args_str)
+        if not isinstance(trigger_args_dict, dict):
+             raise ValueError("Trigger Args phải là một JSON object.")
+        trigger_args_json = json.dumps(trigger_args_dict) # Lưu lại dạng JSON chuẩn
+    except json.JSONDecodeError:
+        return False, "Trigger Args không phải là định dạng JSON hợp lệ."
+    except ValueError as ve:
+         return False, str(ve)
+
+    conn = get_db_connection()
+    if not conn: return False, "Không thể kết nối CSDL."
+    cur = None
+    success = False
+    error_msg = None
+    try:
+        cur = conn.cursor()
+        sql = """
+            INSERT INTO scheduled_jobs
+                (job_id, job_function_path, trigger_type, trigger_args, is_enabled, description, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s);
+        """
+        params = (job_id, function_path, trigger_type, trigger_args_json, is_enabled, description, datetime.now())
+        cur.execute(sql, params)
+        conn.commit()
+        success = True
+    except psycopg2.IntegrityError:
+        error_msg = f"Job ID '{job_id}' đã tồn tại."
+        if conn: conn.rollback()
+    except psycopg2.Error as e:
+        error_msg = f"Lỗi CSDL khi thêm job: {e}"
+        if conn: conn.rollback()
+    except Exception as e:
+        error_msg = f"Lỗi không xác định khi thêm job: {e}"
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success, error_msg
+
+def update_job_config(job_id: str, trigger_type: str, trigger_args_str: str,
+                      is_enabled: bool, description: str | None) -> tuple[bool, str | None]:
+    """Cập nhật cấu hình một job trong DB (không cho sửa function_path). Trả về (success, error_message)."""
+    if not job_id or not trigger_type or not trigger_args_str:
+         return False, "Job ID, Trigger Type, và Trigger Args là bắt buộc."
+
+    # Validate và parse JSON cho trigger_args
+    trigger_args_json = None
+    try:
+        trigger_args_dict = json.loads(trigger_args_str)
+        if not isinstance(trigger_args_dict, dict):
+             raise ValueError("Trigger Args phải là một JSON object.")
+        trigger_args_json = json.dumps(trigger_args_dict)
+    except json.JSONDecodeError:
+        return False, "Trigger Args không phải là định dạng JSON hợp lệ."
+    except ValueError as ve:
+         return False, str(ve)
+
+    conn = get_db_connection()
+    if not conn: return False, "Không thể kết nối CSDL."
+    cur = None
+    success = False
+    error_msg = None
+    try:
+        cur = conn.cursor()
+        sql = """
+            UPDATE scheduled_jobs
+            SET trigger_type = %s, trigger_args = %s, is_enabled = %s, description = %s, updated_at = %s
+            WHERE job_id = %s;
+        """
+        params = (trigger_type, trigger_args_json, is_enabled, description, datetime.now(), job_id)
+        cur.execute(sql, params)
+        conn.commit()
+        success = cur.rowcount > 0 # Kiểm tra xem có update được không
+        if not success:
+             error_msg = f"Không tìm thấy Job ID '{job_id}' để cập nhật."
+    except psycopg2.Error as e:
+        error_msg = f"Lỗi CSDL khi cập nhật job: {e}"
+        if conn: conn.rollback()
+    except Exception as e:
+        error_msg = f"Lỗi không xác định khi cập nhật job: {e}"
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success, error_msg
+
+def delete_job_config(job_id: str) -> tuple[bool, str | None]:
+    """Xóa cấu hình một job khỏi DB. Trả về (success, error_message)."""
+    if not job_id: return False, "Job ID là bắt buộc."
+    conn = get_db_connection()
+    if not conn: return False, "Không thể kết nối CSDL."
+    cur = None
+    success = False
+    error_msg = None
+    try:
+        cur = conn.cursor()
+        sql = "DELETE FROM scheduled_jobs WHERE job_id = %s;"
+        cur.execute(sql, (job_id,))
+        conn.commit()
+        success = cur.rowcount > 0
+        if not success:
+             error_msg = f"Không tìm thấy Job ID '{job_id}' để xóa."
+    except psycopg2.Error as e:
+        error_msg = f"Lỗi CSDL khi xóa job: {e}"
+        if conn: conn.rollback()
+    except Exception as e:
+        error_msg = f"Lỗi không xác định khi xóa job: {e}"
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success, error_msg
+
+# --- Hàm cập nhật trạng thái bật/tắt nhanh ---
+def update_job_enabled_status(job_id: str, is_enabled: bool) -> tuple[bool, str | None]:
+
+    """Cập nhật trạng thái is_enabled cho một job trong DB."""
+    if not job_id: return False, "Job ID là bắt buộc."
+    conn = get_db_connection()
+    if not conn: return False, "Không thể kết nối CSDL."
+    cur = None
+    success = False
+    error_msg = None
+    try:
+        cur = conn.cursor()
+        sql = "UPDATE scheduled_jobs SET is_enabled = %s, updated_at = %s WHERE job_id = %s;"
+        params = (is_enabled, datetime.now(), job_id)
+        cur.execute(sql, params)
+        conn.commit()
+        success = cur.rowcount > 0
+        if not success:
+            error_msg = f"Không tìm thấy Job ID '{job_id}' để cập nhật trạng thái."
+    except psycopg2.Error as e:
+        error_msg = f"Lỗi CSDL khi cập nhật trạng thái job: {e}"
+        if conn: conn.rollback()
+    except Exception as e:
+        error_msg = f"Lỗi không xác định khi cập nhật trạng thái job: {e}"
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success, error_msg
+
+# app/database.py
+# ... (các import hiện có: psycopg2, extras, datetime, os, traceback, json, ...) ...
+
+# --- AI Simulation Config Functions ---
+
+def add_simulation_config(config_name: str, description: str | None,
+                          persona_a_id: str, persona_b_id: str,
+                          log_account_id_a: str, log_account_id_b: str,
+                          strategy_id: str, max_turns: int,
+                          starting_prompt: str | None, simulation_goal: str | None,
+                          is_enabled: bool = True) -> bool:
+    """Thêm một cấu hình mô phỏng mới vào CSDL."""
+    # Kiểm tra các tham số bắt buộc cơ bản
+    if not all([config_name, persona_a_id, persona_b_id, log_account_id_a, log_account_id_b, strategy_id]):
+        print("ERROR (db - add_simulation_config): Missing required parameters.")
+        return False
+
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = """
+            INSERT INTO public.ai_simulation_configs (
+                config_name, description, persona_a_id, persona_b_id,
+                log_account_id_a, log_account_id_b, strategy_id, max_turns,
+                starting_prompt, simulation_goal, is_enabled, created_at, updated_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW());
+        """
+        params = (
+            config_name, description, persona_a_id, persona_b_id,
+            log_account_id_a, log_account_id_b, strategy_id, max_turns,
+            starting_prompt, simulation_goal, is_enabled
+        )
+        cur.execute(sql, params)
+        conn.commit()
+        success = True
+        print(f"DEBUG (db): Added simulation config '{config_name}'.")
+    except psycopg2.IntegrityError as e: # Bắt lỗi UNIQUE cho config_name hoặc lỗi FK
+        print(f"ERROR (db - add_simulation_config): Integrity Error (name exists or FK violation?): {e}")
+        if conn: conn.rollback()
+    except psycopg2.Error as e:
+        print(f"ERROR (db - add_simulation_config): DB Error: {e}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"ERROR (db - add_simulation_config): Unexpected error: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def get_all_simulation_configs(page: int = 1, per_page: int = 20) -> tuple[list[dict] | None, int | None]:
+    """
+    Lấy danh sách tất cả các cấu hình mô phỏng đã lưu với phân trang.
+
+    Args:
+        page: Số trang hiện tại.
+        per_page: Số lượng mục mỗi trang.
+
+    Returns:
+        Tuple: (list các config của trang hiện tại hoặc None nếu lỗi,
+                tổng số config hoặc None nếu lỗi)
+    """
+    configs = None
+    total_items = None
+    conn = get_db_connection()
+    if not conn: return None, None
+    cur = None
+    try:
+        # Query đếm tổng số cấu hình
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM public.ai_simulation_configs;")
+        total_items = cur.fetchone()[0]
+        cur.close()
+
+        # Query lấy dữ liệu cho trang hiện tại
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        offset = (page - 1) * per_page
+        # Lấy các cột cần thiết cho bảng danh sách
+        sql = """
+            SELECT config_id, config_name, description, persona_a_id, persona_b_id,
+                   strategy_id, max_turns, simulation_goal, is_enabled
+            FROM public.ai_simulation_configs
+            ORDER BY config_name ASC -- Sắp xếp theo tên cấu hình
+            LIMIT %s OFFSET %s;
+        """
+        cur.execute(sql, (per_page, offset))
+        rows = cur.fetchall()
+        configs = [dict(row) for row in rows] if rows else []
+        print(f"DEBUG (db - get_all_simulation_configs): Fetched {len(configs)} configs for page {page}.")
+
+    except psycopg2.Error as e:
+        print(f"LỖI khi lấy danh sách sim configs: {e}")
+        configs = None; total_items = None
+    except Exception as e:
+        print(f"LỖI không xác định khi lấy sim configs: {e}")
+        configs = None; total_items = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return configs, total_items
+
+
+def get_simulation_config(config_id: int) -> dict | None:
+    """Lấy chi tiết một cấu hình mô phỏng bằng config_id."""
+    if not config_id: return None
+    config_details = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        # Lấy tất cả các cột để điền form sửa
+        sql = "SELECT * FROM public.ai_simulation_configs WHERE config_id = %s;"
+        cur.execute(sql, (config_id,))
+        row = cur.fetchone()
+        if row:
+            config_details = dict(row)
+    except psycopg2.Error as e:
+        print(f"ERROR (db - get_simulation_config): DB Error for ID {config_id}: {e}")
+    except Exception as e:
+        print(f"ERROR (db - get_simulation_config): Unexpected error for ID {config_id}: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return config_details
+
+def update_simulation_config(config_id: int, config_name: str, description: str | None,
+                             persona_a_id: str, persona_b_id: str,
+                             log_account_id_a: str, log_account_id_b: str,
+                             strategy_id: str, max_turns: int,
+                             starting_prompt: str | None, simulation_goal: str | None,
+                             is_enabled: bool) -> bool:
+    """Cập nhật một cấu hình mô phỏng đã có."""
+    if not all([config_id, config_name, persona_a_id, persona_b_id, log_account_id_a, log_account_id_b, strategy_id]):
+        print("ERROR (db - update_simulation_config): Missing required parameters.")
+        return False
+
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = """
+            UPDATE public.ai_simulation_configs SET
+                config_name = %s, description = %s, persona_a_id = %s, persona_b_id = %s,
+                log_account_id_a = %s, log_account_id_b = %s, strategy_id = %s, max_turns = %s,
+                starting_prompt = %s, simulation_goal = %s, is_enabled = %s, updated_at = NOW()
+            WHERE config_id = %s;
+        """
+        params = (
+            config_name, description, persona_a_id, persona_b_id,
+            log_account_id_a, log_account_id_b, strategy_id, max_turns,
+            starting_prompt, simulation_goal, is_enabled,
+            config_id # ID để xác định dòng cần cập nhật
+        )
+        cur.execute(sql, params)
+        conn.commit()
+        success = cur.rowcount > 0 # True nếu có dòng được cập nhật
+        if success:
+             print(f"DEBUG (db): Updated simulation config ID {config_id}.")
+        else:
+             print(f"WARN (db - update_simulation_config): Config ID {config_id} not found or no changes made.")
+
+    except psycopg2.IntegrityError as e: # Bắt lỗi UNIQUE cho config_name hoặc lỗi FK
+        print(f"ERROR (db - update_simulation_config): Integrity Error for ID {config_id}: {e}")
+        if conn: conn.rollback()
+    except psycopg2.Error as e:
+        print(f"ERROR (db - update_simulation_config): DB Error for ID {config_id}: {e}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"ERROR (db - update_simulation_config): Unexpected error for ID {config_id}: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def delete_simulation_config(config_id: int) -> bool:
+    """Xóa một cấu hình mô phỏng khỏi CSDL."""
+    if not config_id: return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = "DELETE FROM public.ai_simulation_configs WHERE config_id = %s;"
+        cur.execute(sql, (config_id,))
+        conn.commit()
+        success = cur.rowcount > 0 # True nếu có dòng bị xóa
+        if success:
+            print(f"DEBUG (db): Deleted simulation config ID {config_id}.")
+        else:
+            print(f"WARN (db - delete_simulation_config): Config ID {config_id} not found for deletion.")
+    except psycopg2.Error as e: # Bắt lỗi DB chung (FK ít khả năng vì chưa có bảng nào trỏ tới nó)
+        print(f"ERROR (db - delete_simulation_config): DB Error for ID {config_id}: {e}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"ERROR (db - delete_simulation_config): Unexpected error for ID {config_id}: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+# ... (Các hàm database khác) ...
+
+# --- Scheduler Command Functions ---
+
+def add_scheduler_command(command_type: str, payload: dict) -> int | None:
+    """Thêm một lệnh mới vào hàng đợi của scheduler."""
+    command_id = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor()
+        # Chuyển dict payload thành chuỗi JSON để lưu vào cột JSONB
+        payload_json = json.dumps(payload)
+        sql = """
+            INSERT INTO public.scheduler_commands (command_type, payload, status)
+            VALUES (%s, %s, 'pending')
+            RETURNING command_id;
+        """
+        cur.execute(sql, (command_type, payload_json))
+        result = cur.fetchone()
+        if result:
+            command_id = result[0]
+        conn.commit()
+        print(f"DEBUG (db): Added scheduler command type '{command_type}' with ID {command_id}")
+    except psycopg2.Error as db_err:
+        print(f"ERROR (db - add_scheduler_command): INSERT failed: {db_err}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"ERROR (db - add_scheduler_command): Unexpected error: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return command_id
+
+def get_pending_commands(command_type: str, limit: int = 10) -> list[dict] | None:
+    """Lấy danh sách các lệnh đang chờ xử lý (pending)."""
+    commands = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor) # Dùng DictCursor
+        sql = """
+            SELECT command_id, command_type, payload, created_at
+            FROM public.scheduler_commands
+            WHERE status = 'pending' AND command_type = %s
+            ORDER BY created_at ASC -- Xử lý lệnh cũ trước
+            LIMIT %s
+            FOR UPDATE SKIP LOCKED; -- Để tránh nhiều worker lấy cùng lệnh (nếu chạy nhiều instance scheduler)
+        """
+        cur.execute(sql, (command_type, limit))
+        rows = cur.fetchall()
+        commands = [dict(row) for row in rows] if rows else []
+        # Không commit ở đây vì có FOR UPDATE
+    except psycopg2.Error as db_err:
+        print(f"ERROR (db - get_pending_commands): SELECT failed: {db_err}")
+        # Không rollback vì chỉ là SELECT
+    except Exception as e:
+        print(f"ERROR (db - get_pending_commands): Unexpected error: {e}")
+    finally:
+        # QUAN TRỌNG: Connection sẽ được đóng bởi hàm gọi (trong _process_pending_commands) sau khi cập nhật status
+        if cur: cur.close()
+        # if conn: conn.close() # <<< KHÔNG ĐÓNG CONNECTION Ở ĐÂY
+    return commands
+
+def update_command_status(conn, command_id: int, status: str, error_message: str | None = None) -> bool:
+    """Cập nhật trạng thái của một lệnh (Dùng lại connection đã có)."""
+    # Lưu ý: Hàm này nhận connection làm tham số để chạy trong cùng transaction với get_pending_commands
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = """
+            UPDATE public.scheduler_commands
+            SET status = %s, processed_at = CURRENT_TIMESTAMP, error_message = %s
+            WHERE command_id = %s;
+        """
+        cur.execute(sql, (status, error_message, command_id))
+        # Commit sẽ được thực hiện bởi hàm gọi (_process_pending_commands)
+        success = cur.rowcount > 0
+    except psycopg2.Error as db_err:
+        print(f"ERROR (db - update_command_status): UPDATE failed for command {command_id}: {db_err}")
+        # Rollback sẽ do hàm gọi xử lý
+    except Exception as e:
+        print(f"ERROR (db - update_command_status): Unexpected error for command {command_id}: {e}")
+    finally:
+        if cur: cur.close()
+        # Không đóng connection ở đây
+    return success
+
+def get_recent_simulation_commands(
+        status_list: list[str] = None, # Giữ nguyên để có thể lọc nếu cần sau
+        command_type: str = 'run_simulation', # Thêm command_type
+        limit: int = 25 # Tăng limit lên một chút
+    ) -> list[dict] | None:
+    """Lấy các lệnh chạy mô phỏng gần đây theo trạng thái và loại."""
+    # Mặc định lấy các trạng thái này nếu không có status_list được truyền vào
+    if status_list is None:
+        status_list = ['pending', 'processing', 'error', 'done']
+
+    commands = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        sql = """
+            SELECT command_id, command_type, payload, status, created_at, processed_at, error_message
+            FROM public.scheduler_commands
+            WHERE command_type = %s AND status = ANY(%s::varchar[]) -- Lọc theo cả type và status
+            ORDER BY created_at DESC -- Luôn lấy mới nhất trước
+            LIMIT %s;
+        """
+        # FOR UPDATE SKIP LOCKED không cần thiết nếu chỉ lấy các trạng thái cuối cùng
+        cur.execute(sql, (command_type, status_list, limit))
+        rows = cur.fetchall()
+        commands = [dict(row) for row in rows] if rows else []
+        for cmd in commands: # Parse payload
+            try:
+                if isinstance(cmd.get('payload'), str):
+                    cmd['payload'] = json.loads(cmd['payload'])
+            except: cmd['payload'] = {} # Gán rỗng nếu lỗi
+
+    except Exception as e: print(f"ERROR (db - get_recent_commands): {e}"); commands = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return commands
+
+def delete_scheduler_command(command_id: int) -> bool:
+    """Xóa một lệnh cụ thể khỏi bảng scheduler_commands."""
+    if not command_id: return False
+    conn = get_db_connection()
+    if not conn: return False
+    cur = None
+    success = False
+    try:
+        cur = conn.cursor()
+        sql = "DELETE FROM public.scheduler_commands WHERE command_id = %s;"
+        cur.execute(sql, (command_id,))
+        conn.commit()
+        success = cur.rowcount > 0 # True nếu có dòng bị xóa
+        if success:
+            print(f"DEBUG (db): Deleted scheduler command ID {command_id}.")
+        else:
+            print(f"WARN (db - delete_scheduler_command): Command ID {command_id} not found for deletion.")
+    except psycopg2.Error as e:
+        print(f"ERROR (db - delete_scheduler_command): DB Error for ID {command_id}: {e}")
+        if conn: conn.rollback()
+    except Exception as e:
+        print(f"ERROR (db - delete_scheduler_command): Unexpected error for ID {command_id}: {e}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success
+
+def delete_completed_or_errored_commands(command_type: str) -> tuple[bool, int | None, str | None]:
+    """Xóa tất cả các lệnh có trạng thái 'done' hoặc 'error' cho một loại lệnh cụ thể.
+
+    Returns:
+        Tuple: (success: bool, deleted_count: int | None, error_message: str | None)
+    """
+    if not command_type:
+        return False, None, "Command type cannot be empty."
+
+    conn = get_db_connection()
+    if not conn:
+        return False, None, "Cannot connect to database."
+
+    cur = None
+    success = False
+    deleted_count = 0
+    error_msg = None
+    try:
+        cur = conn.cursor()
+        sql = """
+            DELETE FROM public.scheduler_commands
+            WHERE command_type = %s AND status IN ('done', 'error');
+        """
+        cur.execute(sql, (command_type,))
+        deleted_count = cur.rowcount # Số dòng đã bị xóa
+        conn.commit()
+        success = True
+        print(f"DEBUG (db): Deleted {deleted_count} completed/errored '{command_type}' commands.")
+    except psycopg2.Error as e:
+        error_msg = f"DB Error: {e}"
+        print(f"ERROR (db - delete_completed_or_errored_commands): {error_msg}")
+        if conn: conn.rollback()
+    except Exception as e:
+        error_msg = f"Unexpected error: {e}"
+        print(f"ERROR (db - delete_completed_or_errored_commands): {error_msg}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success, deleted_count, error_msg
+
+
+def get_filtered_templates_with_details(
+        filter_ref: str | None = None,
+        filter_category: str | None = None,
+        page: int = 1, # <<< Thêm page
+        per_page: int = 30 # <<< Thêm per_page (hoặc lấy từ config)
+    ) -> tuple[list[dict] | None, int | None]: # <<< Trả về tuple
+    """Lấy danh sách template refs đã lọc với details, variation count, và hỗ trợ phân trang."""
+    templates_data = None
+    total_items = None # <<< Thêm biến tổng số mục
+    conn = get_db_connection()
+    if not conn: return None, None
+    cur = None
+
+    # --- Xây dựng WHERE và params (như cũ) ---
+    where_clauses = []
+    params = []
+    if filter_ref:
+        where_clauses.append("rt.template_ref ILIKE %s")
+        params.append(f"%{filter_ref}%")
+    if filter_category:
+        where_clauses.append("rt.category = %s")
+        params.append(filter_category)
+    where_sql = ""
+    if where_clauses:
+        where_sql = " WHERE " + " AND ".join(where_clauses)
+
+    try:
+        # --- Query 1: Đếm tổng số mục khớp bộ lọc ---
+        cur = conn.cursor()
+        count_sql = f"""
+            SELECT COUNT(*) FROM response_templates rt {where_sql};
+        """
+        print(f"DEBUG SQL (count_templates): {cur.mogrify(count_sql, tuple(params)).decode('utf-8', 'ignore')}")
+        cur.execute(count_sql, tuple(params))
+        total_items = cur.fetchone()[0]
+        cur.close() # Đóng cursor đếm
+
+        # --- Query 2: Lấy dữ liệu cho trang hiện tại ---
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        offset = (page - 1) * per_page
+        data_sql = f"""
+            SELECT
+                rt.template_ref, rt.description, rt.category,
+                COUNT(tv.variation_id) AS variation_count
+            FROM response_templates rt
+            LEFT JOIN template_variations tv ON rt.template_ref = tv.template_ref
+            {where_sql}
+            GROUP BY rt.template_ref, rt.description, rt.category
+            ORDER BY rt.template_ref
+            LIMIT %s OFFSET %s;
+        """
+        data_params = params + [per_page, offset] # Thêm limit/offset vào params
+        print(f"DEBUG SQL (get_templates_page): {cur.mogrify(data_sql, tuple(data_params)).decode('utf-8', 'ignore')}")
+        cur.execute(data_sql, tuple(data_params))
+        rows = cur.fetchall()
+        templates_data = [dict(row) for row in rows] if rows else []
+        print(f"DEBUG (get_filtered_templates): Fetched {len(templates_data)} templates for page {page}.")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (db - get_filtered_templates): Truy vấn thất bại: {db_err}")
+        templates_data = None; total_items = None
+    except Exception as e:
+        print(f"LỖI (db - get_filtered_templates): Lỗi không xác định: {e}")
+        templates_data = None; total_items = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+
+    # Trả về cả danh sách và tổng số
+    return templates_data, total_items
+
+# Có thể bạn cần sửa cả hàm get_all_template_refs_with_details nếu còn dùng
+# Hoặc bỏ nó đi và chỉ dùng hàm filter mới
+def get_all_template_refs_with_details() -> list[dict] | None:
+     """Lấy tất cả templates (không phân trang). Có thể không cần nữa."""
+     print("WARN: get_all_template_refs_with_details is deprecated.")
+     templates, total = get_filtered_templates_with_details(page=1, per_page=10000) # Lấy rất nhiều
+     return templates
+
+
+def get_distinct_rule_categories() -> list[str] | None:
+    """Lấy danh sách category duy nhất từ bảng simple_rules."""
+    categories = None
+    # ... (Tương tự get_distinct_template_categories, nhưng query bảng simple_rules) ...
+    conn = get_db_connection()
+    # ... (Try/Catch/Finally) ...
+    # --- Query ---
+    # SELECT DISTINCT category FROM simple_rules WHERE category IS NOT NULL AND category <> '' ORDER BY category;
+    # --- Xử lý kết quả ---
+    # categories = [row[0] for row in rows] if rows else []
+    # return categories if categories is not None else None
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor()
+        sql = "SELECT DISTINCT category FROM simple_rules WHERE category IS NOT NULL AND category <> '' ORDER BY category;"
+        cur.execute(sql)
+        rows = cur.fetchall()
+        categories = [row[0] for row in rows] if rows else []
+    except Exception as e: print(f"Lỗi lấy distinct rule categories: {e}"); categories = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return categories
+
+def get_distinct_rule_template_refs() -> list[str] | None:
+    """Lấy danh sách template_ref duy nhất từ bảng simple_rules."""
+    refs = None
+    # ... (Tương tự hàm trên, query cột response_template_ref) ...
+    conn = get_db_connection()
+    # ... (Try/Catch/Finally) ...
+     # --- Query ---
+    # SELECT DISTINCT response_template_ref FROM simple_rules ORDER BY response_template_ref;
+    # --- Xử lý kết quả ---
+    # refs = [row[0] for row in rows] if rows else []
+    # return refs if refs is not None else None
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor()
+        sql = "SELECT DISTINCT response_template_ref FROM simple_rules ORDER BY response_template_ref;"
+        cur.execute(sql)
+        rows = cur.fetchall()
+        refs = [row[0] for row in rows] if rows else []
+    except Exception as e: print(f"Lỗi lấy distinct rule template refs: {e}"); refs = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return refs
+
+
+
+
+def get_filtered_rules(filters: dict = None, page: int = 1, per_page: int = 30) -> tuple[list[dict] | None, int | None]:
+    """
+    Lấy danh sách luật đã lọc từ simple_rules với phân trang.
+
+    Args:
+        filters: Dict chứa các bộ lọc ('keywords', 'category', 'template_ref').
+        page: Số trang hiện tại (bắt đầu từ 1).
+        per_page: Số lượng mục mỗi trang.
+
+    Returns:
+        Tuple: (list các luật của trang hiện tại hoặc None nếu lỗi,
+                tổng số luật khớp bộ lọc hoặc None nếu lỗi)
+    """
+    rules_list = None
+    total_items = None
+    conn = get_db_connection()
+    if not conn: return None, None
+    cur = None
+
+    # --- Xây dựng mệnh đề WHERE và params (như cũ) ---
+    where_clauses = []
+    params = []
+    if filters:
+        if filters.get('keywords'):
+            where_clauses.append("trigger_keywords ILIKE %s")
+            params.append(f"%{filters['keywords']}%")
+        if filters.get('category'):
+            where_clauses.append("category = %s")
+            params.append(filters['category'])
+        if filters.get('template_ref'):
+            where_clauses.append("response_template_ref = %s")
+            params.append(filters['template_ref'])
+
+    where_sql = ""
+    if where_clauses:
+        where_sql = "WHERE " + " AND ".join(where_clauses)
+
+    try:
+        # --- Query 1: Đếm tổng số mục khớp bộ lọc ---
+        cur = conn.cursor() # Không cần DictCursor cho COUNT
+        count_sql = f"SELECT COUNT(*) FROM public.simple_rules {where_sql};"
+        # print(f"DEBUG Count SQL (get_filtered_rules): {cur.mogrify(count_sql, tuple(params)).decode('utf-8', 'ignore')}") # Bỏ comment nếu cần debug
+        cur.execute(count_sql, tuple(params))
+        total_items = cur.fetchone()[0]
+        cur.close() # Đóng cursor đếm
+
+        # --- Query 2: Lấy dữ liệu cho trang hiện tại ---
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        offset = (page - 1) * per_page
+        data_sql = f"""
+            SELECT rule_id, trigger_keywords, category, response_template_ref, priority, notes
+            FROM simple_rules
+            {where_sql}
+            ORDER BY rule_id ASC -- Hoặc ORDER BY khác nếu muốn
+            LIMIT %s OFFSET %s;
+        """
+        # Thêm limit và offset vào cuối params list
+        data_params = params + [per_page, offset]
+        # print(f"DEBUG Data SQL (get_filtered_rules): {cur.mogrify(data_sql, tuple(data_params)).decode('utf-8', 'ignore')}")
+        cur.execute(data_sql, tuple(data_params))
+        rows = cur.fetchall()
+        rules_list = [dict(row) for row in rows] if rows else []
+        print(f"DEBUG (get_filtered_rules): Fetched {len(rules_list)} rules for page {page}.")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - get_filtered_rules): Truy vấn thất bại: {db_err}")
+        rules_list = None; total_items = None
+    except Exception as e:
+        print(f"LỖI (database.py - get_filtered_rules): Lỗi không xác định: {e}")
+        rules_list = None; total_items = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+
+    # Trả về cả danh sách và tổng số
+    return rules_list, total_items
+
+def get_command_details(command_id: int) -> dict | None:
+    """Lấy chi tiết một command bằng ID."""
+    if not command_id: return None
+    details = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        sql = """
+            SELECT command_id, command_type, payload, status, created_at, processed_at, error_message
+            FROM public.scheduler_commands WHERE command_id = %s;
+        """
+        cur.execute(sql, (command_id,))
+        row = cur.fetchone()
+        if row:
+            details = dict(row)
+            # Parse payload luôn nếu nó là string
+            if isinstance(details.get('payload'), str):
+                try: details['payload'] = json.loads(details['payload'])
+                except: details['payload'] = {}
+            elif not isinstance(details.get('payload'), dict):
+                 details['payload'] = {} # Đảm bảo payload là dict hoặc rỗng
+
+    except psycopg2.Error as e:
+        print(f"ERROR (db - get_command_details): DB Error for ID {command_id}: {e}")
+    except Exception as e:
+        print(f"ERROR (db - get_command_details): Unexpected error for ID {command_id}: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return details
+
+def get_simulation_conversation(thread_id_pattern: str) -> list[dict] | None:
+    """Lấy các lượt hội thoại từ interaction_history dựa vào thread_id pattern."""
+    if not thread_id_pattern: return None
+    conversation = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        # Lấy các cột cần thiết để hiển thị log chat
+        sql = """
+            SELECT history_id, timestamp, account_id, received_text, sent_text, status, stage_id
+            FROM public.interaction_history
+            WHERE thread_id LIKE %s -- Dùng LIKE để khớp pattern
+            ORDER BY timestamp ASC; -- Sắp xếp theo thời gian tăng dần
+        """
+        # Pattern thường là 'sim_thread_base_%'
+        params = (thread_id_pattern,)
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+        conversation = [dict(row) for row in rows] if rows else []
+    except psycopg2.Error as e:
+        print(f"ERROR (db - get_simulation_conversation): DB Error for pattern {thread_id_pattern}: {e}")
+        conversation = None
+    except Exception as e:
+        print(f"ERROR (db - get_simulation_conversation): Unexpected error for pattern {thread_id_pattern}: {e}")
+        conversation = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return conversation
+
+# Sửa lại hàm get_all_rules để gọi hàm lọc mới (hoặc bỏ hẳn get_all_rules)
+# --- Macro Definition Functions ---
+
+def add_macro_definition(macro_code: str, description: str | None, app_target: str | None, params_schema_str: str | None, notes: str | None) -> tuple[bool, str | None]:
+    """Thêm định nghĩa macro mới vào DB. Trả về (success, error_message)."""
+    if not macro_code: return False, "Macro Code là bắt buộc."
+    params_schema_json = None
+    if params_schema_str and params_schema_str.strip():
+        try:
+            # Validate JSON trước khi lưu
+            params_schema_json = json.dumps(json.loads(params_schema_str))
+        except json.JSONDecodeError:
+            return False, "Params Schema không phải là JSON hợp lệ."
+
+    conn = get_db_connection()
+    if not conn: return False, "Không thể kết nối CSDL."
+    cur = None
+    success = False
+    error_msg = None
+    try:
+        cur = conn.cursor()
+        sql = """
+            INSERT INTO public.macro_definitions
+                (macro_code, description, app_target, params_schema, notes, created_at, updated_at)
+            VALUES (%s, %s, %s, %s::jsonb, %s, NOW(), NOW());
+        """
+        # Chuyển app_target rỗng thành 'system' hoặc None tùy logic
+        app_target_db = app_target if app_target and app_target.strip() else 'system'
+        params = (macro_code, description, app_target_db, params_schema_json, notes)
+        cur.execute(sql, params)
+        conn.commit()
+        success = True
+    except psycopg2.IntegrityError:
+        error_msg = f"Macro Code '{macro_code}' đã tồn tại."
+        if conn: conn.rollback()
+    except psycopg2.Error as e:
+        error_msg = f"Lỗi CSDL: {e}"
+        if conn: conn.rollback()
+    except Exception as e:
+        error_msg = f"Lỗi không xác định: {e}"
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success, error_msg
+
+def get_macro_definition(macro_code: str) -> dict | None:
+    """Lấy chi tiết một định nghĩa macro."""
+    if not macro_code: return None
+    details = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        sql = """
+            SELECT macro_code, description, app_target, params_schema, notes, created_at, updated_at
+            FROM public.macro_definitions WHERE macro_code = %s;
+        """
+        cur.execute(sql, (macro_code,))
+        row = cur.fetchone()
+        if row:
+            details = dict(row)
+            # Chuyển schema dict thành chuỗi JSON format đẹp để hiển thị trong form
+            if details.get('params_schema') is not None:
+                try: details['params_schema_str'] = json.dumps(details['params_schema'], indent=2, ensure_ascii=False)
+                except: details['params_schema_str'] = str(details['params_schema'])
+            else: details['params_schema_str'] = '' # Hoặc '{}' nếu muốn default là object rỗng
+    except Exception as e: print(f"ERROR (db - get_macro_definition) Code {macro_code}: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return details
+
+
+def get_all_macro_definitions( # Thêm tham số filters và phân trang
+    filters: dict = None,
+    page: int = 1,
+    per_page: int = 30 # Định nghĩa số lượng mặc định mỗi trang
+    ) -> tuple[list[dict] | None, int | None]:
+    """
+    Lấy danh sách định nghĩa macro đã lọc và phân trang.
+    Trả về: (list các macro của trang, tổng số macro khớp filter)
+    """
+    macros_list = None
+    total_items = None
+    conn = get_db_connection()
+    if not conn: return None, None
+    cur = None
+
+    # --- Xây dựng mệnh đề WHERE và params cho filter ---
+    where_clauses = []
+    params = []
+    if filters:
+        if filters.get('macro_code'):
+            where_clauses.append("macro_code ILIKE %s") # Tìm kiếm không phân biệt hoa thường
+            params.append(f"%{filters['macro_code']}%")
+        if filters.get('description'):
+            where_clauses.append("description ILIKE %s")
+            params.append(f"%{filters['description']}%")
+        if filters.get('app_target'):
+            # Xử lý 'all' hoặc target cụ thể
+            app_filter = filters['app_target']
+            if app_filter != '__all__': # '__all__' nghĩa là không lọc theo target
+                 targets_to_filter = [app_filter]
+                 if app_filter not in ['system', 'generic']: # Nếu là app cụ thể, thêm cả system/generic
+                     targets_to_filter.extend(['system', 'generic'])
+
+                 target_conditions = []
+                 valid_targets_in_params = []
+                 for target in targets_to_filter:
+                     if target is None: target_conditions.append("app_target IS NULL")
+                     elif target == '': target_conditions.append("app_target = ''")
+                     else:
+                          target_conditions.append("app_target = %s")
+                          valid_targets_in_params.append(target)
+                 if target_conditions:
+                     where_clauses.append(f"({ ' OR '.join(target_conditions) })")
+                     params.extend(valid_targets_in_params)
+
+
+    where_sql = ""
+    if where_clauses:
+        where_sql = "WHERE " + " AND ".join(where_clauses)
+
+    try:
+        # --- Query 1: Đếm tổng số mục khớp bộ lọc ---
+        cur = conn.cursor()
+        count_sql = f"SELECT COUNT(*) FROM public.macro_definitions {where_sql};"
+        # print(f"DEBUG Count SQL (macros): {cur.mogrify(count_sql, tuple(params)).decode('utf-8', 'ignore')}") # Bỏ comment để debug
+        cur.execute(count_sql, tuple(params))
+        total_items = cur.fetchone()[0]
+        cur.close() # Đóng cursor đếm
+
+        # --- Query 2: Lấy dữ liệu cho trang hiện tại ---
+        macros_list = [] # Khởi tạo list rỗng
+        if total_items > 0:
+            cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+            offset = (page - 1) * per_page
+            data_sql = f"""
+                SELECT macro_code, description, app_target, notes
+                FROM public.macro_definitions
+                {where_sql}
+                ORDER BY app_target, macro_code -- Sắp xếp nhất quán
+                LIMIT %s OFFSET %s;
+            """
+            # Thêm limit và offset vào cuối list params
+            data_params = params + [per_page, offset]
+            # print(f"DEBUG Data SQL (macros): {cur.mogrify(data_sql, tuple(data_params)).decode('utf-8', 'ignore')}") # Bỏ comment để debug
+            cur.execute(data_sql, tuple(data_params))
+            rows = cur.fetchall()
+            macros_list = [dict(row) for row in rows] if rows else []
+            # print(f"DEBUG (get_all_macros): Fetched {len(macros_list)} macros for page {page}.") # Bỏ comment để debug
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - get_all_macro_definitions): Truy vấn thất bại: {db_err}")
+        traceback.print_exc()
+        macros_list = None; total_items = None
+    except Exception as e:
+        print(f"LỖI (database.py - get_all_macro_definitions): Lỗi không xác định: {e}")
+        traceback.print_exc()
+        macros_list = None; total_items = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+
+    # Trả về cả danh sách và tổng số
+    return macros_list, total_items
+
+def update_macro_definition(macro_code: str, description: str | None, app_target: str | None, params_schema_str: str | None, notes: str | None) -> tuple[bool, str | None]:
+    """Cập nhật định nghĩa macro. Trả về (success, error_message)."""
+    if not macro_code: return False, "Macro Code là bắt buộc."
+    params_schema_json = None
+    # Chỉ parse và lưu nếu params_schema_str được cung cấp và không rỗng
+    if params_schema_str and params_schema_str.strip():
+        try:
+            params_schema_json = json.dumps(json.loads(params_schema_str))
+        except json.JSONDecodeError:
+            return False, "Params Schema không phải là JSON hợp lệ."
+    # Nếu params_schema_str rỗng hoặc chỉ chứa khoảng trắng, ta muốn lưu NULL vào DB
+    elif params_schema_str is not None and not params_schema_str.strip():
+         params_schema_json = None # Lưu NULL nếu người dùng xóa trắng textarea
+
+    conn = get_db_connection()
+    if not conn: return False, "Không thể kết nối CSDL."
+    cur = None
+    success = False
+    error_msg = None
+    try:
+        cur = conn.cursor()
+        sql = """
+            UPDATE public.macro_definitions SET
+                description = %s, app_target = %s, params_schema = %s::jsonb, notes = %s, updated_at = NOW()
+            WHERE macro_code = %s;
+        """
+        app_target_db = app_target if app_target and app_target.strip() else 'system'
+        params = (description, app_target_db, params_schema_json, notes, macro_code)
+        cur.execute(sql, params)
+        conn.commit()
+        success = cur.rowcount > 0
+        if not success:
+            error_msg = f"Không tìm thấy Macro Code '{macro_code}' để cập nhật."
+    except psycopg2.Error as e:
+        error_msg = f"Lỗi CSDL: {e}"
+        if conn: conn.rollback()
+    except Exception as e:
+        error_msg = f"Lỗi không xác định: {e}"
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success, error_msg
+
+def delete_macro_definition(macro_code: str) -> tuple[bool, str | None]:
+    """Xóa định nghĩa macro. Trả về (success, error_message)."""
+    if not macro_code: return False, "Macro Code là bắt buộc."
+    conn = get_db_connection()
+    if not conn: return False, "Không thể kết nối CSDL."
+    cur = None
+    success = False
+    error_msg = None
+    try:
+        cur = conn.cursor()
+        # KIỂM TRA RÀNG BUỘC (QUAN TRỌNG)
+        check_sql = """
+            SELECT 1 FROM stage_transitions
+            WHERE (action_to_suggest ->> 'macro_code') = %s LIMIT 1;
+        """
+        cur.execute(check_sql, (macro_code,))
+        if cur.fetchone():
+            return False, f"Không thể xóa Macro Code '{macro_code}' vì đang được sử dụng trong ít nhất một Transition."
+
+        # Nếu không có ràng buộc, tiến hành xóa
+        delete_sql = "DELETE FROM public.macro_definitions WHERE macro_code = %s;"
+        cur.execute(delete_sql, (macro_code,))
+        conn.commit()
+        success = cur.rowcount > 0
+        if not success:
+            error_msg = f"Không tìm thấy Macro Code '{macro_code}' để xóa."
+    except psycopg2.Error as e:
+        error_msg = f"Lỗi CSDL: {e}"
+        if conn: conn.rollback()
+    except Exception as e:
+        error_msg = f"Lỗi không xác định: {e}"
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success, error_msg
+
+# --- SỬA LẠI các hàm add/update/get transition ---
+# app/database.py
+import psycopg2
+import psycopg2.extras
+import json
+import traceback
+from datetime import datetime # Đảm bảo import datetime và các thành phần cần thiết khác
+# Giả sử bạn đã có hàm get_db_connection() ở đâu đó trong file này
+
+# --- Hàm Thêm Transition Mới ---
+def add_new_transition(current_stage_id: str, user_intent: str,
+                       next_stage_id: str | None, priority: int = 0,
+                       action_macro_code: str | None = None,
+                       action_params_str: str | None = None,
+                       condition_type: str | None = None,
+                       condition_value: str | None = None
+                       ) -> tuple[bool, str | None]:
+    """Thêm transition mới với action dạng macro và điều kiện."""
+    if not current_stage_id or not user_intent:
+        return False, "Current Stage và User Intent là bắt buộc."
+
+    action_json_for_db = None # Sẽ là None hoặc dict
+    # Chỉ xử lý action nếu có macro_code được cung cấp
+    if action_macro_code and action_macro_code.strip():
+        params_dict = {}
+        # Chỉ parse params nếu chuỗi params được cung cấp và không rỗng/chỉ chứa khoảng trắng
+        if action_params_str and action_params_str.strip():
+            try:
+                params_dict = json.loads(action_params_str)
+                if not isinstance(params_dict, dict):
+                     # Đảm bảo params luôn là object JSON
+                     raise json.JSONDecodeError("Params phải là một JSON object.", action_params_str, 0)
+            except json.JSONDecodeError:
+                return False, "Action Params không phải là định dạng JSON object hợp lệ."
+        # Tạo dict để lưu vào DB
+        action_json_for_db = {"macro_code": action_macro_code.strip(), "params": params_dict}
+
+    conn = get_db_connection()
+    if not conn:
+        return False, "Không thể kết nối CSDL."
+    cur = None
+    success = False
+    error_msg = None
+    try:
+        cur = conn.cursor()
+        sql = """
+            INSERT INTO stage_transitions (current_stage_id, user_intent, condition_type, condition_value,
+                                           next_stage_id, priority, action_to_suggest)
+            VALUES (%s, %s, %s, %s, %s, %s, %s); -- Không cần ép kiểu ::jsonb nếu cột đã là jsonb
+        """
+        params = (
+            current_stage_id,
+            user_intent,
+            condition_type if condition_type and condition_type.strip() else None, # Lưu NULL nếu trống
+            condition_value if condition_value and condition_value.strip() else None, # Lưu NULL nếu trống
+            next_stage_id if next_stage_id and next_stage_id.strip() else None,
+            priority,
+            # Truyền dict hoặc None, psycopg2 xử lý JSONB (nếu dùng version mới)
+            # Nếu dùng version cũ hoặc để chắc chắn, dùng json.dumps()
+            json.dumps(action_json_for_db) if action_json_for_db else None
+        )
+        cur.execute(sql, params)
+        conn.commit()
+        success = True
+    except psycopg2.Error as e:
+        error_msg = f"Lỗi CSDL: {e}"
+        print(f"ERROR (db - add_new_transition): {error_msg}\n{traceback.format_exc()}")
+        if conn: conn.rollback()
+    except Exception as e:
+        error_msg = f"Lỗi không xác định: {e}"
+        print(f"ERROR (db - add_new_transition): {error_msg}\n{traceback.format_exc()}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success, error_msg
+
+# --- Hàm Cập nhật Transition ---
+def update_transition(transition_id: int, current_stage_id: str, user_intent: str,
+                      next_stage_id: str | None, priority: int,
+                      action_macro_code: str | None = None,
+                      action_params_str: str | None = None,
+                      condition_type: str | None = None,
+                      condition_value: str | None = None
+                      ) -> tuple[bool, str | None]:
+    """Cập nhật transition với action dạng macro và điều kiện."""
+    if not transition_id or not current_stage_id or not user_intent:
+        return False, "ID, Current Stage và User Intent là bắt buộc."
+
+    action_json_for_db = None
+    if action_macro_code and action_macro_code.strip():
+        params_dict = {}
+        if action_params_str and action_params_str.strip():
+            try:
+                params_dict = json.loads(action_params_str)
+                if not isinstance(params_dict, dict):
+                    raise json.JSONDecodeError("Params phải là một JSON object.", action_params_str, 0)
+            except json.JSONDecodeError:
+                return False, "Action Params không phải là định dạng JSON object hợp lệ."
+        action_json_for_db = {"macro_code": action_macro_code.strip(), "params": params_dict}
+
+    conn = get_db_connection()
+    if not conn:
+        return False, "Không thể kết nối CSDL."
+    cur = None
+    success = False
+    error_msg = None
+    try:
+        cur = conn.cursor()
+        sql = """
+            UPDATE stage_transitions
+            SET current_stage_id = %s, user_intent = %s, condition_type = %s, condition_value = %s,
+                next_stage_id = %s, priority = %s, action_to_suggest = %s, updated_at = NOW() -- Thêm updated_at
+            WHERE transition_id = %s;
+        """
+        params = (
+            current_stage_id,
+            user_intent,
+            condition_type if condition_type and condition_type.strip() else None,
+            condition_value if condition_value and condition_value.strip() else None,
+            next_stage_id if next_stage_id and next_stage_id.strip() else None,
+            priority,
+            json.dumps(action_json_for_db) if action_json_for_db else None, # Truyền dict hoặc None
+            transition_id
+        )
+        cur.execute(sql, params)
+        conn.commit()
+        success = cur.rowcount > 0
+        if not success:
+            error_msg = f"Không tìm thấy Transition ID {transition_id} để cập nhật."
+    except psycopg2.Error as e:
+        error_msg = f"Lỗi CSDL: {e}"
+        print(f"ERROR (db - update_transition): {error_msg}\n{traceback.format_exc()}")
+        if conn: conn.rollback()
+    except Exception as e:
+        error_msg = f"Lỗi không xác định: {e}"
+        print(f"ERROR (db - update_transition): {error_msg}\n{traceback.format_exc()}")
+        if conn: conn.rollback()
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return success, error_msg
+
+# --- Hàm Lấy Chi tiết Transition ---
+def get_transition_details(transition_id: int) -> dict | None:
+    """Lấy chi tiết transition, bao gồm điều kiện và chuẩn bị action_params_str cho form."""
+    if not transition_id: return None
+    details = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        # Lấy tất cả các cột cần thiết, bao gồm cả các cột mới
+        sql = """
+            SELECT t.transition_id, t.current_stage_id, t.user_intent, t.condition_type, t.condition_value,
+                   t.next_stage_id, t.action_to_suggest, t.priority, t.updated_at, -- Thêm updated_at nếu có
+                   ss.strategy_id
+            FROM stage_transitions t
+            LEFT JOIN strategy_stages ss ON t.current_stage_id = ss.stage_id -- Dùng LEFT JOIN phòng khi stage bị xóa
+            WHERE t.transition_id = %s;
+        """
+        cur.execute(sql, (transition_id,))
+        row = cur.fetchone()
+        if row:
+            details = dict(row)
+            # Xử lý action_to_suggest (là dict Python do JSONB)
+            action_data = details.get('action_to_suggest') # Lấy dict từ DB
+            details['action_macro_code'] = None
+            details['action_params_str'] = '{}' # Default là chuỗi JSON rỗng
+            if isinstance(action_data, dict):
+                 details['action_macro_code'] = action_data.get('macro_code')
+                 params_dict = action_data.get('params', {}) # Lấy params dict
+                 try:
+                     # Format đẹp chuỗi JSON cho textarea trong form Edit
+                     details['action_params_str'] = json.dumps(params_dict, indent=2, ensure_ascii=False)
+                 except TypeError:
+                     # Fallback nếu params không serialize được (ít xảy ra với dict đơn giản)
+                     details['action_params_str'] = json.dumps({}) # Trả về {} rỗng
+
+            # Các trường condition_type, condition_value đã có sẵn trong 'details'
+    except psycopg2.Error as e:
+        print(f"LỖI (database.py - get_transition_details): Truy vấn thất bại: {e}")
+        print(traceback.format_exc())
+    except Exception as e:
+        print(f"LỖI (database.py - get_transition_details): Lỗi không xác định: {e}")
+        print(traceback.format_exc())
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return details
+
+# --- Hàm Lấy Chuỗi Hành động Thô cho Strategy ---
+def get_strategy_action_sequence(strategy_id: str) -> list[dict] | None:
+    """
+    Lấy danh sách các transition thô (bao gồm điều kiện, action) cho một strategy.
+    Hàm compile_strategy_package sẽ xử lý list này để tạo action_sequence cuối cùng.
+    """
+    if not strategy_id: return None
+    transitions_list = None
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        print(f"DEBUG (database.py): Truy vấn transitions thô cho strategy_id='{strategy_id}'...")
+        # Lấy tất cả các cột cần thiết từ transitions, JOIN với stages để lọc theo strategy_id
+        sql = """
+             SELECT
+                 t.transition_id, t.current_stage_id, t.user_intent, t.condition_type, t.condition_value,
+                 t.next_stage_id, t.action_to_suggest, t.priority -- Lấy action_to_suggest dưới dạng JSONB (dict)
+             FROM stage_transitions t
+             JOIN strategy_stages ss ON t.current_stage_id = ss.stage_id
+             WHERE ss.strategy_id = %s
+             -- Sắp xếp để hàm compile có thể xử lý logic ưu tiên hoặc thứ tự nếu cần
+             ORDER BY t.current_stage_id, t.priority DESC, t.user_intent;
+         """
+        cur.execute(sql, (strategy_id,))
+        rows = cur.fetchall()
+        # Trả về list các dict transition thô, mỗi dict chứa đầy đủ thông tin
+        transitions_list = [dict(row) for row in rows] if rows else []
+        print(f"DEBUG: Found {len(transitions_list)} raw transitions for strategy {strategy_id}")
+
+    except psycopg2.Error as db_err:
+        print(f"LỖI (database.py - get_strategy_action_sequence): Truy vấn thất bại: {db_err}")
+        print(traceback.format_exc())
+        transitions_list = None
+    except Exception as e:
+        print(f"LỖI (database.py - get_strategy_action_sequence): Lỗi không xác định: {e}")
+        print(traceback.format_exc())
+        transitions_list = None
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return transitions_list # Trả về list các transition dict thô
+
+
+def get_strategy_version(strategy_id: str) -> str | None:
+    """Lấy phiên bản hiện tại của chiến lược."""
+    # ... (Giữ nguyên code đã cung cấp ở lần trước) ...
+    conn = get_db_connection()
+    if not conn: return None
+    cur = None
+    version = None
+    try:
+        cur = conn.cursor()
+        # Lấy max updated_at từ strategy, stages, transitions liên quan
+        sql = """
+            SELECT MAX(last_update)
+            FROM (
+                SELECT updated_at AS last_update FROM strategies WHERE strategy_id = %s
+                UNION ALL
+                SELECT updated_at FROM strategy_stages WHERE strategy_id = %s AND updated_at IS NOT NULL
+                UNION ALL
+                SELECT t.updated_at FROM stage_transitions t JOIN strategy_stages s ON t.current_stage_id = s.stage_id WHERE s.strategy_id = %s AND t.updated_at IS NOT NULL
+            ) AS all_updates;
+            -- Cần đảm bảo các bảng có cột updated_at và được cập nhật đúng
+        """
+        # Note: Cần đảm bảo bảng transitions cũng có cột updated_at được cập nhật khi sửa
+        # Nếu không có cột updated_at ở transitions, query cần sửa lại
+        cur.execute(sql, (strategy_id, strategy_id, strategy_id))
+        row = cur.fetchone()
+        if row and row[0]:
+            version = row[0].isoformat()
+        else: # Fallback nếu không có updated_at
+             version = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    except Exception as e: print(f"Error getting strategy version: {e}")
+    finally:
+        if cur: cur.close()
+        if conn: conn.close()
+    return version or datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def log_phone_action(session_id, timestamp, macro_code, params_json, execution_status, execution_error=None, current_stage=None, received_state_json=None):
+     """Ghi log một hành động được thực thi bởi điện thoại."""
+     conn = get_db_connection()
+     if not conn: return False
+     cur = None
+     success = False
+     try:
+          cur = conn.cursor()
+          # Cần tạo bảng phone_action_log với các cột phù hợp
+          # Giả sử bảng có cột: session_id, timestamp, macro_code, params_json, status, error_msg, current_stage, ui_state_json
+          sql = """
+               INSERT INTO public.phone_action_log
+               (session_id, "timestamp", macro_code, params_json, execution_status, execution_error, current_stage, received_state_json)
+               VALUES (%s, %s, %s, %s::jsonb, %s, %s, %s, %s::jsonb);
+          """
+          ts_obj = timestamp
+          if isinstance(timestamp, str): # Chuyển đổi nếu timestamp là string ISO
+              try: ts_obj = datetime.datetime.fromisoformat(timestamp.replace('Z', '+00:00')) # Xử lý Z timezone
+              except: ts_obj = datetime.datetime.now(datetime.timezone.utc)
+          elif timestamp is None:
+              ts_obj = datetime.datetime.now(datetime.timezone.utc)
+
+          params_json_str = json.dumps(params_json) if params_json else None
+          state_json_str = json.dumps(received_state_json) if received_state_json else None
+
+          params = (
+               session_id, ts_obj, macro_code, params_json_str, execution_status,
+               execution_error, current_stage, state_json_str
+          )
+          cur.execute(sql, params)
+          conn.commit()
+          success = True
+     except psycopg2.Error as e: print(f"ERROR logging phone action: {e}"); conn.rollback()
+     except Exception as e: print(f"ERROR logging phone action: {e}"); conn.rollback()
+     finally:
+          if cur: cur.close()
+          if conn: conn.close()
+     return success
+
+

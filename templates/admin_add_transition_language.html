@@ -1,0 +1,65 @@
+{# templates/admin_add_transition_language.html #}
+{% extends "admin_base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<form method="POST">
+    <input type="hidden" name="strategy_id" value="{{ strategy_id }}">
+
+    <label for="current_stage_id">Current Stage (bắt buộc):</label><br>
+    <select name="current_stage_id" id="current_stage_id" required>
+        <option value="">-- Chọn Stage --</option>
+        {% for stage in strategy_stages %}
+        <option value="{{ stage.stage_id }}" {% if current_stage_id_prefill==stage.stage_id or (current_data and
+            current_data.current_stage_id==stage.stage_id) %}selected{% endif %}>
+            {{ stage.stage_id }} {{ ('('+stage.description[:30]+'...)') if stage.description else '' }}
+        </option>
+        {% endfor %}
+    </select><br><br>
+
+    <label for="user_intent">User Intent (bắt buộc):</label><br>
+    <select name="user_intent" id="user_intent" required>
+        <option value="">-- Chọn Intent --</option>
+        {% for intent in valid_intents %}
+        <option value="{{ intent }}" {% if current_data and current_data.user_intent==intent %}selected{% endif %}>{{
+            intent }}</option>
+        {% endfor %}
+    </select>
+    <small>(Chọn 'any' nếu áp dụng cho mọi intent)</small>
+    <br><br>
+
+    <label for="next_stage_id">Next Stage (tùy chọn):</label><br>
+    <select name="next_stage_id" id="next_stage_id">
+        <option value="">-- Không chuyển Stage --</option>
+        {% for stage in all_stages %}
+        <option value="{{ stage.stage_id }}" {% if current_data and current_data.next_stage_id==stage.stage_id
+            %}selected{% endif %}>
+            {{ stage.stage_id }} {{ ('('+stage.description[:30]+'...)') if stage.description else '' }}
+        </option>
+        {% endfor %}
+    </select><br><br>
+
+    {# <<< CHỈ GIỮ LẠI RESPONSE TEMPLATE REF>>> #}
+        <label for="response_template_ref">Response Template (tùy chọn):</label><br>
+        <select name="response_template_ref" id="response_template_ref">
+            <option value="">-- Không dùng Template / Dùng AI --</option>
+            {% for tpl in all_templates %}
+            <option value="{{ tpl.template_ref }}" {% if current_data and
+                current_data.response_template_ref==tpl.template_ref %}selected{% endif %}>
+                {{ tpl.template_ref }}
+            </option>
+            {% endfor %}
+        </select>
+        <small><a href="{{ url_for('admin.view_templates') }}" target="_blank">(Quản lý Templates)</a></small>
+        <br><br>
+
+        <label for="priority">Priority (Ưu tiên, số cao ưu tiên hơn, mặc định 0):</label><br>
+        <input type="number" id="priority" name="priority"
+            value="{{ current_data.priority if current_data else 0 }}"><br><br>
+
+        <button type="submit">Thêm Language Transition</button>
+        <a href="{{ url_for('admin.view_strategy_stages_language', strategy_id=strategy_id) }}">Hủy</a>
+</form>
+{% endblock %}
+{# Style và Script có thể kế thừa từ base hoặc control #}
+{% block styles %}{{ super() }}{% endblock %}
+{% block scripts %}{{ super() }}{% endblock %}
