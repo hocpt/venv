@@ -1,0 +1,323 @@
+{# templates/admin_api_docs_list.html #}
+{% extends "admin_base.html" %}
+{% from "_pagination_helper.html" import render_pagination %}
+{% from "_flash_messages.html" import render_flash_messages %}
+
+{% block title %}{{ title or "Tài liệu API Client" }}{% endblock %}
+
+{% block styles %}
+{{ super() }}
+<style>
+    /* Style cho bảng danh sách và modal */
+    .table th,
+    .table td {
+        vertical-align: middle;
+    }
+
+    .table code {
+        font-size: 0.85em;
+    }
+
+    .table .actions-cell {
+        white-space: nowrap;
+        width: 1%;
+    }
+
+    /* Giữ nút trên 1 hàng nếu đủ chỗ */
+    .modal-body h4 {
+        font-size: 1.1rem;
+        margin-top: 1.25rem;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+        color: #0d6efd;
+    }
+
+    .modal-body pre {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        padding: 0.75rem;
+        border-radius: 0.25rem;
+        font-size: 0.85em;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        margin-top: 0.25rem;
+        margin-bottom: 1rem;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .modal-body code {
+        color: #d63384;
+        background: none;
+        padding: 0;
+    }
+
+    .modal-body table {
+        margin-bottom: 1rem;
+        font-size: 0.9em;
+    }
+
+    .modal-body table th {
+        background-color: #f8f9fa;
+        width: 25%;
+    }
+
+    .modal-body table th,
+    .modal-body table td {
+        padding: 0.4rem;
+        vertical-align: top;
+    }
+
+    /* Badge màu cho method */
+    .badge.bg-post {
+        background-color: #198754 !important;
+    }
+
+    .badge.bg-get {
+        background-color: #0d6efd !important;
+    }
+
+    .badge.bg-put {
+        background-color: #ffc107 !important;
+        color: #000 !important;
+    }
+
+    .badge.bg-delete {
+        background-color: #dc3545 !important;
+    }
+
+    .badge.bg-patch {
+        background-color: #6f42c1 !important;
+    }
+
+    .param-required {
+        color: #dc3545;
+        font-weight: bold;
+        margin-left: 5px;
+    }
+
+    .param-optional {
+        color: #6c757d;
+        margin-left: 5px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4"> {# Sử dụng container-fluid từ base #}
+    <h1 class="mt-4 mb-3">{{ title or "Tài liệu API Client" }}</h1>
+
+    <div class="d-flex justify-content-end mb-3">
+        {# Link đến route thêm mới (sẽ tạo sau) #}
+        <a href="{{ url_for('admin.add_api_doc') }}" class="btn btn-success btn-sm">
+            <i class="fas fa-plus me-1"></i> Thêm API Doc Mới
+        </a>
+    </div>
+
+    {{ render_flash_messages() }} {# Hiển thị flash messages #}
+
+    <div class="card shadow-sm">
+        <div class="card-header">
+            <i class="fas fa-book-open me-1"></i> Danh sách API Endpoints
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm table-striped table-hover table-bordered align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            {# Chỉ hiển thị các cột ngắn gọn #}
+                            <th style="width: 30%;">Endpoint Path</th>
+                            <th style="width: 10%;" class="text-center">Method</th>
+                            <th style="width: 35%;">Mô tả ngắn gọn (Summary)</th>
+                            <th style="width: 10%;" class="text-nowrap">Cập nhật</th>
+                            <th style="width: 15%;" class="text-center">Hành động</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if api_docs %} {# api_docs là list từ route #}
+                        {% for doc in api_docs %}
+                        <tr>
+                            <td><code>{{ doc.endpoint_path }}</code></td>
+                            <td class="text-center">
+                                {# Badge màu cho method #}
+                                {% set method_lower = doc.http_method | lower %}
+                                {% set badge_class = 'bg-secondary' %}
+                                {% if method_lower == 'post' %} {% set badge_class = 'bg-post' %}
+                                {% elif method_lower == 'get' %} {% set badge_class = 'bg-get' %}
+                                {% elif method_lower == 'put' %} {% set badge_class = 'bg-put' %}
+                                {% elif method_lower == 'delete' %} {% set badge_class = 'bg-delete' %}
+                                {% elif method_lower == 'patch' %} {% set badge_class = 'bg-patch' %}
+                                {% endif %}
+                                <span class="badge rounded-pill {{ badge_class }}">{{ doc.http_method | upper }}</span>
+                            </td>
+                            <td>{{ doc.summary | default('') }}</td>
+                            <td class="text-nowrap small">{{ doc.updated_at.strftime('%d/%m/%Y %H:%M') if doc.updated_at
+                                else '--' }}</td>
+                            <td class="text-center">
+                                <div class="btn-group btn-group-sm" role="group">
+                                    {# === Nút Xem Chi Tiết === #}
+                                    <button type="button" class="btn btn-outline-info view-details-btn"
+                                        data-bs-toggle="modal" data-bs-target="#apiDocDetailModal"
+                                        data-doc-id="{{ doc.doc_id }}" {# <<< Lưu ID của doc #}
+                                        title="Xem Chi tiết API {{ doc.endpoint_path }}">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                    {# === Nút Sửa === #}
+                                    <a href="{{ url_for('admin.edit_api_doc', doc_id=doc.doc_id) }}"
+                                        class="btn btn-outline-primary" title="Sửa Tài liệu API">
+                                        <i class="fas fa-edit"></i>
+                                    </a>
+                                    {# === Nút Xóa === #}
+                                    <form action="{{ url_for('admin.delete_api_doc', doc_id=doc.doc_id) }}"
+                                        method="POST" class="d-inline"
+                                        onsubmit="return confirm('Bạn chắc chắn muốn xóa tài liệu cho endpoint \'{{ doc.endpoint_path }}\'?');">
+                                        <button type="submit" class="btn btn-outline-danger" title="Xóa Tài liệu API">
+                                            <i class="fas fa-trash-alt"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr>
+                            <td colspan="5" class="text-center text-muted fst-italic py-3">Chưa có tài liệu API nào được
+                                thêm vào.</td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div> {# End card-body #}
+
+        {# Pagination Footer #}
+        {% if pagination and pagination.total_pages > 1 %}
+        <div class="card-footer d-flex justify-content-center">
+            {# Gọi macro phân trang, endpoint là 'admin.view_api_documentation' #}
+            {{ render_pagination(pagination, 'admin.view_api_documentation', request.args.to_dict()) }}
+        </div>
+        {% endif %}
+    </div> {# End Card #}
+
+    {# ================== MODAL CHUNG ĐỂ HIỂN THỊ CHI TIẾT API ================== #}
+    <div class="modal fade" id="apiDocDetailModal" tabindex="-1" aria-labelledby="apiDocDetailModalLabel"
+        aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable"> {# Dùng modal lớn và cho phép cuộn #}
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="apiDocDetailModalLabel">Chi tiết API</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    {# Nội dung chi tiết sẽ được JavaScript điền vào đây #}
+                    <div id="modal-api-details-content">
+                        <p class="placeholder-glow"><span class="placeholder col-10"></span></p> {# Placeholder #}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {# ================== KẾT THÚC MODAL ================== #}
+
+</div> {# End container-fluid #}
+{% endblock %} {# Kết thúc block content #}
+
+{% block scripts %}
+{{ super() }} {# Giữ lại script từ base #}
+
+{# --- Nhúng dữ liệu chi tiết vào trang để JS sử dụng --- #}
+<script>
+    // Chuyển list các dictionary chi tiết (phải được truyền từ route với tên all_docs_details) thành JSON
+    // Biến này chứa TẤT CẢ thông tin của các API docs trên trang hiện tại
+    const all_api_docs_details = {{ all_docs_details | tojson | safe if all_docs_details else '[]' }};
+</script>
+
+{# --- JavaScript cho Modal --- #}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const apiDocDetailModalEl = document.getElementById('apiDocDetailModal');
+        if (apiDocDetailModalEl) {
+            const modalTitleEl = apiDocDetailModalEl.querySelector('.modal-title');
+            const modalBodyContentEl = apiDocDetailModalEl.querySelector('#modal-api-details-content');
+
+            // Lắng nghe sự kiện click trên các nút có class 'view-details-btn'
+            document.body.addEventListener('click', function (event) {
+                const button = event.target.closest('.view-details-btn'); // Tìm nút cha gần nhất
+                if (button) {
+                    event.preventDefault(); // Ngăn hành vi mặc định nếu nút là link
+                    const docId = button.getAttribute('data-doc-id'); // Lấy ID từ nút
+
+                    console.debug("Button clicked, docId:", docId); // Debug
+
+                    // Tìm dữ liệu chi tiết trong biến JavaScript đã nhúng
+                    // So sánh ID dạng số hoặc chuỗi tùy thuộc vào kiểu dữ liệu trong DB và JS
+                    const details = all_api_docs_details.find(doc => String(doc.doc_id) === String(docId));
+
+                    console.debug("Found details:", details); // Debug
+
+                    if (modalTitleEl) {
+                        modalTitleEl.textContent = details ? `Chi tiết API: ${details.endpoint_path}` : 'Không tìm thấy chi tiết';
+                    }
+
+                    if (modalBodyContentEl && details) {
+                        // Xây dựng nội dung HTML cho modal body
+                        let modalHTML = `
+                        <p><strong>Method:</strong> <span class="badge bg-<span class="math-inline">\{details\.http\_method\.toLowerCase\(\)\}"\></span>{details.http_method.toUpperCase()}</span></p>
+                        <p><strong>Endpoint:</strong> <code><span class="math-inline">\{details\.endpoint\_path \|\| 'N/A'\}</code\></p\>
+<h4>Mô tả chi tiết</h4>
+<p>{details.description || '<em>(Không có)</em>'}</p>
+`;
+
+                        if (details.request_notes || details.request_example) {
+                            modalHTML += `<h4>Yêu cầu (Request)</h4>`;
+                            if (details.request_notes) modalHTML += `<p>${escapeHtml(details.request_notes)}</p>`;
+                            if (details.request_example) modalHTML += `<strong>Ví dụ:</strong><pre><code>${escapeHtml(details.request_example)}</code></pre>`;
+                        }
+
+                        if (details.response_notes || details.success_response_example || details.error_response_example) {
+                            modalHTML += `<h4>Phản hồi (Response)</h4>`;
+                            if (details.response_notes) modalHTML += `<p>${escapeHtml(details.response_notes)}</p>`;
+                            if (details.success_response_example) modalHTML += `<strong>Ví dụ thành công:</strong><pre><code>${escapeHtml(details.success_response_example)}</code></pre>`;
+                            if (details.error_response_example) modalHTML += `<strong>Ví dụ lỗi:</strong><pre><code>${escapeHtml(details.error_response_example)}</code></pre>`;
+                        }
+
+                        if (details.notes) {
+                            modalHTML += `<h4>Ghi chú thêm</h4><p>${escapeHtml(details.notes)}</p>`;
+                        }
+
+                        modalBodyContentEl.innerHTML = modalHTML; // Đưa HTML vào modal
+
+                    } else if (modalBodyContentEl) {
+                        modalBodyContentEl.innerHTML = '<p class="text-danger">Lỗi: Không tìm thấy dữ liệu chi tiết cho ID này.</p>';
+                        console.error('Details not found in preloaded data for doc_id:', docId);
+                    }
+                }
+            });
+
+            // Reset modal khi đóng
+            apiDocDetailModalEl.addEventListener('hidden.bs.modal', function () {
+                if (modalBodyContentEl) { modalBodyContentEl.innerHTML = '<p class="placeholder-glow"><span class="placeholder col-10"></span></p>'; }
+                if (modalTitleEl) { modalTitleEl.textContent = 'Chi tiết API'; }
+            });
+
+        } else {
+            console.warn("Modal with ID 'apiDocDetailModal' not found.");
+        }
+
+        // Hàm escape HTML cơ bản
+        function escapeHtml(unsafe) {
+            if (unsafe === null || unsafe === undefined) return '';
+            return unsafe
+                .toString()
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+    });
+</script>
+{% endblock %}

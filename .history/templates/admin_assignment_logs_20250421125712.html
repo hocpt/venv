@@ -1,0 +1,140 @@
+{# templates/admin_assignment_logs.html #}
+{% extends "admin_base.html" %}
+{% from "_pagination_helper.html" import render_pagination %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        <h1>{{ title }}</h1>
+        {# Nút quay lại trang danh sách assignments #}
+        <a href="{{ url_for('admin.view_task_assignments') }}" class="button button-secondary">
+            <i class="fas fa-arrow-left mr-1"></i> Quay lại Danh sách Assignments
+        </a>
+    </div>
+
+    {# --- Hiển thị thông tin Assignment gốc --- #}
+    {% if assignment %}
+    <fieldset class="mb-4">
+        <legend>Thông tin Assignment</legend>
+        <div class="details-grid">
+            <div><strong>Assignment ID:</strong></div>
+            <div>{{ assignment.assignment_id }}</div>
+            <div><strong>Thiết bị:</strong></div>
+            <div>{{ assignment.device_name or assignment.device_id }}</div>
+            <div><strong>Tài khoản:</strong></div>
+            <div>{{ assignment.account_username or assignment.account_id }} ({{ assignment.account_platform }})</div>
+            <div><strong>Chiến lược:</strong></div>
+            <div>{{ assignment.strategy_name or assignment.strategy_id }}</div>
+            <div><strong>Trạng thái:</strong></div>
+            <div><span class="status-badge status-{{ assignment.status | lower }}">{{ assignment.status }}</span></div>
+            {# Thêm các thông tin khác nếu muốn: Priority, Target... #}
+        </div>
+    </fieldset>
+    {% endif %}
+
+    {# --- Bảng hiển thị Logs --- #}
+    <fieldset>
+        <legend>Log Chi tiết Hành động</legend>
+        {% if logs %}
+        <div class="table-responsive">
+            <table class="data-table stylish-table log-table"> {# Thêm class log-table #}
+                <thead>
+                    <tr>
+                        <th scope="col">Timestamp</th>
+                        <th scope="col">Stage</th>
+                        <th scope="col">Macro Code</th>
+                        <th scope="col">Params</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Error</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr class="log-status-{{ log.execution_status | lower }}"> {# Thêm class theo status log #}
+                        <td style="vertical-align: middle; white-space: nowrap;">{{ log.timestamp.strftime('%Y-%m-%d
+                            %H:%M:%S') if log.timestamp else 'N/A' }}</td>
+                        <td style="vertical-align: middle;">{{ log.current_stage or '--' }}</td>
+                        <td style="vertical-align: middle;"><code>{{ log.action_macro_code or '--' }}</code></td>
+                        <td style="vertical-align: middle;">
+                            {# Hiển thị JSON params, có thể rút gọn #}
+                            {% if log.params_json %}
+                            <pre class="json-preview"
+                                title="{{ log.params_json | tojson(indent=2) }}">{{ log.params_json | tojson | truncate(80, True) }}</pre>
+                            {% else %}
+                            ---
+                            {% endif %}
+                        </td>
+                        <td style="vertical-align: middle;">
+                            <span class="status-badge status-{{ log.execution_status | lower }}">
+                                {{ log.execution_status or 'Unknown' }}
+                            </span>
+                        </td>
+                        <td style="vertical-align: middle;">
+                            {% if log.execution_error %}
+                            <span class="error-text" title="{{ log.execution_error }}">
+                                {{ log.execution_error | truncate(100, True) }}
+                            </span>
+                            {% else %}
+                            ---
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {# --- Phân trang cho Log --- #}
+        <div class="pagination-container mt-3">
+            {# Gọi macro phân trang, endpoint là 'admin.view_assignment_logs' #}
+            {# Cần truyền assignment_id vào url_params để giữ đúng assignment khi chuyển trang #}
+            {{ render_pagination(pagination, 'admin.view_assignment_logs', {'assignment_id': assignment.assignment_id})
+            }}
+        </div>
+
+        {% else %}
+        <div class="alert alert-info">Không có log nào được ghi lại cho assignment này.</div>
+        {% endif %}
+    </fieldset>
+</div> {# End container #}
+{% endblock %}
+
+{% block styles %}
+{{ super() }}
+{# Kế thừa các style chung và thêm style riêng cho log #}
+<style>
+    /* ... (Copy các style .container, .page-header, fieldset, legend, .details-grid, .button, .status-badge, .stylish-table, .table-responsive, .pagination..., .alert, .error-text từ các template trước) ... */
+    .log-table td pre.json-preview {
+        font-size: 0.8em;
+        padding: 3px 5px;
+        background-color: #f1f1f1;
+        border: 1px solid #ddd;
+        border-radius: 3px;
+        white-space: pre-wrap;
+        word-break: break-all;
+        max-height: 60px;
+        /* Giới hạn chiều cao */
+        overflow-y: auto;
+        /* Thêm thanh cuộn nếu dài */
+        margin: 0;
+        cursor: help;
+        /* Gợi ý có thể xem full khi hover */
+    }
+
+    .log-table .error-text {
+        font-size: 0.85em;
+        color: #dc3545;
+    }
+
+    /* Thêm màu nền cho các dòng log theo status */
+    .log-status-error {
+        background-color: rgba(220, 53, 69, 0.05);
+    }
+
+    .log-status-skipped {
+        background-color: rgba(108, 117, 125, 0.05);
+    }
+</style>
+{% endblock %}

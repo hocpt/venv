@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="vi"> {# Đặt ngôn ngữ là tiếng Việt #}
+
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <meta name="description" content="HPT Automation Admin Dashboard" />
+    <meta name="author" content="HPT" />
+    {# Tiêu đề trang - Các template con có thể ghi đè bằng block title #}
+    <title>{% block title %}HPT Admin{% endblock %}</title>
+
+    {# --- CSS Includes --- #}
+    {# Bootstrap 5 CSS (CDN) #}
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-9ndCyUaIbzAi2FUVXJi0CjmCapSmO7SnpJef0486qhLnuZ2cdeRhO02iuK6FUUVM" crossorigin="anonymous">
+
+    {# Font Awesome 6 CSS (CDN) - Cho các icons #}
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+        integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg=="
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+    {# Custom CSS của bạn (nếu có) #}
+    <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet" />
+
+    {# Block cho CSS tùy chỉnh của từng trang con (nếu cần) #}
+    {% block head_extra %}{% endblock %}
+
+    <style>
+        /* Thêm style nhỏ để sidebar không bị quá rộng trên màn hình lớn và cuộn được */
+        #layoutSidenav_nav {
+            flex-basis: 225px;
+            /* Hoặc giá trị khác bạn muốn */
+            flex-shrink: 0;
+        }
+
+        .sb-sidenav-menu {
+            overflow-y: auto;
+            /* Cho phép cuộn sidebar nếu menu dài */
+        }
+
+        /* Style cho JSON preview trong log/params */
+        .log-json-preview {
+            font-size: 0.8em;
+            max-height: 150px;
+            /* Giới hạn chiều cao ban đầu */
+            overflow-y: auto;
+            background-color: #f8f9fa;
+            /* Nền nhạt */
+            padding: 5px;
+            border: 1px solid #dee2e6;
+            border-radius: 0.25rem;
+            white-space: pre-wrap;
+            /* Cho phép xuống dòng */
+            word-break: break-all;
+            /* Ngắt từ nếu quá dài */
+        }
+
+        details>summary {
+            cursor: pointer;
+            font-size: 0.9em;
+            color: #0d6efd;
+            /* Màu link */
+        }
+    </style>
+</head>
+
+<body class="sb-nav-fixed"> {# sb-nav-fixed giữ navbar trên cùng khi cuộn #}
+
+    {# ==================== Navbar Trên Cùng ==================== #}
+    <nav class="sb-topnav navbar navbar-expand navbar-dark bg-dark">
+        <a class="navbar-brand ps-3" href="{{ url_for('admin.admin_index') }}">HPT Automation</a> {# Link về trang chủ
+        admin #}
+        <button class="btn btn-link btn-sm order-1 order-lg-0 me-4 me-lg-0" id="sidebarToggle" href="#!"
+            title="Toggle Navigation">
+            <i class="fas fa-bars"></i>
+        </button>
+        <form class="d-none d-md-inline-block form-inline ms-auto me-0 me-md-3 my-2 my-md-0">
+            {# <div class="input-group">
+                <input class="form-control" type="text" placeholder="Tìm kiếm..." aria-label="Tìm kiếm..."
+                    aria-describedby="btnNavbarSearch" />
+                <button class="btn btn-primary" id="btnNavbarSearch" type="button"><i
+                        class="fas fa-search"></i></button>
+            </div> #}
+        </form>
+        <ul class="navbar-nav ms-auto ms-md-0 me-3 me-lg-4">
+            <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" id="navbarDropdown" href="#" role="button" data-bs-toggle="dropdown"
+                    aria-expanded="false"><i class="fas fa-user fa-fw"></i></a>
+                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
+                    <li><a class="dropdown-item" href="#!">Settings (Chưa làm)</a></li>
+                    <li><a class="dropdown-item" href="#!">Activity Log (Chưa làm)</a></li>
+                    <li>
+                        <hr class="dropdown-divider" />
+                    </li>
+                    <li><a class="dropdown-item" href="#!">Logout (Chưa làm)</a></li>
+                </ul>
+            </li>
+        </ul>
+    </nav> {# Kết thúc Navbar #}
+
+    {# ==================== Layout Chính (Sidebar + Content) ==================== #}
+    <div id="layoutSidenav">
+        {# -------------------- Sidebar Bên Trái -------------------- #}
+        <div id="layoutSidenav_nav">
+            <nav class="sb-sidenav accordion sb-sidenav-dark" id="sidenavAccordion">
+                <div class="sb-sidenav-menu">
+                    <div class="nav">
+                        {# === Core Management === #}
+                        <div class="sb-sidenav-menu-heading">Core</div>
+                        <a class="nav-link {% if request.endpoint == 'admin.admin_index' %}active{% endif %}"
+                            href="{{ url_for('admin.admin_index') }}">
+                            <div class="sb-nav-link-icon"><i class="fas fa-tachometer-alt"></i></div>
+                            Dashboard
+                        </a>
+                        <a class="nav-link {% if request.endpoint.startswith('admin.view_accounts') or request.endpoint.startswith('admin.edit_account') %}active{% endif %}"
+                            href="{{ url_for('admin.view_accounts') }}">
+                            <div class="sb-nav-link-icon"><i class="fas fa-users"></i></div>
+                            Tài khoản
+                        </a>
+                        <a class="nav-link {% if request.endpoint.startswith('admin.view_devices') or request.endpoint.startswith('admin.edit_device') or request.endpoint.startswith('admin.view_device_detail') %}active{% endif %}"
+                            href="{{ url_for('admin.view_devices') }}">
+                            <div class="sb-nav-link-icon"><i class="fas fa-mobile-alt"></i></div>
+                            Thiết bị
+                        </a>
+                        <a class="nav-link {% if request.endpoint.startswith('admin.view_macro_definitions') %}active{% endif %}"
+                            href="{{ url_for('admin.view_macro_definitions') }}">
+                            <div class="sb-nav-link-icon"><i class="fas fa-cogs"></i></div>
+                            Định nghĩa Macro
+                        </a>
+                        <a class="nav-link {% if request.endpoint.startswith('admin.view_api_keys') %}active{% endif %}"
+                            href="{{ url_for('admin.view_api_keys') }}">
+                            <div class="sb-nav-link-icon"><i class="fas fa-key"></i></div>
+                            API Keys
+                        </a>
+
+                        {# === Control Automation === #}
+                        <div class="sb-sidenav-menu-heading">Control Automation</div>
+                        <a class="nav-link {% if request.endpoint.startswith('admin.view_strategies_control') or request.endpoint.startswith('admin.edit_strategy') and 'control' in request.url %}active{% endif %}"
+                            href="{{ url_for('admin.view_strategies_control') }}">
+                            <div class="sb-nav-link-icon"><i class="fas fa-project-diagram"></i></div>
+                            Control Strategies
+                        </a>
+                        {# Có thể thêm link quản lý Stages/Transitions chung hoặc lồng vào Strategy #}
+                        <a class="nav-link {% if request.endpoint.startswith('admin.view_task_assignments') or request.endpoint.startswith('admin.edit_task_assignment') or request.endpoint.startswith('admin.view_assignment_logs') %}active{% endif %}"
+                            href="{{ url_for('admin.view_task_assignments') }}">
+                            <div class="sb-nav-link-icon"><i class="fas fa-tasks"></i></div>
+                            Giao việc (Tasks)
+                        </a>
+                        <a class="nav-link {% if request.endpoint == 'admin.view_all_action_logs' %}active{% endif %}"
+                            href="{{ url_for('admin.view_all_action_logs') }}"> {# Giả sử có route này #}
+                            <div class="sb-nav-link-icon"><i class="fas fa-clipboard-list"></i></div>
+                            Phone Action Logs
+                        </a>
+
+
+                        {# === Language Automation === #}
+                        <div class="sb-sidenav-menu-heading">Language Automation</div>
+                        <a class="nav-link {% if request.endpoint.startswith('admin.view_strategies_language') or request.endpoint.startswith('admin.edit_strategy') and 'language' in request.url %}active{% endif %}"
+                            href="{{ url_for('admin.view_strategies_language') }}">
+                            <div class="sb-nav-link-icon"><i class="fas fa-language"></i></div>
+                            Language Strategies
+                        </a>
+                        <a class="nav-link {% if request.endpoint.startswith('admin.view_templates') %}active{% endif %}"
+                            href="{{ url_for('admin.view_templates') }}">
+                            <div class="sb-nav-link-icon"><i class="fas fa-file-alt"></i></div>
+                            Response Templates
+                        </a>
+                        <a class="nav-link {% if request.endpoint.startswith('admin.view_rules') %}active{% endif %}"
+                            href="{{ url_for('admin.view_rules') }}">
+                            <div class="sb-nav-link-icon"><i class="fas fa-ruler-combined"></i></div>
+                            Simple Rules
+                        </a>
+                        <a class="nav-link {% if request.endpoint.startswith('admin.view_personas') %}active{% endif %}"
+                            href="{{ url_for('admin.view_personas') }}">
+                            <div class="sb-nav-link-icon"><i class="fas fa-user-astronaut"></i></div>
+                            AI Personas
+                        </a>
+                        <a class="nav-link {% if request.endpoint.startswith('admin.view_prompt_templates') %}active{% endif %}"
+                            href="{{ url_for('admin.view_prompt_templates') }}">
+                            <div class="sb-nav-link-icon"><i class="fas fa-align-left"></i></div>
+                            Prompt Templates
+                        </a>
+                        <a class="nav-link {% if request.endpoint == 'admin.view_history' %}active{% endif %}"
+                            href="{{ url_for('admin.view_history') }}">
+                            <div class="sb-nav-link-icon"><i class="fas fa-history"></i></div>
+                            Lịch sử Tương tác
+                        </a>
+                        <a class="nav-link {% if request.endpoint == 'admin.view_suggestions' %}active{% endif %}"
+                            href="{{ url_for('admin.view_suggestions') }}">
+                            <div class="sb-nav-link-icon"><i class="fas fa-lightbulb"></i></div>
+                            AI Suggestions
+                        </a>
+                        <a class="nav-link {% if request.endpoint == 'admin.ai_playground' %}active{% endif %}"
+                            href="{{ url_for('admin.ai_playground') }}">
+                            <div class="sb-nav-link-icon"><i class="fas fa-flask"></i></div>
+                            AI Playground
+                        </a>
+                        <a class="nav-link {% if request.endpoint.startswith('admin.view_ai_simulations') %}active{% endif %}"
+                            href="{{ url_for('admin.view_ai_simulations') }}">
+                            <div class="sb-nav-link-icon"><i class="fas fa-comments"></i></div>
+                            AI Simulations
+                        </a>
+
+                        {# === System & Settings === #}
+                        <div class="sb-sidenav-menu-heading">System</div>
+                        <a class="nav-link {% if request.endpoint.startswith('admin.view_scheduled_jobs') %}active{% endif %}"
+                            href="{{ url_for('admin.view_scheduled_jobs') }}">
+                            <div class="sb-nav-link-icon"><i class="fas fa-clock"></i></div>
+                            Scheduled Jobs
+                        </a>
+                        {# <a class="nav-link" href="#">
+                            <div class="sb-nav-link-icon"><i class="fas fa-cog"></i></div>
+                            Settings (Chưa làm)
+                        </a> #}
+
+                    </div> {# Kết thúc div.nav #}
+                </div> {# Kết thúc div.sb-sidenav-menu #}
+                <div class="sb-sidenav-footer">
+                    <div class="small">Logged in as:</div>
+                    Admin User (Demo) {# Thay bằng thông tin user thật sau này #}
+                </div>
+            </nav>
+        </div> {# Kết thúc Sidebar #}
+
+        {# -------------------- Khu vực Nội dung Chính -------------------- #}
+        <div id="layoutSidenav_content">
+            <main>
+                <div class="container-fluid px-4"> {# Container cho nội dung chính #}
+
+                    {# === VỊ TRÍ HIỂN THỊ FLASH MESSAGES === #}
+                    {% include '_flash_messages.html' %}
+
+                    {# === NỘI DUNG CỦA TRANG CON SẼ VÀO ĐÂY === #}
+                    {% block content %}
+                    {# Nội dung mặc định nếu trang con không định nghĩa block content #}
+                    <h1 class="mt-4">Welcome</h1>
+                    <p>Select an option from the sidebar.</p>
+                    {% endblock %}
+
+                </div> {# Kết thúc container-fluid #}
+            </main>
+
+            {# -------------------- Footer -------------------- #}
+            <footer class="py-4 bg-light mt-auto">
+                <div class="container-fluid px-4">
+                    <div class="d-flex align-items-center justify-content-between small">
+                        <div class="text-muted">Copyright &copy; HPT Automation 2025</div>
+                        <div>
+                            {# <a href="#">Privacy Policy</a>
+                            &middot;
+                            <a href="#">Terms &amp; Conditions</a> #}
+                        </div>
+                    </div>
+                </div>
+            </footer>
+        </div> {# Kết thúc layoutSidenav_content #}
+    </div> {# Kết thúc layoutSidenav #}
+
+    {# ==================== JavaScript Includes ==================== #}
+    {# Bootstrap 5 Bundle (bao gồm Popper) (CDN) - Đặt ở cuối body #}
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-geWF76RCwLtnZ8qwWowPQNguL3RmwHVBC9FhGdlKrxdiJJigb/j/68SIy3Te4Bkz"
+        crossorigin="anonymous"></script>
+
+    {# Script tùy chỉnh cho template (nếu dùng template sb-admin gốc thì cần file này) #}
+    {# Bạn có thể tạo file static/scripts.js hoặc bỏ dòng này nếu không cần #}
+    {#
+    <script src="{{ url_for('static', filename='scripts.js') }}"></script> #}
+
+    {# Block cho JavaScript tùy chỉnh của từng trang con #}
+    {% block scripts %}{% endblock %}
+
+    {# Script đơn giản để bật/tắt sidebar (nếu không dùng file scripts.js riêng) #}
+    <script>
+        window.addEventListener('DOMContentLoaded', event => {
+            // Toggle the side navigation
+            const sidebarToggle = document.body.querySelector('#sidebarToggle');
+            if (sidebarToggle) {
+                // Uncomment Below to persist sidebar toggle between refreshes
+                // if (localStorage.getItem('sb|sidebar-toggle') === 'true') {
+                //     document.body.classList.toggle('sb-sidenav-toggled');
+                // }
+                sidebarToggle.addEventListener('click', event => {
+                    event.preventDefault();
+                    document.body.classList.toggle('sb-sidenav-toggled');
+                    // localStorage.setItem('sb|sidebar-toggle', document.body.classList.contains('sb-sidenav-toggled'));
+                });
+            }
+        });
+    </script>
+
+</body>
+
+</html>

@@ -1,0 +1,414 @@
+{# templates/admin_api_documentation.html #}
+{% extends "admin_base.html" %} {# Kế thừa từ layout admin chung #}
+
+{# Đặt tiêu đề cho trang #}
+{% block title %}{{ title or "Tài liệu API Client" }}{% endblock %}
+
+{# Thêm CSS tùy chỉnh cho trang tài liệu nếu cần #}
+{% block styles %}
+{{ super() }} {# Kế thừa style từ base #}
+<style>
+    /* Style cho các khối code và ví dụ JSON */
+    pre {
+        background-color: #f8f9fa;
+        /* Nền xám nhạt */
+        border: 1px solid #dee2e6;
+        /* Viền xám */
+        padding: 1rem;
+        border-radius: 0.25rem;
+        font-size: 0.875em;
+        /* Cỡ chữ nhỏ hơn chút */
+        white-space: pre-wrap;
+        /* Giữ xuống dòng */
+        word-wrap: break-word;
+        /* Tự ngắt từ dài */
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    code {
+        /* Định dạng code inline */
+        color: #d63384;
+        /* Màu hồng giống Bootstrap */
+        word-wrap: break-word;
+        background-color: rgba(214, 51, 132, 0.05);
+        /* Nền nhẹ */
+        padding: 0.1em 0.3em;
+        border-radius: 0.2em;
+    }
+
+    pre code {
+        /* Bỏ style riêng của code khi nằm trong pre */
+        color: inherit;
+        background-color: transparent;
+        padding: 0;
+        border-radius: 0;
+    }
+
+    .endpoint-section {
+        margin-bottom: 2.5rem;
+        /* Tăng khoảng cách giữa các API */
+        padding-bottom: 1.5rem;
+        border-bottom: 1px solid #eee;
+        /* Ngăn cách rõ hơn */
+    }
+
+    .endpoint-section:last-child {
+        border-bottom: none;
+        /* Bỏ đường kẻ của mục cuối */
+        margin-bottom: 1rem;
+    }
+
+    .endpoint-section h2 {
+        margin-bottom: 1rem;
+        color: #0d6efd;
+        /* Màu xanh dương cho tiêu đề API */
+    }
+
+    .endpoint-section h3 {
+        margin-top: 1.5rem;
+        margin-bottom: 0.75rem;
+        font-size: 1.2rem;
+        /* Cỡ chữ nhỏ hơn h2 */
+        border-bottom: 1px solid #f0f0f0;
+        padding-bottom: 0.25rem;
+        font-weight: 600;
+        /* Đậm hơn */
+    }
+
+    /* Sử dụng class của Bootstrap 5 cho badge */
+    .badge.bg-post {
+        background-color: #198754 !important;
+    }
+
+    /* Green */
+    .badge.bg-get {
+        background-color: #0d6efd !important;
+    }
+
+    /* Blue */
+    /* Đánh dấu tham số bắt buộc/tùy chọn */
+    .param-required {
+        color: #dc3545;
+        font-weight: bold;
+        margin-left: 5px;
+    }
+
+    .param-optional {
+        color: #6c757d;
+        margin-left: 5px;
+    }
+
+    ul li {
+        margin-bottom: 0.3rem;
+    }
+
+    /* Khoảng cách các list item */
+</style>
+{% endblock %}
+
+{# Nội dung chính của trang tài liệu #}
+{% block content %}
+<h1 class="mt-4 mb-4">{{ title or "Tài liệu API cho Client" }}</h1>
+
+<p class="lead">Trang này mô tả chi tiết các API endpoints mà Client (Điện thoại / MacroDroid) cần sử dụng để tương tác
+    với Server.</p>
+<p>Vui lòng đảm bảo Client gửi đúng Method, URL, Headers và cấu trúc Request Body/Payload như mô tả.</p>
+
+{# ======================================================= #}
+{# === API 1: Lấy Nhiệm vụ / Chiến lược (/phone/get_strategy) === #}
+{# ======================================================= #}
+<section class="endpoint-section">
+    <h2>1. Lấy Nhiệm vụ / Chiến lược</h2>
+    <p>Client gọi API này để kiểm tra và nhận nhiệm vụ mới (nếu có) được giao cho cặp Device/Account đang hoạt động.
+        Server sẽ trả về gói JSON chứa toàn bộ chiến lược đã biên dịch.</p>
+
+    <p>
+        <strong>Method:</strong> <span class="badge bg-post">POST</span> <br>
+        <strong>URL Endpoint:</strong> <code>/phone/get_strategy</code> <br>
+        <strong>Header yêu cầu:</strong> <code>Content-Type: application/json</code>
+    </p>
+
+    <h3>Request Body (JSON)</h3>
+    <p>Client cần gửi một JSON object chứa các thông tin sau:</p>
+    <ul>
+        <li><code>device_id</code> (String<span class="param-required">*</span>): ID duy nhất của thiết bị đang gọi API
+            (phải khớp với ID trong bảng `devices`).</li>
+        <li><code>account_id</code> (String<span class="param-required">*</span>): ID của tài khoản ứng dụng mà client
+            đang muốn chạy nhiệm vụ (phải khớp với ID trong bảng `accounts` và đã được liên kết với `device_id` trong
+            `device_accounts`).</li>
+    </ul>
+    <strong>Ví dụ Request Body:</strong>
+    <pre><code class="language-json">{
+  "device_id": "test_device_001",
+  "account_id": "tiktok_test_1"
+}</code></pre>
+
+    <h3>Success Response (HTTP 200 OK)</h3>
+    <p>Có 2 trường hợp thành công:</p>
+    <strong>Trường hợp 1: Có nhiệm vụ mới được giao</strong>
+    <p>Server trả về một JSON object lớn chứa "Gói Chiến lược" (Strategy Package). Client cần parse gói này để thực thi.
+        Cấu trúc chính bao gồm:</p>
+    <ul>
+        <li><code>metadata</code>: Chứa thông tin như `assignment_id` (ID nhiệm vụ này, **Client phải lưu lại để dùng
+            khi report**), `strategy_id`, `strategy_name`, `strategy_version`...</li>
+        <li><code>execution_config</code>: Chứa cấu hình thực thi như `initial_stage_id` (stage bắt đầu),
+            `default_wait_ms`...</li>
+        <li><code>account_context</code>: Chứa `target_data` (mục tiêu/tham số riêng cho nhiệm vụ này, ví dụ:
+            `{"target_count": 100}`).</li>
+        <li><code>stages_recognition</code>: Dictionary chứa các quy tắc để Client nhận diện các stages (`{"stage_id":
+            {"rules": [...]}}`).</li>
+        <li><code>action_sequence</code>: Mảng (list) chứa các bước (steps) cần thực thi. Mỗi step có thể là `simple`,
+            `loop`, hoặc `conditional`.</li>
+    </ul>
+    <strong>Ví dụ Response (Có nhiệm vụ - Cấu trúc tham khảo):</strong>
+    <pre><code class="language-json">{
+  "metadata": {
+      "package_format_version": "1.2",
+      "strategy_id": "tiktok_basic_swipe_like",
+      "strategy_name": "TikTok Cơ bản: Lướt và Like",
+      "strategy_version": "...",
+      "compiled_at": "...",
+      "assignment_id": 2   // <<< Client cần lưu ID này
+  },
+  "execution_config": {
+      "initial_stage_id": "start",
+      "max_run_time_minutes": 120,
+      "default_wait_ms": {"min": 800, "max": 1500},
+      "error_handling": "report_and_stop"
+  },
+  "account_context": {
+      "target_data": {"c": "c"} // Ví dụ target data
+  },
+  "stages_recognition": {
+       "start": {"description": "...", "rules": []},
+       "tiktok_opened": {"description": "...", "rules": [...]},
+       "feed_viewed": {"description": "...", "rules": [...]},
+       // ... các stages khác ...
+  },
+  "action_sequence": [
+      { // Bước 1: Simple
+          "step_id": 6,
+          "trigger": {"current_stage": "start", "user_intent": "start_flow"},
+          "type": "simple",
+          "macro_code": "APP_OPEN",
+          "params": {"package_name": "com.zhiliaoapp.musically"},
+          "next_stage_id": "tiktok_opened"
+      },
+      { // Bước 2: Simple
+          "step_id": 7,
+          "trigger": {"current_stage": "tiktok_opened", "user_intent": "wait_for_load"},
+          "type": "simple",
+          "macro_code": "SYS_WAIT",
+          "params": {"duration_ms": 3000},
+          "next_stage_id": "feed_viewed"
+      },
+      { // Bước 3: Loop
+          "step_id": 8,
+          "trigger": {"current_stage": "feed_viewed", "user_intent": "swipe_videos"},
+          "type": "loop",
+          "loop_config": { "type": "repeat_n", "count": 3 },
+          "sequence": [{"macro_code": "UI_SWIPE_UP", "params": {}}],
+          "next_stage_id": "videos_swiped"
+      },
+      // ... các steps khác ...
+  ]
+}</code></pre>
+
+    <strong>Trường hợp 2: Không có nhiệm vụ mới</strong>
+    <p>Server trả về JSON đơn giản báo hiệu không có task.</p>
+    <strong>Ví dụ Response (Không có nhiệm vụ):</strong>
+    <pre><code class="language-json">{
+  "status": "no_task",
+  "message": "No pending assignment found.",
+  "retry_after_seconds": 300  // (Tùy chọn) Client nên chờ khoảng thời gian này (giây) trước khi hỏi lại
+}</code></pre>
+
+    <h3>Error Response (HTTP 400, 404, 500)</h3>
+    <p>Nếu có lỗi xảy ra (payload sai, không tìm thấy device/account/liên kết, lỗi server...), server sẽ trả về JSON với
+        `status: "error"`.</p>
+    <strong>Ví dụ Response (Lỗi):</strong>
+    <pre><code class="language-json">{
+  "status": "error",
+  "message": "Device or Account not registered/linked correctly."
+}</code></pre>
+    <pre><code class="language-json">{
+  "status": "error",
+  "message": "Failed to compile strategy package."
+}</code></pre>
+    <pre><code class="language-json">{
+  "status": "error",
+  "message": "Missing 'device_id' or 'account_id'."
+}</code></pre>
+
+</section>
+
+{# ======================================================= #}
+{# === API 2: Báo cáo Trạng thái (/phone/report_status) === #}
+{# ======================================================= #}
+<section class="endpoint-section">
+    <h2>2. Báo cáo Trạng thái / Log / UI State</h2>
+    <p>Client gọi API này định kỳ hoặc khi có sự kiện quan trọng (hoàn thành step, gặp lỗi, kết thúc assignment) để gửi
+        báo cáo về trạng thái, tiến độ, log chi tiết và trạng thái UI mới nhất lên Server.</p>
+    <p>
+        <strong>Method:</strong> <span class="badge bg-post">POST</span> <br>
+        <strong>URL Endpoint:</strong> <code>/phone/report_status</code> <br>
+        <strong>Header yêu cầu:</strong> <code>Content-Type: application/json</code>
+    </p>
+
+    <h3>Request Body (JSON)</h3>
+    <p>Client cần gửi một JSON object chứa các thông tin sau:</p>
+    <ul>
+        <li><code>device_id</code> (String<span class="param-required">*</span>): ID của thiết bị.</li>
+        <li><code>account_id</code> (String<span class="param-required">*</span>): ID của tài khoản đang chạy.</li>
+        <li><code>assignment_id</code> (Integer<span class="param-required">*</span>): ID của nhiệm vụ đang báo cáo
+            (**lấy từ metadata khi gọi /get_strategy**).</li>
+        <li><code>status_report</code> (Object<span class="param-required">*</span>): Chứa trạng thái tổng hợp của
+            client.
+            <ul>
+                <li><code>current_status</code> (String<span class="param-required">*</span>): Trạng thái hiện tại
+                    ('running', 'completed', 'error', 'paused'...).</li>
+                <li><code>progress</code> (Object<span class="param-optional">?</span>): Dữ liệu cập nhật tiến độ (ví
+                    dụ: `{"videos_watched": 1}`). Cấu trúc phụ thuộc vào `target_data` của assignment.</li>
+                <li><code>result</code> (Object<span class="text-optional">?</span>): Dữ liệu kết quả cuối cùng khi
+                    trạng thái là 'completed' hoặc 'error'.</li>
+                <li><code>error_message</code> (String<span class="text-optional">?</span>): Chi tiết lỗi nếu
+                    `current_status` là 'error'.</li>
+            </ul>
+        </li>
+        <li><code>logs</code> (Array<span class="text-optional">?</span>): **Danh sách** các log entry (dạng object) chi
+            tiết về các hành động đã thực hiện kể từ lần báo cáo trước. Mỗi entry nên có ít nhất: `timestamp` (ISO
+            8601), `macro` (tên macro), `params` (object), `status` ('success'/'fail'/'skipped'/'error'), `error`
+            (string/null), `stage` (stage lúc thực thi).</li>
+        <li><code>current_ui_state</code> (Object<span class="text-optional">?</span>): **(Quan trọng cho App Map)**
+            Trạng thái UI **thô** mới nhất client lấy được từ AutoInput UI Query. Object này chứa:
+            <ul>
+                <li><code>timestamp</code> (String<span class="text-optional">?</span>): ISO 8601 timestamp lúc query
+                    UI.</li>
+                <li><code>package_name</code> (String<span class="text-optional">?</span>): Tên package app.</li>
+                <li><code>activity_name</code> (String<span class="text-optional">?</span>): Tên activity.</li>
+                <li><code>ids</code> (Array<span class="text-optional">?</span>): Mảng các chuỗi resource ID (`["id1",
+                    "id2", null, ...]`).</li>
+                <li><code>texts</code> (Array<span class="text-optional">?</span>): Mảng các chuỗi text (`["text1",
+                    null, "text3", ...]`).</li>
+                <li><code>coords</code> (Array<span class="text-optional">?</span>): Mảng các chuỗi tọa độ `"x,y"`
+                    (`["1,2", "3,4", ...]`).</li>
+                <li>...(Có thể thêm các mảng khác như `content_descs`, `clickables`...)</li>
+            </ul>
+        </li>
+    </ul>
+    <strong>Ví dụ Request Body:</strong>
+    <pre><code class="language-json">{
+  "assignment_id": 2,
+  "device_id": "test_device_001",
+  "account_id": "tiktok_test_1",
+  "status_report": {
+      "current_status": "running",
+      "progress": {"videos_swiped_session": 3},
+      "result": null,
+      "error_message": null
+  },
+  "logs": [
+      {"timestamp": "2025-04-23T11:05:01Z", "macro": "UI_SWIPE_UP", "params": {}, "status": "success", "error": null, "stage": "feed_viewed"},
+      {"timestamp": "2025-04-23T11:05:03Z", "macro": "UI_SWIPE_UP", "params": {}, "status": "success", "error": null, "stage": "feed_viewed"},
+      {"timestamp": "2025-04-23T11:05:05Z", "macro": "UI_SWIPE_UP", "params": {}, "status": "success", "error": null, "stage": "feed_viewed"}
+  ],
+  "current_ui_state": {
+      "timestamp": "2025-04-23T11:05:06Z",
+      "package_name": "com.zhiliaoapp.musically",
+      "activity_name": ".MainActivity",
+      "ids": ["com.zhiliaoapp.musically:id/desc", "com.zhiliaoapp.musically:id/like_icon", "..."],
+      "texts": ["#hashtag", "Like", "..."],
+      "coords": ["123,456", "789,123", "..."]
+  }
+}</code></pre>
+
+    <h3>Success Response (HTTP 200 OK)</h3>
+    <p>Server xác nhận đã nhận và xử lý báo cáo. Có thể kèm theo yêu cầu hành động tiếp theo cho client.</p>
+    <strong>Ví dụ Response:</strong>
+    <pre><code class="language-json">{
+  "status": "success",
+  "message": "Report received.",
+  "action_required": null // hoặc "stop_assignment" nếu Admin đã hủy task này
+}</code></pre>
+
+    <h3>Error Response (HTTP 4xx / 5xx)</h3>
+    <p>Nếu payload không hợp lệ hoặc có lỗi server khi xử lý báo cáo.</p>
+    <strong>Ví dụ Response (Lỗi):</strong>
+    <pre><code class="language-json">{
+  "status": "error",
+  "message": "Invalid report data: Missing 'assignment_id'."
+}</code></pre>
+    <pre><code class="language-json">{
+  "status": "error",
+  "message": "Internal server error processing report."
+}</code></pre>
+</section>
+
+{# ======================================================= #}
+{# === API 3: Đăng ký / Cập nhật Thiết bị (/phone/register_device) === #}
+{# ======================================================= #}
+<section class="endpoint-section">
+    <h2>3. Đăng ký / Cập nhật Thiết bị</h2>
+    <p>Client gọi API này lần đầu hoặc định kỳ để đăng ký/cập nhật thông tin của chính nó (OS, model, version client) và
+        danh sách các tài khoản nó đang quản lý (kèm trạng thái đăng nhập, clone context) với Server.</p>
+    <p>
+        <strong>Method:</strong> <span class="badge bg-post">POST</span> <br>
+        <strong>URL Endpoint:</strong> <code>/phone/register_device</code> <br>
+        <strong>Header yêu cầu:</strong> <code>Content-Type: application/json</code>
+    </p>
+    <h3>Request Body (JSON)</h3>
+    <ul>
+        <li><code>device_id</code> (String<span class="param-required">*</span>): ID duy nhất của thiết bị.</li>
+        <li><code>device_info</code> (Object<span class="param-optional">?</span>): Chứa thông tin thiết bị như `os`,
+            `model`.</li>
+        <li><code>client_version</code> (String<span class="param-optional">?</span>): Phiên bản MacroDroid hoặc script
+            agent.</li>
+        <li><code>managed_accounts</code> (Array<span class="param-required">*</span>): Danh sách các tài khoản trên
+            thiết bị. Mỗi phần tử là object:
+            <ul>
+                <li><code>account_id</code> (String<span class="param-required">*</span>)</li>
+                <li><code>platform</code> (String<span class="param-required">*</span>)</li>
+                <li><code>username</code> (String<span class="param-optional">?</span>)</li>
+                <li><code>clone_context</code> (String<span class="param-optional">?</span>): Ngữ cảnh clone ('main',
+                    'dual', 'secure', 'user_xx'...). Để `null` hoặc bỏ qua nếu là app gốc.</li>
+                <li><code>status</code> (String<span class="param-required">*</span>): Trạng thái của tài khoản **trên
+                    thiết bị này** (ví dụ: 'active_logged_in', 'login_required', 'error', 'unknown'...).</li>
+            </ul>
+        </li>
+    </ul>
+    <strong>Ví dụ Request Body:</strong>
+    <pre><code class="language-json">{
+  "device_id": "test_device_001",
+  "device_info": {
+      "os": "Android 12",
+      "model": "SM-G998B"
+  },
+  "client_version": "1.1",
+  "managed_accounts": [
+      {"account_id": "tiktok_test_1", "platform": "tiktok", "clone_context": null, "status": "active_logged_in"},
+      {"account_id": "fb_user_clone", "platform": "facebook", "clone_context": "dual", "status": "login_required"}
+  ]
+}</code></pre>
+
+    <h3>Success Response (HTTP 200 OK)</h3>
+    <pre><code class="language-json">{
+  "status": "success",
+  "message": "Device registered/updated."
+}</code></pre>
+
+    <h3>Error Response (HTTP 400 / 500)</h3>
+    <pre><code class="language-json">{
+  "status": "error",
+  "message": "Missing 'device_id'."
+}</code></pre>
+    <pre><code class="language-json">{
+  "status": "error",
+  "message": "Internal server error during registration."
+}</code></pre>
+
+</section>
+
+{# Thêm mô tả cho các API khác nếu cần #}
+
+{% endblock %}

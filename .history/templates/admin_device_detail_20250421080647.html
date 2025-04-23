@@ -1,0 +1,527 @@
+{# templates/admin_device_detail.html (Phiên bản đầy đủ, UI chuẩn hóa) #}
+{% extends "admin_base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        {# Tiêu đề trang hiển thị tên hoặc ID thiết bị #}
+        <h1>{{ title }}</h1>
+        <a href="{{ url_for('admin.view_devices') }}" class="button button-secondary">
+            <i class="fas fa-arrow-left mr-1"></i> Quay lại Danh sách Thiết bị
+        </a>
+    </div>
+
+    {# --- Phần 1: Thông tin chi tiết thiết bị --- #}
+    <fieldset class="mb-4">
+        <legend>Thông tin Thiết bị</legend>
+        {# Sử dụng grid để hiển thị chi tiết #}
+        <div class="details-grid">
+            <div><strong>Device ID:</strong></div>
+            <div><code>{{ device.device_id }}</code></div>
+
+            <div><strong>Tên Thiết bị:</strong></div>
+            <div>{{ device.device_name or '--' }}</div>
+
+            <div><strong>Trạng thái:</strong></div>
+            <div><span class="status-badge status-{{ device.status | lower }}">{{ device.status or 'Unknown' }}</span>
+            </div>
+
+            <div><strong>Thông tin OS:</strong></div>
+            <div>{{ device.os_info or 'N/A' }}</div>
+
+            <div><strong>Client Version:</strong></div>
+            <div>{{ device.macrodroid_version or 'N/A' }}</div>
+
+            <div><strong>Lần cuối thấy:</strong></div>
+            <div>{{ device.last_seen_at.strftime('%Y-%m-%d %H:%M:%S %Z') if device.last_seen_at else 'Chưa thấy' }}
+            </div>
+
+            <div><strong>Ngày Đăng ký:</strong></div>
+            <div>{{ device.registered_at.strftime('%Y-%m-%d %H:%M:%S %Z') if device.registered_at else 'N/A' }}</div>
+
+            <div><strong>Ghi chú:</strong></div>
+            {# Dùng pre để giữ định dạng xuống dòng nếu có #}
+            <div>
+                <pre style="margin:0; padding:0; background:none; border:none;">{{ device.notes or '' }}</pre>
+            </div>
+        </div>
+        <div class="mt-3">
+            <a href="{{ url_for('admin.edit_device', device_id=device.device_id) }}"
+                class="button button-warning button-small">
+                <i class="fas fa-edit fa-fw"></i> Sửa thông tin thiết bị
+            </a>
+        </div>
+    </fieldset>
+
+    {# --- Phần 2: Danh sách Tài khoản đã liên kết --- #}
+    <fieldset class="mb-4">
+        <legend>Các Tài khoản được liên kết với Thiết bị này</legend>
+        {% if linked_accounts %}
+        <div class="table-responsive">
+            <table class="data-table stylish-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Account ID</th>
+                        <th scope="col">Username</th>
+                        <th scope="col">Platform</th>
+                        <th scope="col">Clone Context</th>
+                        <th scope="col">Trạng thái Liên kết</th>
+                        {# <th scope="col">Ghi chú Liên kết</th> #} {# Tạm ẩn cột này cho gọn #}
+                        <th scope="col" style="min-width: 120px;">Hành động</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for link in linked_accounts %}
+                    <tr>
+                        <td style="vertical-align: middle;"><code>{{ link.account_id }}</code></td>
+                        <td style="vertical-align: middle;">{{ link.username or '--' }}</td>
+                        <td style="vertical-align: middle;">{{ link.platform }}</td>
+                        <td style="vertical-align: middle;"><code>{{ link.clone_context or '(Mặc định)' }}</code></td>
+                        <td style="vertical-align: middle;"><span
+                                class="status-badge status-{{ link.link_status | lower }}">{{ link.link_status or
+                                'Unknown' }}</span></td>
+                        {# <td style="vertical-align: middle;"><small>{{ link.link_notes or '' }}</small></td> #}
+                        <td style="vertical-align: middle;" class="actions-cell">
+                            {# Nút Sửa Liên kết (Route và chức năng sẽ tạo sau) #}
+                            {# <a href="{{ url_for('admin.edit_device_account_link', link_id=link.device_account_id) }}"
+                                class="button button-small button-warning"
+                                title="Sửa thông tin liên kết (Clone Context, Status...)">Sửa LK</a> #}
+                            <button class="button button-small button-warning"
+                                title="Sửa thông tin liên kết (Chưa hoạt động)" disabled><i
+                                    class="fas fa-pencil-alt fa-fw"></i> Sửa LK</button>
+
+                            {# Nút Hủy Liên kết (Route và chức năng sẽ tạo sau) #}
+                            <form action="{{ url_for('admin.unlink_device_account', link_id=link.device_account_id) }}"
+                                method="POST" class="inline-form"
+                                onsubmit="return confirm('Bạn chắc chắn muốn hủy liên kết tài khoản {{ link.account_id }} khỏi thiết bị này?');">
+                                <input type="hidden" name="device_id_redirect" value="{{ device.device_id }}"> {# Giúp
+                                redirect lại đúng trang #}
+                                {# <button type="submit" class="button button-small button-danger"
+                                    title="Hủy liên kết">Hủy LK</button> #}
+                                <button type="submit" class="button button-small button-danger"
+                                    title="Hủy liên kết (Chưa hoạt động)" disabled><i class="fas fa-unlink fa-fw"></i>
+                                    Hủy LK</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="alert alert-info">Chưa có tài khoản nào được liên kết với thiết bị này.</div>
+        {% endif %}
+    </fieldset>
+
+    {# --- Phần 3: Form Thêm Liên kết Tài khoản Mới --- #}
+    <fieldset>
+        <legend>Liên kết Tài khoản Mới vào Thiết bị này</legend>
+        {# Form POST về route link_account_to_device_route #}
+        <form action="{{ url_for('admin.link_account_to_device_route', device_id=device.device_id) }}" method="POST">
+            {# Không cần input ẩn device_id vì nó đã có trong URL action #}
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="account_id_select">Chọn Tài khoản (*):</label><br>
+                    <select name="account_id" id="account_id_select" required>
+                        <option value="">-- Chọn tài khoản từ danh sách --</option>
+                        {# Lấy danh sách TẤT CẢ accounts từ biến all_accounts #}
+                        {% for acc in all_accounts %}
+                        {# Chỉ hiển thị những account CHƯA được liên kết với device này #}
+                        {% set is_already_linked = False %}
+                        {% for linked in linked_accounts %}
+                        {% if linked.account_id == acc.account_id %}
+                        {% set is_already_linked = True %}
+                        {% break %} {# Thoát vòng lặp trong nếu đã tìm thấy #}
+                        {% endif %}
+                        {% endfor %}
+                        {% if not is_already_linked %}
+                        <option value="{{ acc.account_id }}" {% if current_data and
+                            current_data.account_id==acc.account_id %}selected{% endif %}>
+                            {{ acc.username or acc.account_id }} ({{ acc.platform }})
+                        </option>
+                        {% endif %}
+                        {% endfor %}
+                    </select>
+                    <small>Chỉ hiển thị các tài khoản hợp lệ và chưa được liên kết với thiết bị này.</small>
+                    {% if not all_accounts %}
+                    <div class="error-text">Không tìm thấy tài khoản nào trong hệ thống. Vui lòng <a
+                            href="{{ url_for('admin.add_account') }}">thêm tài khoản</a> trước.</div>
+                    {% endif %}
+                </div>
+                <div class="form-group">
+                    <label for="clone_context">Clone Context (Tùy chọn):</label><br>
+                    <input type="text" id="clone_context" name="clone_context" maxlength="100"
+                        value="{{ current_data.clone_context if current_data else '' }}"
+                        placeholder="vd: main, dual, secure, user_10">
+                    <small>Để trống nếu chạy trên app gốc hoặc không dùng clone.</small>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="app_package_name">App Package Name (Tùy chọn):</label><br>
+                    <input type="text" id="app_package_name" name="app_package_name" maxlength="150"
+                        value="{{ current_data.app_package_name if current_data else '' }}"
+                        placeholder="vd: com.tiktok.asia.lite">
+                    <small>Nhập nếu package name của clone khác bản gốc.</small>
+                </div>
+                <div class="form-group">
+                    <label for="link_status">Trạng thái Liên kết (*):</label><br>
+                    {% set link_statuses = ['active_logged_in', 'login_required', 'unknown', 'error', 'inactive'] %}
+                    {% set current_status = current_data.status if current_data else 'active_logged_in' %}
+                    <select name="status" id="link_status" required>
+                        {% for stat in link_statuses %}
+                        <option value="{{ stat }}" {% if current_status==stat %}selected{% endif %}>{{
+                            stat.replace('_',' ').capitalize() }}</option>
+                        {% endfor %}
+                    </select>
+                    <small>Trạng thái của tài khoản trên thiết bị này.</small>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="button button-primary">
+                    <i class="fas fa-link mr-1"></i> Liên kết Tài khoản
+                </button>
+            </div>
+        </form>
+    </fieldset>
+
+</div> {# End container #}
+{% endblock %}
+
+{% block styles %}
+{{ super() }}
+{# Kế thừa style từ admin_devices.html và thêm style cho grid #}
+<style>
+    /* Container và Header */
+    /* .container { max-width: 1200px; margin: 0 auto; padding: 20px; } */
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    .page-header h1 {
+        margin-bottom: 0;
+    }
+
+    /* Buttons (Copy từ admin_devices.html hoặc đặt trong CSS chung) */
+    .button {
+        display: inline-block;
+        padding: 0.375rem 0.75rem;
+        font-size: 0.9rem;
+        font-weight: 400;
+        line-height: 1.5;
+        text-align: center;
+        text-decoration: none;
+        vertical-align: middle;
+        cursor: pointer;
+        user-select: none;
+        border: 1px solid transparent;
+        border-radius: 0.25rem;
+        color: white;
+        transition: all .15s ease-in-out;
+        margin-right: 0.5rem;
+        margin-bottom: 0.5rem;
+    }
+
+    .button:last-child {
+        margin-right: 0;
+    }
+
+    .button i.mr-1 {
+        margin-right: 0.25rem;
+    }
+
+    .button i.fa-fw {
+        text-align: center;
+        width: 1.2em;
+    }
+
+    .button-primary {
+        background-color: #0d6efd;
+        border-color: #0d6efd;
+    }
+
+    .button-primary:hover {
+        background-color: #0b5ed7;
+        border-color: #0a58ca;
+    }
+
+    .button-secondary {
+        background-color: #6c757d;
+        border-color: #6c757d;
+    }
+
+    .button-secondary:hover {
+        background-color: #5a6268;
+        border-color: #545b62;
+    }
+
+    .button-warning {
+        background-color: #ffc107;
+        border-color: #ffc107;
+        color: #000;
+    }
+
+    .button-warning:hover {
+        background-color: #e0a800;
+        border-color: #d39e00;
+        color: #000;
+    }
+
+    .button-danger {
+        background-color: #dc3545;
+        border-color: #dc3545;
+    }
+
+    .button-danger:hover {
+        background-color: #c82333;
+        border-color: #bd2130;
+    }
+
+    .button-info {
+        background-color: #0dcaf0;
+        border-color: #0dcaf0;
+        color: #000;
+    }
+
+    .button-info:hover {
+        background-color: #31d2f2;
+        border-color: #25cff2;
+        color: #000;
+    }
+
+    .button-small {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.8rem;
+        border-radius: 0.2rem;
+    }
+
+    .inline-form {
+        display: inline-block;
+        margin: 0;
+        padding: 0;
+        vertical-align: middle;
+    }
+
+    /* Fieldset và Legend */
+    fieldset {
+        border: 1px solid #dee2e6;
+        padding: 1rem 1.5rem;
+        margin-bottom: 1.5rem;
+        border-radius: 0.25rem;
+    }
+
+    legend {
+        font-size: 1.1em;
+        font-weight: 600;
+        padding: 0 0.5rem;
+        margin-left: 0.5rem;
+        width: auto;
+        border-bottom: none;
+        margin-bottom: 1rem;
+    }
+
+    /* Grid hiển thị chi tiết */
+    .details-grid {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 0.5rem 1rem;
+        align-items: center;
+    }
+
+    .details-grid div:nth-child(odd) {
+        font-weight: bold;
+        text-align: right;
+        color: #495057;
+    }
+
+    .details-grid code {
+        font-size: 90%;
+        color: #d63384;
+        background-color: #f8f9fa;
+        padding: 0.1rem 0.3rem;
+        border-radius: 0.2rem;
+    }
+
+    .details-grid pre {
+        background: none;
+        border: none;
+        padding: 0;
+        margin: 0;
+        font-size: inherit;
+        font-family: inherit;
+    }
+
+    /* Table Styling */
+    .table-responsive {
+        overflow-x: auto;
+    }
+
+    .data-table.stylish-table {
+        width: 100%;
+        margin-bottom: 1rem;
+        color: #212529;
+        border-collapse: collapse;
+        background-color: #fff;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
+    }
+
+    .stylish-table th,
+    .stylish-table td {
+        padding: 0.75rem;
+        vertical-align: middle;
+        border-top: 1px solid #dee2e6;
+        text-align: left;
+    }
+
+    .stylish-table thead th {
+        vertical-align: bottom;
+        border-bottom: 2px solid #dee2e6;
+        background-color: #f8f9fa;
+        font-weight: 600;
+    }
+
+    .stylish-table tbody tr:nth-of-type(odd) {
+        background-color: rgba(0, 0, 0, 0.02);
+    }
+
+    .stylish-table tbody tr:hover {
+        background-color: rgba(0, 0, 0, 0.06);
+    }
+
+    .stylish-table code {
+        font-size: 85%;
+        color: #d63384;
+        word-wrap: break-word;
+        background-color: #f8f9fa;
+        padding: 2px 4px;
+        border-radius: 3px;
+    }
+
+    .stylish-table .actions-cell {
+        white-space: nowrap;
+        text-align: right;
+    }
+
+    /* Form Styling */
+    .form-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        align-items: flex-start;
+        margin-bottom: 1rem;
+    }
+
+    .form-group {
+        margin-bottom: 1rem;
+        flex: 1;
+        min-width: 250px;
+    }
+
+    .form-group:last-child {
+        margin-bottom: 0;
+    }
+
+    .form-group label {
+        font-weight: bold;
+        display: block;
+        margin-bottom: 0.3rem;
+    }
+
+    .form-group input[type="text"],
+    .form-group input[type="number"],
+    .form-group select,
+    .form-group textarea {
+        width: 100%;
+        padding: 0.375rem 0.75rem;
+        font-size: 0.9rem;
+        line-height: 1.5;
+        color: #212529;
+        background-color: #fff;
+        background-clip: padding-box;
+        border: 1px solid #ced4da;
+        border-radius: 0.25rem;
+        transition: border-color .15s ease-in-out, box-shadow .15s ease-in-out;
+    }
+
+    .form-group small {
+        font-size: 0.8em;
+        color: #6c757d;
+        margin-top: 0.25rem;
+        display: block;
+    }
+
+    .form-actions {
+        margin-top: 1.5rem;
+    }
+
+    .error-text {
+        color: #dc3545;
+        font-size: 0.85em;
+        margin-top: 0.25rem;
+    }
+
+
+    /* Status Badges */
+    .status-badge {
+        padding: 3px 8px;
+        border-radius: 10px;
+        color: white;
+        font-size: 0.8em;
+        display: inline-block;
+        text-transform: capitalize;
+    }
+
+    .status-active_logged_in {
+        background-color: #198754;
+    }
+
+    /* Green */
+    .status-login_required {
+        background-color: #ffc107;
+        color: black;
+    }
+
+    /* Yellow */
+    .status-error {
+        background-color: #dc3545;
+    }
+
+    /* Red */
+    .status-inactive {
+        background-color: #6c757d;
+    }
+
+    /* Grey */
+    .status-unknown {
+        background-color: #adb5bd;
+    }
+
+    /* Light Grey */
+    /* Thêm các status badge khác nếu cần */
+
+    /* Margin bottom tiện ích */
+    .mb-3 {
+        margin-bottom: 1rem !important;
+    }
+
+    .mb-4 {
+        margin-bottom: 1.5rem !important;
+    }
+
+    .mt-3 {
+        margin-top: 1rem !important;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{# Thêm JS nếu cần validate form phía client hoặc xử lý gì khác #}
+{% endblock %}

@@ -1,0 +1,148 @@
+{# templates/admin_accounts.html - Đã thêm phân trang #}
+{% extends "admin_base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+<p><a href="{{ url_for('admin.add_account') }}" class="button">Thêm Tài khoản Mới</a></p>
+
+{# Thông tin phân trang #}
+{% if pagination and pagination.total_items > 0 %}
+<p>Hiển thị {{ accounts | length }} trong tổng số {{ pagination.total_items }} tài khoản. Trang {{ pagination.page }} /
+    {{ pagination.total_pages }}.</p>
+{% endif %}
+
+{# Bảng hiển thị danh sách tài khoản #}
+{% if accounts is defined and accounts %}
+<table border="1" cellpadding="5" cellspacing="0" style="width:100%; border-collapse: collapse;">
+    <thead>
+        <tr style="background-color: #f2f2f2;">
+            <th style="width: 15%;">Account ID</th>
+            <th style="width: 10%;">Platform</th>
+            <th style="width: 15%;">Username</th>
+            <th style="width: 8%;">Status</th>
+            <th style="width: 10%;">Goal</th>
+            <th style="width: 12%;">Default Strategy</th>
+            <th style="width: 20%;">Notes</th>
+            <th style="width: 10%;">Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for acc in accounts %} {# Lặp qua danh sách accounts của trang hiện tại #}
+        <tr>
+            <td>{{ acc.account_id }}</td>
+            <td>{{ acc.platform }}</td>
+            <td>{{ acc.username }}</td>
+            <td>{{ acc.status }}</td>
+            <td>{{ acc.goal | default('N/A') }}</td>
+            <td>
+                {% if acc.notes %} {# Kiểm tra xem acc.notes có giá trị không (khác None và không rỗng) #}
+                {{ acc.notes | truncate(80) }} {# Chỉ truncate nếu có giá trị #}
+                {% else %}
+                {{ '' }} {# Hiển thị chuỗi rỗng nếu acc.notes là None hoặc rỗng #}
+                {# Hoặc bạn có thể hiển thị dấu '-' nếu muốn: '-' #}
+                {% endif %}
+            </td>
+
+            <td>{{ acc.notes | default('') | truncate(80) }}</td>
+            <td style="white-space: nowrap; text-align: center;">
+                <a href="{{ url_for('admin.edit_account', account_id=acc.account_id) }}"
+                    class="button small secondary-button" style="margin-right: 5px;">Sửa</a>
+                <form action="{{ url_for('admin.delete_account', account_id=acc.account_id) }}" method="POST"
+                    style="display:inline;"
+                    onsubmit="return confirm('Xác nhận xóa tài khoản \'{{ acc.username or acc.account_id }}\'? Hành động này không thể hoàn tác!');">
+                    <button type="submit" class="button small secondary-button"
+                        style="background-color:#dc3545;">Xóa</button>
+                </form>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{# === THÊM PHẦN ĐIỀU HƯỚNG PHÂN TRANG === #}
+{% if pagination and pagination.total_pages > 1 %}
+<div class="pagination" style="margin-top: 20px; text-align: center;">
+    {# Nút Trang Đầu #}
+    {% if pagination.page > 1 %} <a href="{{ url_for('admin.view_accounts', page=1) }}" class="page-link">&laquo;
+        Đầu</a> {% else %} <span class="page-link disabled">&laquo; Đầu</span> {% endif %}
+    {# Nút Trang Trước #}
+    {% if pagination.has_prev %} <a href="{{ url_for('admin.view_accounts', page=pagination.prev_num) }}"
+        class="page-link">&lsaquo; Trước</a> {% else %} <span class="page-link disabled">&lsaquo; Trước</span> {% endif
+    %}
+    {# Thông tin trang #}
+    <span class="page-current"> Trang {{ pagination.page }} / {{ pagination.total_pages }} </span>
+    {# Nút Trang Sau #}
+    {% if pagination.has_next %} <a href="{{ url_for('admin.view_accounts', page=pagination.next_num) }}"
+        class="page-link">Sau &rsaquo;</a> {% else %} <span class="page-link disabled">Sau &rsaquo;</span> {% endif %}
+    {# Nút Trang Cuối #}
+    {% if pagination.page < pagination.total_pages %} <a
+        href="{{ url_for('admin.view_accounts', page=pagination.total_pages) }}" class="page-link">Cuối &raquo;</a> {%
+        else %} <span class="page-link disabled">Cuối &raquo;</span> {% endif %}
+        {# Form nhảy trang #}
+        <form method="GET" action="{{ url_for('admin.view_accounts') }}"
+            style="display: inline-block; margin-left: 15px;">
+            <label for="page_jump" style="font-size: 0.9em;">Đi tới trang:</label>
+            <input type="number" name="page" id="page_jump" min="1" max="{{ pagination.total_pages }}"
+                value="{{ pagination.page }}" style="width: 60px; padding: 3px;">
+            <button type="submit" class="button small">Đi</button>
+        </form>
+</div>
+{% endif %}
+{# === KẾT THÚC PHÂN TRANG === #}
+
+{% elif accounts is none %}
+<p style="color: red;">Lỗi khi tải danh sách tài khoản.</p>
+{% else %}
+<p>Chưa có tài khoản nào.</p>
+{% endif %}
+
+{% endblock %}
+
+
+{# Khối styles nên chứa định nghĩa cho .pagination nếu chưa có trong style.css #}
+{% block styles %}
+{{ super() }}
+<style>
+    /* ... Các style cũ cho nút và bảng ... */
+    .pagination a,
+    .pagination span {
+        display: inline-block;
+        padding: 5px 10px;
+        margin: 0 2px;
+        border: 1px solid #ddd;
+        color: #007bff;
+        text-decoration: none;
+        border-radius: 4px;
+        font-size: 0.9em;
+    }
+
+    .pagination span.disabled {
+        color: #aaa;
+        border-color: #eee;
+        background-color: #f8f9fa;
+    }
+
+    .pagination a:hover {
+        background-color: #f0f0f0;
+    }
+
+    .pagination span.page-current {
+        font-weight: bold;
+        color: #333;
+        border: none;
+        padding: 6px 10px;
+    }
+
+    .pagination form {
+        vertical-align: middle;
+    }
+
+    .button.small {
+        /* Kế thừa */
+    }
+
+    .button.secondary-button {
+        /* Kế thừa */
+    }
+</style>
+{% endblock %}

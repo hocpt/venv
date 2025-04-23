@@ -1,0 +1,122 @@
+{% extends "admin_base.html" %}
+
+{% block title %}Sửa Thiết bị '{{ device.device_id }}'{% endblock %}
+
+{% block content %}
+<h1>Sửa thông tin Thiết bị: <code>{{ device.device_id }}</code></h1>
+
+{# Form POST về chính route edit_device này #}
+<form method="POST">
+
+    {# Hiển thị Device ID (không cho sửa) #}
+    <div class="form-group">
+        <label>Device ID:</label><br>
+        <input type="text" value="{{ device.device_id }}" disabled>
+    </div>
+
+    {# Trường sửa Device Name #}
+    <div class="form-group">
+        <label for="device_name">Tên Thiết bị (Gợi nhớ):</label><br>
+        {# Hiển thị lại giá trị từ form nếu POST lỗi, nếu không lấy từ device data #}
+        <input type="text" id="device_name" name="device_name" maxlength="100"
+            value="{{ current_data.device_name if current_data is defined else (device.device_name or '') }}">
+    </div>
+
+    {# Trường sửa Notes #}
+    <div class="form-group">
+        <label for="notes">Ghi chú:</label><br>
+        <textarea id="notes" name="notes" rows="3"
+            style="width: 80%;">{{ current_data.notes if current_data is defined else (device.notes or '') }}</textarea>
+    </div>
+
+    {# Trường sửa Status (Tùy chọn, nếu Admin được phép sửa) #}
+    <div class="form-group">
+        <label for="status">Trạng thái (Chỉ sửa nếu cần ghi đè trạng thái client báo cáo):</label><br>
+        {% set current_status = current_data.status if current_data is defined else device.status %}
+        <select name="status" id="status">
+            <option value="">-- Giữ nguyên trạng thái hiện tại --</option> {# Cho phép không đổi status #}
+            {% for stat in editable_statuses %} {# editable_statuses truyền từ route #}
+            <option value="{{ stat }}" {% if current_status==stat %}selected{% endif %}>{{ stat }}</option>
+            {% endfor %}
+        </select>
+        <small>Lưu ý: Trạng thái 'online'/'offline' thường do client tự cập nhật.</small>
+    </div>
+
+    {# Hiển thị các thông tin khác (không cho sửa) #}
+    <div class="form-group">
+        <label>Thông tin OS:</label><br>
+        <input type="text" value="{{ device.os_info or 'N/A' }}" disabled>
+    </div>
+    <div class="form-group">
+        <label>Client Version:</label><br>
+        <input type="text" value="{{ device.macrodroid_version or 'N/A' }}" disabled>
+    </div>
+    <div class="form-group">
+        <label>Lần cuối thấy:</label><br>
+        <input type="text"
+            value="{{ device.last_seen_at.strftime('%Y-%m-%d %H:%M:%S %Z') if device.last_seen_at else 'Chưa thấy' }}"
+            disabled>
+    </div>
+    <div class="form-group">
+        <label>Ngày đăng ký:</label><br>
+        <input type="text"
+            value="{{ device.registered_at.strftime('%Y-%m-%d %H:%M:%S %Z') if device.registered_at else 'N/A' }}"
+            disabled>
+    </div>
+
+
+    {# Nút Submit và Hủy #}
+    <div class="form-actions" style="margin-top: 20px;">
+        <button type="submit" class="button">Lưu Thay Đổi</button>
+        <a href="{{ url_for('admin.view_devices') }}" class="button secondary-button">Hủy</a>
+    </div>
+</form>
+{% endblock %}
+
+{% block styles %}
+{{ super() }}
+{# Copy style từ các form add/edit khác #}
+<style>
+    .form-group {
+        margin-bottom: 15px;
+    }
+
+    .form-group label {
+        font-weight: bold;
+        display: block;
+        margin-bottom: 5px;
+    }
+
+    .form-group input[type="text"],
+    .form-group input[type="number"],
+    .form-group select,
+    .form-group textarea {
+        width: 100%;
+        max-width: 600px;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-sizing: border-box;
+    }
+
+    .form-group input:disabled {
+        background-color: #e9ecef;
+        cursor: not-allowed;
+    }
+
+    .form-group small {
+        font-size: 0.85em;
+        color: #555;
+        margin-top: 4px;
+        display: block;
+    }
+
+    .button.secondary-button {
+        background-color: #6c757d;
+    }
+
+    .button.secondary-button:hover {
+        background-color: #5a6268;
+    }
+</style>
+{% endblock %}

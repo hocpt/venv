@@ -1,0 +1,47 @@
+body {
+    border: 10px dotted lime !important;
+    /* Viền xanh lá chấm chấm RẤT DỄ THẤY */
+    background-color: #e0e0e0 !important;
+    /* Màu nền xám nhạt */
+    font-family: "Courier New", Courier, monospace !important;
+    /* Đổi font cực khác biệt */
+}
+
+/* Test định dạng các thành phần SB Admin bằng CSS tùy chỉnh */
+#layoutSidenav {
+    border: 5px dashed blue !important;
+    margin-top: 56px !important;
+    /* Đẩy nội dung xuống dưới navbar (nếu navbar tồn tại) */
+}
+
+#layoutSidenav_nav {
+    background-color: #AA00AA !important;
+    /* Màu tím cho sidebar */
+    border-right: 5px solid gold !important;
+    width: 225px !important;
+    /* Đặt chiều rộng cứng */
+}
+
+#layoutSidenav_content {
+    border-left: 5px solid cyan !important;
+    padding-left: 15px !important;
+    /* Thêm padding để dễ thấy border */
+}
+
+.sb-topnav {
+    border-bottom: 5px solid red !important;
+    min-height: 56px;
+    background-color: #111 !important;
+}
+
+/* Test ghi đè nút Bootstrap */
+.btn-primary {
+    background-color: fuchsia !important;
+    border-color: fuchsia !important;
+    color: black !important;
+}
+
+h1 {
+    color: orange !important;
+    text-decoration: underline !important;
+}

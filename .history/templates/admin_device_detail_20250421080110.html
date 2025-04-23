@@ -1,0 +1,168 @@
+{# templates/admin_device_detail.html #}
+{% extends "admin_base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="page-header">
+        {# Tiêu đề trang hiển thị tên hoặc ID thiết bị #}
+        <h1>{{ title }}</h1>
+        <a href="{{ url_for('admin.view_devices') }}" class="button button-secondary">
+            <i class="fas fa-arrow-left mr-1"></i> Quay lại Danh sách Thiết bị
+        </a>
+    </div>
+
+    {# --- Phần 1: Thông tin chi tiết thiết bị (có thể thêm nút sửa ở đây) --- #}
+    <fieldset class="mb-4">
+        <legend>Thông tin Thiết bị</legend>
+        <div class="details-grid">
+            <div><strong>Device ID:</strong></div>
+            <div><code>{{ device.device_id }}</code></div>
+
+            <div><strong>Tên Thiết bị:</strong></div>
+            <div>{{ device.device_name or 'Chưa đặt tên' }}</div>
+
+            <div><strong>Trạng thái:</strong></div>
+            <div><span class="status-badge status-{{ device.status | lower }}">{{ device.status or 'Unknown' }}</span>
+            </div>
+
+            <div><strong>Thông tin OS:</strong></div>
+            <div>{{ device.os_info or 'N/A' }}</div>
+
+            <div><strong>Client Version:</strong></div>
+            <div>{{ device.macrodroid_version or 'N/A' }}</div>
+
+            <div><strong>Lần cuối thấy:</strong></div>
+            <div>{{ device.last_seen_at.strftime('%Y-%m-%d %H:%M:%S %Z') if device.last_seen_at else 'Chưa thấy' }}
+            </div>
+
+            <div><strong>Ngày Đăng ký:</strong></div>
+            <div>{{ device.registered_at.strftime('%Y-%m-%d %H:%M:%S %Z') if device.registered_at else 'N/A' }}</div>
+
+            <div><strong>Ghi chú:</strong></div>
+            <div>{{ device.notes or '' }}</div>
+        </div>
+        <div class="mt-3">
+            <a href="{{ url_for('admin.edit_device', device_id=device.device_id) }}"
+                class="button button-warning button-small">
+                <i class="fas fa-edit fa-fw"></i> Sửa thông tin thiết bị
+            </a>
+        </div>
+    </fieldset>
+
+    {# --- Phần 2: Danh sách Tài khoản đã liên kết --- #}
+    <fieldset class="mb-4">
+        <legend>Các Tài khoản được liên kết</legend>
+        {% if linked_accounts %}
+        <div class="table-responsive">
+            <table class="data-table stylish-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Account ID</th>
+                        <th scope="col">Username</th>
+                        <th scope="col">Platform</th>
+                        <th scope="col">Clone Context</th>
+                        <th scope="col">Trạng thái Liên kết</th>
+                        <th scope="col">Ghi chú Liên kết</th>
+                        <th scope="col">Hành động</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for link in linked_accounts %}
+                    <tr>
+                        <td style="vertical-align: middle;"><code>{{ link.account_id }}</code></td>
+                        <td style="vertical-align: middle;">{{ link.username or '--' }}</td>
+                        <td style="vertical-align: middle;">{{ link.platform }}</td>
+                        <td style="vertical-align: middle;">{{ link.clone_context or '(Mặc định)' }}</td>
+                        <td style="vertical-align: middle;"><span
+                                class="status-badge status-{{ link.link_status | lower }}">{{ link.link_status or
+                                'Unknown' }}</span></td>
+                        <td style="vertical-align: middle;"><small>{{ link.link_notes or '' }}</small></td>
+                        <td style="vertical-align: middle;" class="actions-cell">
+                            {# Nút Sửa Liên kết (Sẽ tạo route sau) #}
+                            <a href="{{ url_for('admin.edit_device_account_link', link_id=link.device_account_id) }}"
+                                class="button button-small button-warning"
+                                title="Sửa thông tin liên kết (Clone Context, Status...)">Sửa</a>
+                            {# Nút Hủy Liên kết (Sẽ tạo route sau) #}
+                            <form action="{{ url_for('admin.unlink_device_account', link_id=link.device_account_id) }}"
+                                method="POST" class="inline-form"
+                                onsubmit="return confirm('Bạn chắc chắn muốn hủy liên kết tài khoản {{ link.account_id }} khỏi thiết bị này?');">
+                                <input type="hidden" name="device_id_redirect" value="{{ device.device_id }}"> {# Giúp
+                                redirect lại đúng trang #}
+                                <button type="submit" class="button button-small button-danger" title="Hủy liên kết">Hủy
+                                    LK</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p>Chưa có tài khoản nào được liên kết với thiết bị này.</p>
+        {% endif %}
+    </fieldset>
+
+    {# --- Phần 3: Form Thêm Liên kết Tài khoản Mới --- #}
+    <fieldset>
+        <legend>Liên kết Tài khoản Mới</legend>
+        {# Form POST về route link_account_to_device #}
+        <form action="{{ url_for('admin.link_account_to_device_route', device_id=device.device_id) }}" method="POST">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="account_id_select">Chọn Tài khoản (*):</label><br>
+                    <select name="account_id" id="account_id_select" required>
+                        <option value="">-- Chọn tài khoản từ danh sách --</option>
+                        {# Lấy danh sách TẤT CẢ accounts từ biến all_accounts #}
+                        {% for acc in all_accounts %}
+                        {# Chỉ hiển thị những account CHƯA được liên kết với device này #}
+                        {% set is_already_linked = False %}
+                        {% for linked in linked_accounts %}
+                        {% if linked.account_id == acc.account_id %}
+                        {% set is_already_linked = True %}
+                        {% endif %}
+                        {% endfor %}
+                        {% if not is_already_linked %}
+                        <option value="{{ acc.account_id }}">
+                            {{ acc.username or acc.account_id }} ({{ acc.platform }})
+                        </option>
+                        {% endif %}
+                        {% endfor %}
+                    </select>
+                    <small>Chỉ hiển thị các tài khoản chưa được liên kết với thiết bị này.</small>
+                </div>
+                <div class="form-group">
+                    <label for="clone_context">Clone Context (Tùy chọn):</label><br>
+                    <input type="text" id="clone_context" name="clone_context" maxlength="100"
+                        placeholder="vd: main, dual, secure, user_10">
+                    <small>Để trống nếu chạy trên app gốc hoặc không dùng clone.</small>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="app_package_name">App Package Name (Tùy chọn):</label><br>
+                    <input type="text" id="app_package_name" name="app_package_name" maxlength="150"
+                        placeholder="vd: com.tiktok.asia.lite">
+                    <small>Nhập nếu package name của clone khác bản gốc.</small>
+                </div>
+                <div class="form-group">
+                    <label for="link_status">Trạng thái Liên kết (*):</label><br>
+                    {% set link_statuses = ['unknown', 'active_logged_in', 'login_required', 'error', 'inactive'] %}
+                    <select name="status" id="link_status" required>
+                        {% for stat in link_statuses %}
+                        <option value="{{ stat }}">{{ stat.replace('_',' ').capitalize() }}</option>
+                        {% endfor %}
+                    </select>
+                    <small>Trạng thái của tài khoản trên thiết bị này.</small>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="button button-primary">
+                    <i class="fas fa-link mr-1"></i> Liên kết Tài khoản
+                </button>
+            </div>
+        </form>
+    </fieldset>
+
+</div> {# End container #}

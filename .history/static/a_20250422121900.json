@@ -1,0 +1,56 @@
+{
+    "assignment_id": [v=assignment_id
+    ],
+    "device_id": "[v=device_id]",
+    "account_id": "[v=account_id]",
+    "status_report": {
+        "current_status": "running", // or "completed", "error"
+        "progress": {
+            "followers_gained": 5
+        }, // Optional progress data
+        "error_message": null // or error string
+    },
+    "logs": [ // Danh sách các log entry thô
+        {
+            "timestamp": "...",
+            "macro": "SYS_WAIT",
+            "params": {
+                "duration_ms": 1000
+            },
+            "status": "success"
+        },
+        {
+            "timestamp": "...",
+            "macro": "UI_CLICK",
+            "params": {
+                "target": {
+                    "text": "Next"
+                }
+            },
+            "status": "fail",
+            "error": "Element not found"
+        }
+        // ... other log entries ...
+    ],
+    "current_ui_state": { // <<< THÊM KEY NÀY
+        "timestamp": "[v=last_ui_query_timestamp]", // ISO 8601 timestamp
+        "package_name": "[v=current_package]",
+        "activity_name": "[v=current_activity]", // Optional
+        "ids": [
+            "id1",
+            "id2",
+            null, ...
+        ], // Mảng ID (dạng chuỗi JSON của mảng)
+        "texts": [
+            "text1",
+            null,
+            "text3", ...
+        ], // Mảng Text (dạng chuỗi JSON của mảng)
+        "coords": [
+            "1,2",
+            "3,4",
+            "5,6", ...
+        ] // Mảng Coords (dạng chuỗi JSON của mảng)
+        // Thêm các mảng khác nếu cần: "clickables", "content_descs"...
+    }
+}

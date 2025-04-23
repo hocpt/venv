@@ -1,0 +1,199 @@
+{# templates/_pagination_helper.html - Macro phân trang kiểu mới (Giống hình mẫu) #}
+
+{% macro render_pagination(pagination_details, search_query) %} {# Tên macro và tham số có thể khác #}
+{% if pagination_details and pagination_details.total_items > 0 %} {# Kiểm tra biến tồn tại và có dữ liệu #}
+<nav aria-label="Page navigation">
+    <ul class="pagination justify-content-center">
+        {# Nút Trang đầu #}
+        <li class="page-item {% if not pagination_details.has_prev %}disabled{% endif %}">
+            <a class="page-link"
+                href="{{ url_for(request.endpoint, page=1, search=search_query, **request.view_args) }}">&laquo;&laquo;</a>
+        </li>
+        {# Nút Trang trước #}
+        <li class="page-item {% if not pagination_details.has_prev %}disabled{% endif %}">
+            {# Sử dụng dictionary key access #}
+            <a class="page-link"
+                href="{{ url_for(request.endpoint, page=pagination_details['prev_num'], search=search_query, **request.view_args) }}">&laquo;</a>
+        </li>
+
+        {# ... Logic hiển thị các số trang (cần dùng pagination_details['page'], pagination_details['total_pages']) ...
+        #}
+
+        {# Nút Trang tiếp #}
+        <li class="page-item {% if not pagination_details.has_next %}disabled{% endif %}">
+            {# Sử dụng dictionary attribute access (nếu Flask/Jinja cho phép với dict) hoặc key access #}
+            <a class="page-link"
+                href="{{ url_for(request.endpoint, page=pagination_details.next_num, search=search_query, **request.view_args) }}">&raquo;</a>
+        </li>
+        {# Nút Trang cuối #}
+        <li class="page-item {% if not pagination_details.has_next %}disabled{% endif %}">
+            <a class="page-link"
+                href="{{ url_for(request.endpoint, page=pagination_details.total_pages, search=search_query, **request.view_args) }}">&raquo;&raquo;</a>
+        </li>
+    </ul>
+</nav>
+{% endif %} {# Kết thúc khối if pagination_details #}
+{% endmacro %}
+
+
+{# === CSS cho kiểu phân trang mới === #}
+<style>
+    .pagination.stylish-pagination {
+        display: flex;
+        justify-content: center;
+        /* Căn giữa toàn bộ thanh phân trang */
+        align-items: center;
+        /* Căn các item theo chiều dọc */
+        flex-wrap: wrap;
+        /* Cho phép xuống dòng trên màn hình nhỏ */
+        padding-left: 0;
+        list-style: none;
+        margin-top: 1.5rem;
+        margin-bottom: 1rem;
+        gap: 5px;
+        /* Khoảng cách nhỏ giữa các phần tử */
+    }
+
+    .stylish-pagination .page-link,
+    .stylish-pagination .page-current {
+        display: inline-block;
+        padding: 6px 12px;
+        /* Tăng padding cho dễ bấm */
+        margin: 0;
+        /* Bỏ margin giữa các nút liền kề */
+        border: 1px solid #dee2e6;
+        color: #0d6efd;
+        text-decoration: none;
+        border-radius: 0.25rem;
+        font-size: 0.9em;
+        background-color: #fff;
+        white-space: nowrap;
+        /* Giữ chữ trên 1 hàng */
+        line-height: 1.5;
+        /* Đảm bảo chiều cao nhất quán */
+    }
+
+    .stylish-pagination .page-link:hover {
+        background-color: #e9ecef;
+        border-color: #dee2e6;
+        color: #0056b3;
+    }
+
+    .stylish-pagination .page-current {
+        font-weight: bold;
+        color: #495057;
+        border: none;
+        background-color: transparent;
+        /* Nền trong suốt */
+        padding-left: 10px;
+        /* Tăng khoảng cách với nút trước */
+        padding-right: 10px;
+        /* Tăng khoảng cách với nút sau */
+    }
+
+    .stylish-pagination .page-link.disabled {
+        color: #6c757d;
+        pointer-events: none;
+        cursor: default;
+        /* Con trỏ mặc định */
+        background-color: #e9ecef;
+        /* Màu nền hơi xám */
+        border-color: #dee2e6;
+        opacity: 0.7;
+    }
+
+    /* Có thể thêm style riêng cho nút First/Last và Prev/Next nếu muốn */
+    .stylish-pagination .first-last-link {
+        /* Ví dụ: font-weight: bold; */
+    }
+
+    .stylish-pagination .prev-next-link {
+        /* Ví dụ: background-color: #f8f9fa; */
+    }
+
+    /* Style cho form nhảy trang */
+    .stylish-pagination .page-jump-form {
+        display: inline-flex;
+        /* Đặt các phần tử form trên 1 hàng */
+        align-items: center;
+        /* Căn giữa theo chiều dọc */
+        margin-left: 15px;
+        /* Khoảng cách với nút cuối */
+    }
+
+    .stylish-pagination .page-jump-form label {
+        font-size: 0.9em;
+        margin-right: 5px;
+        color: #495057;
+        white-space: nowrap;
+    }
+
+    .stylish-pagination .page-jump-input {
+        width: 60px;
+        padding: 4px 6px;
+        /* Điều chỉnh padding */
+        font-size: 0.9em;
+        border: 1px solid #ced4da;
+        border-radius: 0.2rem;
+        margin-right: 5px;
+        text-align: center;
+    }
+
+    /* Chrome, Safari, Edge, Opera: Ẩn mũi tên tăng giảm của input number */
+    .stylish-pagination .page-jump-input::-webkit-outer-spin-button,
+    .stylish-pagination .page-jump-input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+
+    /* Firefox */
+    .stylish-pagination .page-jump-input[type=number] {
+        -moz-appearance: textfield;
+    }
+
+
+    .stylish-pagination .page-jump-button {
+        /* Kế thừa style .button.small */
+        padding: 4px 10px;
+        /* Chỉnh lại padding nếu cần */
+        font-size: 0.85rem;
+        /* Có thể bỏ kế thừa và định nghĩa lại hoàn toàn */
+        background-color: #0d6efd;
+        /* Màu giống button chính */
+        color: white !important;
+        border: 1px solid #0d6efd;
+        /* vertical-align: baseline; */
+        /* Căn với baseline của text */
+    }
+
+    .stylish-pagination .page-jump-button:hover {
+        background-color: #0b5ed7;
+        border-color: #0a58ca;
+    }
+
+
+    .pagination-info {
+        /* Style cho dòng thông tin tổng số mục (nếu bạn bật lại) */
+        width: 100%;
+        /* Chiếm hết hàng */
+        text-align: center;
+        margin-top: 0.5rem;
+        font-size: 0.9em;
+        color: #6c757d;
+        flex-basis: 100%;
+        /* Đảm bảo nó luôn ở hàng riêng */
+    }
+
+    .sr-only {
+        /* Giữ nguyên */
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+    }
+</style>

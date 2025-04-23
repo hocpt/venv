@@ -1,0 +1,278 @@
+{% extends "admin_base.html" %}
+
+{% block title %}Thêm Task Assignment Mới{% endblock %}
+
+{% block content %}
+<h1>Thêm Task Assignment Mới</h1>
+
+{# Form POST về route add_task_assignment #}
+<form method="POST" id="add-assignment-form">
+
+    {# --- Chọn Thiết bị và Tài khoản --- #}
+    <fieldset style="border: 1px solid #ccc; padding: 15px; margin-bottom: 20px;">
+        <legend>Đối tượng Thực thi</legend>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="device_select">1. Chọn Thiết bị (*):</label><br>
+                <select name="device_id" id="device_select" required>
+                    <option value="">-- Vui lòng chọn thiết bị --</option>
+                    {% for device in devices %} {# Biến devices được truyền từ route #}
+                    <option value="{{ device.device_id }}" {% if current_data and
+                        current_data.device_id==device.device_id %}selected{% endif %}>
+                        {{ device.device_name or device.device_id }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <span id="account-loading-spinner" style="display: none; margin-left: 10px;"><i
+                        class="fas fa-spinner fa-spin"></i> Đang tải tài khoản...</span>
+            </div>
+
+            <div class="form-group">
+                <label for="account_select">2. Chọn Tài khoản trên Thiết bị (*):</label><br>
+                <select name="device_account_id" id="account_select" required disabled> {# Disabled ban đầu #}
+                    <option value="">-- Chọn thiết bị trước --</option>
+                    {# Options sẽ được thêm bằng JavaScript #}
+                    {% if current_data and current_data.device_id and initial_accounts %}
+                    {# Nếu có lỗi validation và đã chọn device, tải lại account list ban đầu #}
+                    {% for acc in initial_accounts %}
+                    <option value="{{ acc.device_account_id }}" {% if
+                        current_data.device_account_id==acc.device_account_id|string %}selected{% endif %}>
+                        {{ acc.username or acc.account_id }} ({{ acc.platform }}) - ID: {{ acc.account_id }}
+                    </option>
+                    {% endfor %}
+                    {% endif %}
+                </select>
+                <div id="account-error" class="error-text" style="display: none;">Không tìm thấy tài khoản nào cho thiết
+                    bị này hoặc lỗi tải.</div>
+            </div>
+        </div>
+    </fieldset>
+
+    {# --- Chọn Chiến lược và Cấu hình Task --- #}
+    <fieldset style="border: 1px solid #ccc; padding: 15px; margin-bottom: 20px;">
+        <legend>Cấu hình Nhiệm vụ</legend>
+        <div class="form-group">
+            <label for="strategy_id">3. Chọn Control Strategy (*):</label><br>
+            <select name="strategy_id" id="strategy_id" required>
+                <option value="">-- Vui lòng chọn chiến lược --</option>
+                {% for strategy in control_strategies %} {# Biến này được truyền từ route #}
+                <option value="{{ strategy.strategy_id }}" {% if current_data and
+                    current_data.strategy_id==strategy.strategy_id %}selected{% endif %}>
+                    {{ strategy.name }} ({{ strategy.strategy_id }})
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="priority">Độ ưu tiên (Số cao chạy trước, mặc định 0):</label><br>
+            <input type="number" id="priority" name="priority"
+                value="{{ current_data.priority if current_data else 0 }}">
+        </div>
+
+        <div class="form-group">
+            <label for="target_data">Mục tiêu/Dữ liệu Nhiệm vụ (JSON - tùy chọn):</label><br>
+            <textarea id="target_data" name="target_data" rows="5" style="font-family: monospace; width:80%;"
+                placeholder='VD: {"goal_type": "followers", "target_count": 1000, "interaction_keywords": ["kw1", "kw2"]}'>{{ current_data.target_data if current_data else '{}' }}</textarea>
+            <small>Nhập JSON object chứa các mục tiêu hoặc tham số riêng cho lần chạy này (sẽ được đưa vào
+                `account_context`). Ví dụ: số lượng cần đạt, từ khóa cần tương tác...</small>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label for="schedule_start_time">Lịch chạy - Bắt đầu (Tùy chọn):</label><br>
+                <input type="datetime-local" id="schedule_start_time" name="schedule_start_time"
+                    value="{{ current_data.schedule_start_time if current_data else '' }}">
+                <small>Để trống nếu muốn chạy ngay khi có thể.</small>
+            </div>
+            <div class="form-group">
+                <label for="schedule_end_time">Lịch chạy - Kết thúc (Tùy chọn):</label><br>
+                <input type="datetime-local" id="schedule_end_time" name="schedule_end_time"
+                    value="{{ current_data.schedule_end_time if current_data else '' }}">
+                <small>Để trống nếu không có thời hạn kết thúc.</small>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="notes">Ghi chú (Tùy chọn):</label><br>
+            <textarea id="notes" name="notes" rows="3"
+                style="width: 80%;">{{ current_data.notes if current_data else '' }}</textarea>
+        </div>
+    </fieldset>
+
+    {# --- Nút Submit --- #}
+    <div class="form-actions" style="margin-top: 20px;">
+        <button type="submit" class="button">Thêm Assignment</button>
+        <a href="{{ url_for('admin.view_task_assignments') }}" class="button secondary-button">Hủy</a>
+    </div>
+
+</form>
+{% endblock %}
+
+{% block styles %}
+{{ super() }}
+<style>
+    /* Copy style từ các trang add/edit khác nếu cần */
+    .form-group {
+        margin-bottom: 15px;
+    }
+
+    .form-group label {
+        font-weight: bold;
+        display: block;
+        margin-bottom: 5px;
+    }
+
+    .form-group input[type="text"],
+    .form-group input[type="number"],
+    .form-group input[type="datetime-local"],
+    .form-group select,
+    .form-group textarea {
+        width: 100%;
+        max-width: 600px;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-sizing: border-box;
+    }
+
+    .form-group small {
+        font-size: 0.85em;
+        color: #555;
+        margin-top: 4px;
+        display: block;
+    }
+
+    .button.secondary-button {
+        background-color: #6c757d;
+    }
+
+    .button.secondary-button:hover {
+        background-color: #5a6268;
+    }
+
+    fieldset {
+        border: 1px solid #ccc;
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 5px;
+    }
+
+    legend {
+        font-size: 1em;
+        font-weight: bold;
+        padding: 0 10px;
+        margin-left: 10px;
+        width: auto;
+        border-bottom: none;
+    }
+
+    .form-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+    }
+
+    .error-text {
+        color: red;
+        font-size: 0.9em;
+        margin-top: 5px;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const deviceSelect = document.getElementById('device_select');
+        const accountSelect = document.getElementById('account_select');
+        const loadingSpinner = document.getElementById('account-loading-spinner');
+        const accountError = document.getElementById('account-error');
+        // Lấy giá trị account_id đã chọn trước đó (nếu có, ví dụ khi form validation lỗi)
+        const previousAccountId = "{{ current_data.device_account_id if current_data else '' }}";
+
+        function fetchAccounts(selectedDeviceId) {
+            if (!selectedDeviceId) {
+                accountSelect.innerHTML = '<option value="">-- Chọn thiết bị trước --</option>';
+                accountSelect.disabled = true;
+                accountError.style.display = 'none';
+                return;
+            }
+
+            // Hiển thị spinner, ẩn lỗi, vô hiệu hóa dropdown account
+            if (loadingSpinner) loadingSpinner.style.display = 'inline-block';
+            if (accountError) accountError.style.display = 'none';
+            accountSelect.disabled = true;
+            accountSelect.innerHTML = '<option value="">Đang tải...</option>'; // Thông báo đang tải
+
+            // Gọi API nội bộ để lấy danh sách accounts
+            // Đảm bảo endpoint này tồn tại và hoạt động trong routes.py của bạn
+            const apiUrl = `{{ url_for('admin.internal_get_accounts_for_device') }}?device_id=${selectedDeviceId}`;
+
+            fetch(apiUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(accounts => {
+                    accountSelect.innerHTML = ''; // Xóa các option cũ
+                    if (accounts && accounts.length > 0) {
+                        // Thêm option mặc định
+                        const defaultOption = document.createElement('option');
+                        defaultOption.value = "";
+                        defaultOption.textContent = "-- Chọn tài khoản --";
+                        accountSelect.appendChild(defaultOption);
+
+                        // Thêm các account vào dropdown
+                        accounts.forEach(acc => {
+                            const option = document.createElement('option');
+                            option.value = acc.device_account_id; // <<< Sử dụng device_account_id làm value
+                            option.textContent = `${acc.username || acc.account_id} (${acc.platform}) - ID: ${acc.account_id}`;
+                            // Kiểm tra và chọn lại giá trị cũ nếu có
+                            if (previousAccountId && acc.device_account_id == previousAccountId) {
+                                option.selected = true;
+                            }
+                            accountSelect.appendChild(option);
+                        });
+                        accountSelect.disabled = false; // Kích hoạt lại dropdown
+                    } else {
+                        // Không có tài khoản nào
+                        accountSelect.innerHTML = '<option value="">-- Không có tài khoản nào cho thiết bị này --</option>';
+                        accountSelect.disabled = true; // Giữ disabled
+                        if (accountError) accountError.textContent = 'Không tìm thấy tài khoản nào cho thiết bị này.';
+                        if (accountError) accountError.style.display = 'block';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching accounts:', error);
+                    accountSelect.innerHTML = '<option value="">-- Lỗi tải tài khoản --</option>';
+                    accountSelect.disabled = true;
+                    if (accountError) accountError.textContent = 'Lỗi khi tải danh sách tài khoản.';
+                    if (accountError) accountError.style.display = 'block';
+                })
+                .finally(() => {
+                    // Ẩn spinner khi hoàn tất
+                    if (loadingSpinner) loadingSpinner.style.display = 'none';
+                });
+        }
+
+        // Gắn event listener cho dropdown thiết bị
+        if (deviceSelect) {
+            deviceSelect.addEventListener('change', function () {
+                fetchAccounts(this.value);
+            });
+
+            // Gọi lần đầu nếu đã có thiết bị được chọn sẵn (trường hợp edit hoặc validation error)
+            if (deviceSelect.value) {
+                console.log("Initial device selected:", deviceSelect.value, "Fetching accounts...");
+                fetchAccounts(deviceSelect.value);
+            } else {
+                accountSelect.disabled = true; // Đảm bảo account select bị disable nếu chưa chọn device
+            }
+        }
+    });
+</script>
+{% endblock %}
