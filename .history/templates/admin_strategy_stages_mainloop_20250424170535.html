@@ -1,0 +1,226 @@
+{# templates/admin_strategy_stages_mainloop.html #}
+{% extends "admin_base.html" %}
+
+{% block title %}{{ title | default("Chi tiết Main Loop Strategy") }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    {# === Phần Header và Thông tin Strategy (Giữ nguyên) === #}
+    <div class="d-flex justify-content-between align-items-center mb-3 mt-4">
+        <h1 class="h3 mb-0 text-gray-800">{{ title }}</h1>
+        <div>
+            <a href="{{ url_for('admin.view_strategies_mainloop') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-arrow-left me-1"></i> Quay lại Danh sách
+            </a>
+            <a href="{{ url_for('admin.edit_strategy', strategy_id=strategy.strategy_id) }}"
+                class="btn btn-sm btn-outline-primary">
+                <i class="fas fa-edit me-1"></i> Sửa Strategy Info
+            </a>
+        </div>
+    </div>
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <p class="mb-1"><strong>ID:</strong> <code>{{ strategy.strategy_id }}</code></p>
+            <p class="mb-1"><strong>Loại:</strong> {{ strategy.strategy_type | capitalize }}</p>
+            <p class="mb-1"><strong>Mô tả:</strong> {{ strategy.description | default('N/A') }}</p>
+            <p class="mb-0"><strong>Initial Stage:</strong>
+                <code>{{ strategy.initial_stage_id | default('<em>Chưa chọn</em>') }}</code>
+            </p>
+        </div>
+    </div>
+
+    {# Hiển thị flash messages (Giữ nguyên) #}
+    {% include '_flash_messages.html' ignore missing %}
+
+    {# === Phần Quản lý Stages (Giữ nguyên dạng bảng) === #}
+    <div class="card shadow mb-4">
+        <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+            <h6 class="m-0 font-weight-bold text-primary"><i class="fas fa-cubes me-1"></i> Stages</h6>
+            <a href="{{ url_for('admin.add_stage_mainloop', strategy_id=strategy.strategy_id) }}"
+                class="btn btn-sm btn-success">
+                <i class="fas fa-plus me-1"></i> Thêm Stage Mới
+            </a>
+        </div>
+        <div class="card-body">
+            {% if strategy_stages %}
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered table-hover" width="100%" cellspacing="0">
+                    <thead>
+                        <tr>
+                            <th style="width: 10%;">Stage ID</th>
+                            <th style="width: 65%;">Description</th>
+                            <th style="width: 10%;" class="text-center">Order</th>
+                            <th style="width: 15%;" class="text-center">Hành động</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for stage in strategy_stages | sort(attribute='stage_order') | sort(attribute='stage_id') %}
+                        <tr>
+                            <td><code>{{ stage.stage_id }}</code></td>
+                            <td><small>{{ stage.description | default('') }}</small></td>
+                            <td class="text-center">{{ stage.stage_order }}</td>
+                            <td class="text-center text-nowrap">
+                                <a href="{{ url_for('admin.edit_stage', stage_id=stage.stage_id) }}"
+                                    class="btn btn-sm btn-outline-secondary me-1" title="Sửa Stage"><i
+                                        class="fas fa-edit"></i></a>
+                                <form action="{{ url_for('admin.delete_stage', stage_id=stage.stage_id) }}"
+                                    method="POST" class="d-inline"
+                                    onsubmit="return confirm('Xác nhận xóa stage \'{{ stage.stage_id }}\'? Các transition liên quan sẽ bị ảnh hưởng.');">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Xóa Stage"><i
+                                            class="fas fa-trash-alt"></i></button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-center text-muted fst-italic my-3">Chưa có stage nào được định nghĩa cho chiến lược này.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    {# === Phần Quản lý Transitions (CHUYỂN SANG DẠNG BẢNG) === #}
+    <div class="card shadow mb-4">
+        <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+            <h6 class="m-0 font-weight-bold text-primary"><i class="fas fa-random me-1"></i> Transitions</h6>
+            <a href="{{ url_for('admin.add_transition_mainloop', strategy_id=strategy.strategy_id) }}"
+                class="btn btn-sm btn-success">
+                <i class="fas fa-plus me-1"></i> Thêm Transition Mới
+            </a>
+        </div>
+        <div class="card-body">
+            {% if transitions %}
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered table-hover" width="100%" cellspacing="0">
+                    <thead>
+                        <tr>
+                            <th style="width: 5%;">ID</th>
+                            <th style="width: 15%;">Từ Stage</th>
+                            <th style="width: 15%;">Intent/Trigger</th>
+                            <th style="width: 5%;" class="text-center">Prio.</th>
+                            <th style="width: 15%;">Điều kiện</th>
+                            <th style="width: 20%;">Action Macro & Params</th>
+                            <th style="width: 10%;">Loop</th>
+                            <th style="width: 15%;">Đến Stage</th>
+                            <th style="width: 10%;" class="text-center">Hành động</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {# Sắp xếp transitions theo current_stage_id rồi đến priority #}
+                        {% for trans in transitions | sort(attribute='priority', reverse=True) |
+                        sort(attribute='current_stage_id') %}
+                        <tr>
+                            <td>{{ trans.transition_id }}</td>
+                            <td><code>{{ trans.current_stage_id }}</code></td>
+                            <td><code>{{ trans.user_intent | default('any') }}</code></td>
+                            <td class="text-center">{{ trans.priority }}</td>
+                            <td>
+                                {% if trans.condition_type %}
+                                <small>{{ trans.condition_type }} = {{ trans.condition_value | default('?') }}</small>
+                                {% else %}
+                                <small class="text-muted"><em>(None)</em></small>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if trans.action_macro_code %}
+                                <code>{{ trans.action_macro_code }}</code>
+                                {% if trans.action_params and trans.action_params != {} %}
+                                <pre class="param-code-table">{{ trans.action_params | tojson(indent=1) }}</pre>
+                                {% endif %}
+                                {% else %}
+                                <small class="text-muted"><em>(None)</em></small>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if trans.loop_type %}
+                                <small>{{ trans.loop_type }}
+                                    {% if trans.loop_type == 'repeat_n' %}({{ trans.loop_count }})
+                                    {% elif trans.loop_type == 'while_condition_met' %}({{ trans.loop_condition_type
+                                    }}={{ trans.loop_condition_value }})
+                                    {% endif %}
+                                </small>
+                                {% else %}
+                                <small class="text-muted"><em>(None)</em></small>
+                                {% endif %}
+                            </td>
+                            <td><code>{{ trans.next_stage_id | default('(End)') }}</code></td>
+                            <td class="text-center text-nowrap">
+                                {# Nút sửa transition #}
+                                <a href="{{ url_for('admin.edit_transition_mainloop', transition_id=trans.transition_id) }}"
+                                    class="btn btn-sm btn-outline-secondary me-1" title="Sửa Transition"><i
+                                        class="fas fa-edit fa-fw"></i></a>
+                                {# Nút xóa transition #}
+                                <form
+                                    action="{{ url_for('admin.delete_transition', transition_id=trans.transition_id) }}"
+                                    method="POST" class="d-inline"
+                                    onsubmit="return confirm('Xác nhận xóa transition ID {{ trans.transition_id }}?');">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger"
+                                        title="Xóa Transition"><i class="fas fa-trash-alt fa-fw"></i></button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-center text-muted fst-italic my-3">Chưa có transition nào được định nghĩa cho chiến lược này.
+            </p>
+            {% endif %} {# end if transitions #}
+        </div>
+    </div> {# end card transitions #}
+</div> {# end container-fluid #}
+{% endblock %}
+
+{% block styles %}
+{{ super() }}
+<style>
+    /* CSS cho bảng transition mới */
+    .table td,
+    .table th {
+        vertical-align: middle;
+        /* Căn giữa theo chiều dọc */
+        font-size: 0.9rem;
+        /* Giảm cỡ chữ một chút */
+    }
+
+    .table code {
+        font-size: 0.9em;
+        padding: 0.1em 0.3em;
+        background-color: #f1f1f1;
+        /* Nền sáng hơn cho code */
+        border-radius: 3px;
+        word-break: break-all;
+        /* Ngắt nếu quá dài */
+    }
+
+    /* CSS cho hiển thị Params trong bảng */
+    .param-code-table {
+        font-size: 0.8em;
+        /* Nhỏ hơn nữa */
+        white-space: pre-wrap;
+        word-break: break-all;
+        background-color: #f8f9fa;
+        padding: 0.2rem 0.4rem;
+        border-radius: 0.2rem;
+        margin-top: 0.2rem;
+        max-height: 100px;
+        /* Giới hạn chiều cao, thêm scroll nếu cần */
+        overflow-y: auto;
+        display: block;
+        /* Để chiếm cả dòng */
+    }
+
+    .table th {
+        background-color: #f8f9fa;
+        /* Màu nền header */
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{# Không cần JS đặc biệt cho bảng tĩnh này #}
+{% endblock %}

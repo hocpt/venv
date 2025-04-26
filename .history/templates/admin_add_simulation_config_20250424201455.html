@@ -1,0 +1,216 @@
+{# templates/admin_add_simulation_config.html #}
+{% extends "admin_base.html" %}
+
+{% block title %}{{ title | default('Thêm Cấu hình Mô phỏng Mới') }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <h1 class="mt-4">{{ title }}</h1>
+
+    {# Hiển thị flash messages #}
+    {% include '_flash_messages.html' ignore missing %}
+
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary">Thông tin Cấu hình Mô phỏng</h6>
+        </div>
+        <div class="card-body">
+            {# Form POST về route add_simulation_config #}
+            <form method="POST"> {# Action để trống sẽ post về URL hiện tại nếu route xử lý cả GET/POST #}
+
+                {# Dùng current_data để giữ lại giá trị nếu POST lỗi #}
+                {% set current = current_data if current_data else {} %}
+
+                {# Tên và Mô tả #}
+                <div class="mb-3">
+                    <label for="name" class="form-label">Tên Cấu hình (bắt buộc):</label>
+                    <input type="text" class="form-control form-control-sm" id="name" name="name"
+                        value="{{ current.name | default('') }}" required maxlength="150">
+                    <small class="form-text text-muted">Tên gợi nhớ cho cấu hình mô phỏng này.</small>
+                </div>
+                <div class="mb-3">
+                    <label for="description" class="form-label">Mô tả:</label>
+                    <textarea class="form-control form-control-sm" id="description" name="description"
+                        rows="2">{{ current.description | default('') }}</textarea>
+                </div>
+
+                <hr>
+                <h6 class="text-primary">Thiết lập Đối tượng Mô phỏng</h6>
+
+                {# Chọn Personas #}
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="persona_a_id" class="form-label">Persona A (bắt buộc):</label>
+                        <select class="form-select form-select-sm" id="persona_a_id" name="persona_a_id" required>
+                            <option value="">-- Chọn Persona A --</option>
+                            {% if personas %}
+                            {% for p in personas %} {# Biến personas truyền từ route #}
+                            <option value="{{ p.persona_id }}" {% if current.persona_a_id==p.persona_id %}selected{%
+                                endif %}>
+                                {{ p.name }} (ID: {{ p.persona_id }})
+                            </option>
+                            {% endfor %}
+                            {% else %}
+                            <option value="" disabled>Chưa có Persona nào.</option>
+                            {% endif %}
+                        </select>
+                        <small>Persona đóng vai trò khởi tạo cuộc hội thoại.</small>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="persona_b_id" class="form-label">Persona B (tùy chọn):</label>
+                        <select class="form-select form-select-sm" id="persona_b_id" name="persona_b_id">
+                            <option value="">-- Không chọn (AI mặc định) --</option>
+                            {% if personas %}
+                            {% for p in personas %} {# Biến personas truyền từ route #}
+                            <option value="{{ p.persona_id }}" {% if current.persona_b_id==p.persona_id %}selected{%
+                                endif %}>
+                                {{ p.name }} (ID: {{ p.persona_id }})
+                            </option>
+                            {% endfor %}
+                            {% else %}
+                            <option value="" disabled>Chưa có Persona nào.</option>
+                            {% endif %}
+                        </select>
+                        <small>Persona đóng vai trò phản hồi. Nếu bỏ trống, dùng AI mặc định.</small>
+                    </div>
+                </div>
+
+                {# Chọn Account Logs #}
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="account_log_a_id" class="form-label">Account Log cho A (tùy chọn):</label>
+                        <select class="form-select form-select-sm" id="account_log_a_id" name="account_log_a_id">
+                            <option value="">-- Không sử dụng Log --</option>
+                            {% if accounts %}
+                            {% for acc in accounts %} {# Biến accounts truyền từ route #}
+                            <option value="{{ acc.account_id }}" {% if current.account_log_a_id==acc.account_id
+                                %}selected{% endif %}>
+                                {{ acc.username | default(acc.account_id) }} ({{ acc.platform }})
+                            </option>
+                            {% endfor %}
+                            {% else %}
+                            <option value="" disabled>Chưa có Account nào.</option>
+                            {% endif %}
+                        </select>
+                        <small>Lịch sử hội thoại của account này sẽ được dùng làm ngữ cảnh cho Persona A.</small>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="account_log_b_id" class="form-label">Account Log cho B (tùy chọn):</label>
+                        <select class="form-select form-select-sm" id="account_log_b_id" name="account_log_b_id">
+                            <option value="">-- Không sử dụng Log --</option>
+                            {% if accounts %}
+                            {% for acc in accounts %} {# Biến accounts truyền từ route #}
+                            <option value="{{ acc.account_id }}" {% if current.account_log_b_id==acc.account_id
+                                %}selected{% endif %}>
+                                {{ acc.username | default(acc.account_id) }} ({{ acc.platform }})
+                            </option>
+                            {% endfor %}
+                            {% else %}
+                            <option value="" disabled>Chưa có Account nào.</option>
+                            {% endif %}
+                        </select>
+                        <small>Lịch sử hội thoại của account này sẽ được dùng làm ngữ cảnh cho Persona B / AI.</small>
+                    </div>
+                </div>
+
+                <hr>
+                <h6 class="text-primary">Thiết lập Mô phỏng</h6>
+
+                {# Chọn Strategy #}
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="strategy_id" class="form-label">Chiến lược Áp dụng (bắt buộc):</label>
+                        {# Dropdown này chỉ chứa language strategies đã lọc và sort từ route #}
+                        <select class="form-select form-select-sm" id="strategy_id" name="strategy_id" required>
+                            <option value="">-- Chọn Language Strategy --</option>
+                            {% if strategies %}
+                            {% for strat in strategies %} {# Biến strategies truyền từ route #}
+                            <option value="{{ strat.strategy_id }}" {% if current.strategy_id==strat.strategy_id
+                                %}selected{% endif %}>
+                                {{ strat.name }} (ID: {{ strat.strategy_id }})
+                            </option>
+                            {% endfor %}
+                            {% else %}
+                            <option value="" disabled>Chưa có Language Strategy nào.</option>
+                            {% endif %}
+                        </select>
+                        <small>Chọn Language Strategy sẽ được sử dụng trong mô phỏng.</small>
+                    </div>
+                    {# Số lần lặp #}
+                    <div class="col-md-6 mb-3">
+                        <label for="iterations" class="form-label">Số lần lặp (Iterations):</label>
+                        <input type="number" class="form-control form-control-sm" id="iterations" name="iterations"
+                            value="{{ current.iterations | default(1) }}" min="1" required>
+                        <small class="form-text text-muted">Số lượt hội thoại qua lại giữa A và B trong mỗi lần chạy mô
+                            phỏng.</small>
+                    </div>
+                </div>
+
+                {# Kích hoạt #}
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="enabled" name="enabled" value="on" {% if
+                        current.enabled is not defined or current.enabled=='on' %}checked{% endif %}>
+                    <label class="form-check-label" for="enabled">
+                        Kích hoạt Cấu hình? (Cho phép chạy mô phỏng với cấu hình này)
+                    </label>
+                </div>
+
+                {# Nút Submit và Hủy #}
+                <div class="mt-4">
+                    <button type="submit" class="btn btn-primary">Thêm Cấu hình</button>
+                    <a href="{{ cancel_url | default(url_for('admin.view_ai_simulations')) }}"
+                        class="btn btn-secondary">Hủy</a>
+                </div>
+            </form>
+        </div> {# End card-body #}
+    </div> {# End card #}
+</div> {# End container-fluid #}
+{% endblock %}
+
+{% block styles %}
+{{ super() }}
+<style>
+    /* Thêm CSS nếu cần */
+</style>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{# Thêm JS nếu cần, ví dụ: không cho chọn cùng Persona A và B #}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const personaA = document.getElementById('persona_a_id');
+        const personaB = document.getElementById('persona_b_id');
+
+        function checkPersonas() {
+            if (personaA && personaB && personaA.value && personaA.value === personaB.value) {
+                // Có thể thêm cảnh báo hoặc vô hiệu hóa nút submit
+                personaB.setCustomValidity("Persona B không được giống Persona A.");
+                personaB.reportValidity();
+            } else if (personaB) {
+                personaB.setCustomValidity(""); // Xóa lỗi nếu hợp lệ
+            }
+        }
+
+        if (personaA) personaA.addEventListener('change', checkPersonas);
+        if (personaB) personaB.addEventListener('change', checkPersonas);
+        checkPersonas(); // Kiểm tra lần đầu khi tải
+
+        // Logic tương tự cho Account Logs nếu cần
+        const logA = document.getElementById('account_log_a_id');
+        const logB = document.getElementById('account_log_b_id');
+        function checkLogs() {
+            if (logA && logB && logA.value && logA.value === logB.value) {
+                logB.setCustomValidity("Account Log cho B không được giống Account Log cho A.");
+                logB.reportValidity();
+            } else if (logB) {
+                logB.setCustomValidity("");
+            }
+        }
+        if (logA) logA.addEventListener('change', checkLogs);
+        if (logB) logB.addEventListener('change', checkLogs);
+        checkLogs();
+
+    });
+</script>
+{% endblock %}

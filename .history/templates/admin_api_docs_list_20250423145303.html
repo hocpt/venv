@@ -1,0 +1,26 @@
+{# --- Đoạn mã Test Modal Bootstrap Cơ bản --- #}
+<h4>Thử nghiệm Modal Bootstrap Đơn giản</h4>
+<button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#testStaticModal">
+    Mở Modal Test Đơn Giản
+</button>
+
+<div class="modal fade" id="testStaticModal" tabindex="-1" aria-labelledby="testStaticModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="testStaticModalLabel">Modal Test</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                Đây là nội dung modal tĩnh đơn giản.
+                <br>
+                Bạn có thể đóng nó không?
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                <button type="button" class="btn btn-primary">Nút Test (Không làm gì)</button>
+            </div>
+        </div>
+    </div>
+</div>
+{# --- Kết thúc Đoạn mã Test --- #}

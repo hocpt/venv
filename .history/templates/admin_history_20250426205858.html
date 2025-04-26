@@ -1,0 +1,173 @@
+{# templates/admin_history.html - Phiên bản chuẩn hóa Bootstrap 5 + Xóa toàn bộ #}
+{% extends "admin_base.html" %}
+{% from "_pagination_helper.html" import render_pagination %} {# Import macro phân trang #}
+
+{% block title %}{{ title | default("Lịch sử Tương tác") }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <h1 class="mt-4 mb-3">{{ title | default('Lịch sử Tương tác') }}</h1>
+    <p>Xem lại log chi tiết các lượt tương tác đã ghi nhận.</p>
+
+    {# Hiển thị flash messages #}
+    {% include '_flash_messages.html' ignore missing %}
+
+    <div class="card shadow mb-4">
+        <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+            <h6 class="m-0 font-weight-bold text-primary"><i class="fas fa-list-alt me-1"></i> Danh sách Lượt tương tác
+            </h6>
+            {# === NÚT XÓA TOÀN BỘ === #}
+            <form action="{{ url_for('admin.delete_all_history_view') }}" method="POST" class="d-inline"
+                onsubmit="return confirm('BẠN CÓ CHẮC CHẮN MUỐN XÓA TOÀN BỘ LỊCH SỬ TƯƠNG TÁC KHÔNG? Hành động này không thể hoàn tác!');">
+                <button type="submit" class="btn btn-danger btn-sm">
+                    <i class="fas fa-skull-crossbones me-1"></i> Xóa Toàn Bộ Lịch Sử
+                </button>
+            </form>
+            {# ====================== #}
+        </div>
+        <div class="card-body">
+            {# TODO: Thêm bộ lọc nếu cần (Theo Account, Strategy, Status...) #}
+
+            {# Bảng hiển thị lịch sử #}
+            {% if history_entries is defined and history_entries %} {# KIỂM TRA CHÍNH #}
+            <div class="table-responsive">
+                <table class="table table-striped table-hover table-bordered align-middle table-sm" id="historyTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th scope="col">ID</th>
+                            <th scope="col">Thời gian</th>
+                            <th scope="col">Account</th>
+                            <th scope="col">Strategy</th>
+                            <th scope="col">Stage</th>
+                            <th scope="col">Tin Nhận</th>
+                            <th scope="col">Phản Hồi</th>
+                            <th scope="col">Intent</th>
+                            <th scope="col">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for entry in history_entries %} {# VÒNG LẶP QUAN TRỌNG #}
+                        <tr>
+                            <td>{{ entry.history_id }}</td>
+                            <td class="small text-nowrap">
+                                {% if entry.timestamp %}
+                                {{ entry.timestamp.astimezone(tz=None).strftime('%Y-%m-%d %H:%M:%S') }}
+                                {% else %} N/A {% endif %}
+                            </td>
+                            <td>
+                                <code class="small">{{ entry.account_id | default('N/A') }}</code>
+                            </td>
+                            <td>
+                                <code class="small">{{ entry.strategy_id | default('N/A') }}</code>
+                            </td>
+                            <td>
+                                <code class="small">{{ entry.stage_id | default('N/A') }}</code>
+                            </td>
+                            <td class="small"> {# Tin nhắn nhận #}
+                                <details>
+                                    <summary style="cursor: pointer;">{{ entry.received_text | default('') |
+                                        truncate(30) }}</summary>
+                                    <pre
+                                        class="small bg-light p-1 rounded"><code>{{ entry.received_text | default('(Trống)') }}</code></pre>
+                                </details>
+                            </td>
+                            <td class="small"> {# Tin nhắn gửi #}
+                                <details>
+                                    <summary style="cursor: pointer;">{{ entry.sent_text | default('') | truncate(30) }}
+                                    </summary>
+                                    <pre
+                                        class="small bg-light p-1 rounded"><code>{{ entry.sent_text | default('(Trống)') }}</code></pre>
+                                </details>
+                            </td>
+                            <td> {# Intent #}
+                                <span class="badge text-bg-info rounded-pill small">{{ entry.detected_user_intent |
+                                    default('N/A') }}</span>
+                            </td>
+                            <td> {# Status #}
+                                <span class="badge
+                                    {% set status_lower = entry.status | string | lower %}
+                                    {% if 'success' in status_lower %} text-bg-success
+                                    {% elif 'error' in status_lower %} text-bg-danger
+                                    {% elif 'pending' in status_lower %} text-bg-warning
+                                    {% else %} text-bg-secondary {% endif %}
+                                    rounded-pill small">
+                                    {{ entry.status | default('N/A') }}
+                                </span>
+                            </td>
+                        </tr>
+                        {% endfor %} {# Kết thúc vòng lặp #}
+                    </tbody>
+                </table>
+            </div> {# Kết thúc table-responsive #}
+
+            {% elif history_entries is none %} {# Trường hợp lỗi DB, biến là None #}
+            <div class="alert alert-warning">Không thể tải lịch sử tương tác từ CSDL.</div>
+
+            {% else %} {# Trường hợp history_entries là list rỗng [] #}
+            <div class="alert alert-info">Chưa có lượt tương tác nào được ghi nhận.</div>
+
+            {% endif %} {# Kết thúc if history_entries #}
+        </div> {# End card-body #}
+
+        {# Phân trang #}
+        {% if pagination and pagination.total_pages > 1 %}
+        <div class="card-footer d-flex justify-content-center">
+            {{ render_pagination(pagination) }} {# Sử dụng param 'page' mặc định #}
+        </div>
+        {% endif %}
+    </div> {# End card #}
+
+</div> {# End container-fluid #}
+{% endblock %}
+
+{% block styles %}
+{{ super() }}
+<style>
+    .table pre {
+        max-height: 150px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+        font-size: 0.9em;
+    }
+
+    .table .badge {
+        font-size: 0.75em;
+    }
+
+    .table summary {
+        display: inline-block;
+        width: 100%;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        vertical-align: middle;
+    }
+
+    details summary {
+        list-style: none;
+    }
+
+    /* Hide default arrow */
+    details summary::-webkit-details-marker {
+        display: none;
+    }
+
+    /* Hide default arrow for Chrome */
+    details summary::before {
+        content: '+';
+        display: inline-block;
+        margin-right: 5px;
+        font-weight: bold;
+    }
+
+    details[open] summary::before {
+        content: '-';
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{# Thêm script nếu cần cho bộ lọc #}
+{% endblock %}

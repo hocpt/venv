@@ -1,0 +1,161 @@
+{# templates/admin_edit_scheduled_job.html #}
+{% extends "admin_base.html" %}
+
+{% block title %}{{ title | default('Sửa Scheduled Job') }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <h1 class="mt-4">{{ title }}</h1>
+    {# Hiển thị Job ID nếu có #}
+    {% if job and job.job_id %}
+    <p><small>Sửa cấu hình cho Job ID: <code>{{ job.job_id }}</code></small></p>
+    {% endif %}
+
+    {# Hiển thị flash messages nếu có lỗi validation hoặc DB #}
+    {% include '_flash_messages.html' ignore missing %}
+
+    {# Form POST về chính URL này (route edit_scheduled_job) #}
+    {# Cần đảm bảo route có thể xử lý cả GET và POST #}
+    <form method="POST">
+
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Thông tin Cấu hình Job</h6>
+            </div>
+            <div class="card-body">
+                {# Dùng current_data nếu có (khi POST lỗi), nếu không dùng job gốc #}
+                {% set current = current_data if current_data else job %}
+
+                {# Job ID chỉ hiển thị, không cho sửa #}
+                <div class="mb-3">
+                    <label class="form-label">Job ID (Mã định danh):</label>
+                    <input type="text" class="form-control form-control-sm" value="{{ job.job_id }}" readonly disabled>
+                </div>
+
+                {# Function Path dùng dropdown #}
+                <div class="mb-3">
+                    <label for="job_function_path" class="form-label">Function Path (Hàm thực thi - không thể
+                        sửa):</label>
+                    {# Hiển thị dạng readonly hoặc disabled vì thường không nên sửa function path của job đã tạo #}
+                    <input type="text" class="form-control form-control-sm" id="job_function_path"
+                        name="job_function_path" value="{{ current.job_function_path | default('') }}" readonly
+                        disabled>
+                    {# Nếu muốn cho phép sửa (không khuyến khích), dùng select như trang Add:
+                    <select class="form-select form-select-sm" id="job_function_path" name="job_function_path" required>
+                        <option value="">-- Chọn hàm thực thi --</option>
+                        {# Lặp qua available_tasks đã truyền từ route #}
+                        {% if available_tasks %}
+                        {% for display_name, func_path in available_tasks %} {# Giải nén tuple #}
+                        <option value="{{ func_path }}" {% if current.job_function_path==func_path %}selected{% endif
+                            %}>
+                            {{ display_name }} (<code>{{ func_path }}</code>)
+                        </option>
+                        {% endfor %}
+                        {% else %}
+                        <option value="" disabled>Không tìm thấy hàm tác vụ nào.</option>
+                        {% endif %}
+                    </select>
+                    #}
+                    <small class="form-text text-muted">Hàm Python sẽ được thực thi. Không thể thay đổi sau khi
+                        tạo.</small>
+                </div>
+
+
+                <div class="mb-3">
+                    <label for="description" class="form-label">Mô tả:</label>
+                    <input type="text" class="form-control form-control-sm" id="description" name="description"
+                        value="{{ current.description | default('') }}">
+                    <small class="form-text text-muted">Mô tả ngắn gọn về mục đích của job này.</small>
+                </div>
+
+                <hr>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="trigger_type" class="form-label">Loại Trigger (Trigger Type - bắt buộc):</label>
+                        {# Giả sử valid_trigger_types được truyền từ route hoặc định nghĩa cứng #}
+                        {% set valid_trigger_types = valid_trigger_types if valid_trigger_types else ['interval',
+                        'date', 'cron'] %}
+                        <select class="form-select form-select-sm" id="trigger_type" name="trigger_type" required>
+                            <option value="">-- Chọn loại Trigger --</option>
+                            {% for t_type in valid_trigger_types %}
+                            <option value="{{ t_type }}" {% if current.trigger_type==t_type %}selected{% endif %}>{{
+                                t_type }}</option>
+                            {% endfor %}
+                        </select>
+                        <small class="form-text text-muted">Cách thức kích hoạt job.</small>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="trigger_args_str" class="form-label">Tham số Trigger (Trigger Args - JSON, bắt
+                        buộc):</label>
+                    {# Sử dụng trigger_args_str đã được chuẩn bị từ route/db function #}
+                    <textarea class="form-control form-control-sm font-monospace" id="trigger_args_str"
+                        name="trigger_args_str" rows="6"
+                        required>{{ current.trigger_args_str | default('{}') }}</textarea>
+                    <small class="form-text text-muted">Nhập các tham số cho trigger dưới dạng JSON object. Ví
+                        dụ:</small>
+                    <ul>
+                        <li><small><code>interval</code>: <code>{"seconds": 30, "minutes": 5}</code></small></li>
+                        <li><small><code>date</code>: <code>{"run_date": "YYYY-MM-DD HH:MM:SS"}</code></small></li>
+                        <li><small><code>cron</code>: <code>{"hour": "9", "minute": "30"}</code></small></li>
+                    </ul>
+                </div>
+                <div class="mb-3">
+                    <label for="job_args_str" class="form-label">Tham số cho Hàm (Job Args - JSON, tùy chọn):</label>
+                    {# Dùng job_args_str đã chuẩn bị từ route GET #}
+                    <textarea class="form-control form-control-sm font-monospace" id="job_args_str" name="job_args_str"
+                        rows="5"
+                        placeholder='Nhập các tham số cần truyền cho hàm dưới dạng JSON. VD: {"persona_a_id": "pa1", ...}'>{{ current.job_args_str | default('{}') }}</textarea>
+                    <small class="form-text text-muted">Các tham số này sẽ được truyền vào hàm Python khi job
+                        chạy.</small>
+                </div>
+                <hr>
+
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="is_enabled" name="is_enabled" value="on" {% if
+                        current.is_enabled %}checked{% endif %}>
+                    <label class="form-check-label" for="is_enabled">
+                        Kích hoạt Job?
+                    </label>
+                </div>
+
+
+                {# Nút Submit và Hủy #}
+                <div class="mt-4">
+                    <button type="submit" class="btn btn-primary">Lưu Thay Đổi</button>
+                    {# Đảm bảo cancel_url được truyền từ route #}
+                    <a href="{{ cancel_url | default(url_for('admin.view_scheduled_jobs')) }}"
+                        class="btn btn-secondary">Hủy</a>
+                </div>
+            </div> {# End card-body #}
+        </div> {# End card #}
+    </form> {# End form #}
+</div> {# End container-fluid #}
+{% endblock %}
+
+{% block styles %}
+{{ super() }}
+<style>
+    .font-monospace {
+        font-family: var(--bs-font-monospace);
+    }
+
+    textarea#trigger_args_str {
+        font-size: 0.85em;
+    }
+
+    ul small code {
+        font-size: 0.9em;
+        background-color: #f1f1f1;
+        padding: 1px 3px;
+        border-radius: 3px;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{# Không cần script đặc biệt cho form này #}
+{% endblock %}

@@ -1,0 +1,215 @@
+{# templates/admin_add_transition_mainloop.html #}
+{% extends "admin_base.html" %}
+
+{% block title %}{{ title | default("Thêm Mainloop Transition") }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <h1 class="mt-4">{{ title }}</h1>
+
+    {# Hiển thị flash messages #}
+    {% include '_flash_messages.html' ignore missing %}
+
+    {# Form POST về route add_transition_mainloop #}
+    <form method="POST" action="{{ url_for('admin.add_transition_mainloop') }}">
+        {# Trường ẩn để gửi strategy_id #}
+        <input type="hidden" name="strategy_id" value="{{ strategy_id }}">
+
+        {# === Phần Thông tin Cơ bản === #}
+        <div class="card shadow mb-4">
+            <div class="card-header">Thông tin Transition Cơ bản</div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="current_stage_id" class="form-label">Từ Stage (Current Stage ID):</label>
+                        <select class="form-select form-select-sm" id="current_stage_id" name="current_stage_id"
+                            required>
+                            <option value="">-- Chọn Stage Hiện tại --</option>
+                            {% for stage in strategy_stages %}
+                            <option value="{{ stage.stage_id }}" {% if current_stage_id_prefill==stage.stage_id or
+                                (current_data and current_data.current_stage_id==stage.stage_id) %}selected{% endif %}>
+                                {{ stage.stage_id }} ({{ stage.description | default('') | truncate(30) }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="user_intent" class="form-label">Khi Intent/Trigger là:</label>
+                        {# Có thể dùng datalist hoặc select cứng cho các intent phổ biến #}
+                        <input list="intent_list" class="form-control form-control-sm" id="user_intent"
+                            name="user_intent" required
+                            value="{{ current_data.user_intent if current_data else 'any' }}">
+                        <datalist id="intent_list">
+                            <option value="any">any (Luôn khớp nếu các intent khác không khớp)</option>
+                            <option value="on_stage_entry">on_stage_entry (Khi vừa chuyển đến stage này)</option>
+                            <option value="task_completed">task_completed (Khi EXECUTE_TASK_STRATEGY thành công)
+                            </option>
+                            <option value="task_error">task_error (Khi EXECUTE_TASK_STRATEGY lỗi)</option>
+                            <option value="account_active">account_active (Kết quả CHECK_ACCOUNT_STATUS)</option>
+                            <option value="account_inactive">account_inactive (Kết quả CHECK_ACCOUNT_STATUS)</option>
+                            {# Thêm các intent khác cho mainloop #}
+                        </datalist>
+                        <small>Trigger để kích hoạt transition này (ví dụ: 'on_stage_entry', 'task_completed',
+                            'any').</small>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="next_stage_id" class="form-label">Thì chuyển đến Stage (Next Stage ID):</label>
+                        <select class="form-select form-select-sm" id="next_stage_id" name="next_stage_id">
+                            <option value="">-- (Không chuyển Stage) --</option>
+                            {% for stage in strategy_stages %} {# Chỉ hiện stage của strategy này? Hay tất cả? Tạm để
+                            tất cả #}
+                            <option value="{{ stage.stage_id }}" {% if current_data and
+                                current_data.next_stage_id==stage.stage_id %}selected{% endif %}>
+                                {{ stage.stage_id }} ({{ stage.description | default('') | truncate(30) }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <small>Stage tiếp theo sau khi transition này chạy xong.</small>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="priority" class="form-label">Độ ưu tiên (Priority):</label>
+                        <input type="number" class="form-control form-control-sm" id="priority" name="priority"
+                            value="{{ current_data.priority if current_data else '0' }}" required>
+                        <small>Số lớn hơn ưu tiên cao hơn khi có nhiều transition cùng trigger.</small>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label for="notes" class="form-label">Ghi chú:</label>
+                    <textarea class="form-control form-control-sm" id="notes" name="notes"
+                        rows="2">{{ current_data.notes if current_data else '' }}</textarea>
+                </div>
+            </div>
+        </div>
+
+        {# === Phần Điều kiện (Optional) === #}
+        <div class="card shadow mb-4">
+            <div class="card-header">Điều kiện bổ sung (Tùy chọn)</div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="condition_type" class="form-label">Loại điều kiện:</label>
+                        <select class="form-select form-select-sm" id="condition_type" name="condition_type">
+                            <option value="">-- Không có điều kiện --</option>
+                            {% for ctype in valid_condition_types %}
+                            {% if ctype %} {# Bỏ option rỗng ban đầu #}
+                            <option value="{{ ctype }}" {% if current_data and current_data.condition_type==ctype
+                                %}selected{% endif %}>{{ ctype }}</option>
+                            {% endif %}
+                            {% endfor %}
+                            <option value="variable_check" {% if current_data and
+                                current_data.condition_type=='variable_check' %}selected{% endif %}>variable_check (Kiểm
+                                tra biến)</option>
+                        </select>
+                        <small>Chỉ chạy transition nếu điều kiện này đúng.</small>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="condition_value" class="form-label">Giá trị điều kiện:</label>
+                        <input type="text" class="form-control form-control-sm" id="condition_value"
+                            name="condition_value" value="{{ current_data.condition_value if current_data else '' }}">
+                        <small>Giá trị để so sánh (ví dụ: stage ID, text, ID phần tử, tên biến:giá trị).</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# === Phần Hành động (Action) === #}
+        <div class="card shadow mb-4">
+            <div class="card-header">Hành động Thực thi</div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="action_macro_code" class="form-label">Thực thi Macro Code:</label>
+                        <select class="form-select form-select-sm" id="action_macro_code" name="action_macro_code">
+                            <option value="">-- Không thực thi Macro --</option>
+                            {% for macro in all_macros %} {# Lấy từ route #}
+                            {# Có thể thêm lọc chỉ hiển thị macro phù hợp với mainloop ở đây #}
+                            <option value="{{ macro.macro_code }}" {% if current_data and
+                                current_data.action_macro_code==macro.macro_code %}selected{% endif %}>
+                                {{ macro.macro_code }} ({{ macro.description | default('') | truncate(40) }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <small>Macro sẽ được client thực thi khi transition này chạy.</small>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label for="action_params_str" class="form-label">Tham số cho Macro (Action Params - JSON):</label>
+                    <textarea class="form-control form-control-sm font-monospace" id="action_params_str"
+                        name="action_params_str"
+                        rows="4">{{ current_data.action_params_str if current_data else '{}' }}</textarea>
+                    <small>Nhập dạng JSON object, ví dụ:
+                        <code>{"variable_name": "device_context.current_account_index", "value": 0}</code></small>
+                </div>
+            </div>
+        </div>
+
+        {# === Phần Vòng lặp (Loop Configuration) === #}
+        <div class="card shadow mb-4">
+            <div class="card-header">Cấu hình Vòng lặp (Tùy chọn)</div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label for="loop_type" class="form-label">Loại Vòng lặp:</label>
+                        <select class="form-select form-select-sm" id="loop_type" name="loop_type">
+                            <option value="">-- Không lặp --</option>
+                            <option value="repeat_n" {% if current_data and current_data.loop_type=='repeat_n'
+                                %}selected{% endif %}>Repeat N Times</option>
+                            <option value="while_condition_met" {% if current_data and
+                                current_data.loop_type=='while_condition_met' %}selected{% endif %}>While Condition Met
+                            </option>
+                            {# <option value="for_each">For Each Element</option> #} {# Sẽ thêm sau nếu cần #}
+                        </select>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label for="loop_count" class="form-label">Số lần lặp (cho Repeat N):</label>
+                        <input type="number" class="form-control form-control-sm" id="loop_count" name="loop_count"
+                            value="{{ current_data.loop_count if current_data else '' }}" min="1">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label for="loop_condition_type" class="form-label">Điều kiện Lặp (cho While):</label>
+                        <select class="form-select form-select-sm" id="loop_condition_type" name="loop_condition_type">
+                            <option value="">-- Chọn loại điều kiện --</option>
+                            <option value="variable_less_than" {% if current_data and
+                                current_data.loop_condition_type=='variable_less_than' %}selected{% endif %}>Biến &lt;
+                                Giá trị</option>
+                            <option value="variable_equals" {% if current_data and
+                                current_data.loop_condition_type=='variable_equals' %}selected{% endif %}>Biến == Giá
+                                trị</option>
+                            {# Thêm các loại điều kiện lặp khác #}
+                        </select>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label for="loop_condition_value" class="form-label">Giá trị Điều kiện Lặp:</label>
+                        <input type="text" class="form-control form-control-sm" id="loop_condition_value"
+                            name="loop_condition_value"
+                            value="{{ current_data.loop_condition_value if current_data else '' }}">
+                        <small>Ví dụ: <code>var_name:max_value</code> hoặc chỉ giá trị.</small>
+                    </div>
+                </div>
+                {# Thêm các trường loop_target_selector, loop_variable_name nếu cần #}
+            </div>
+        </div>
+
+        {# === KHÔNG CÓ PHẦN RESPONSE TEMPLATE REF CHO MAINLOOP === #}
+
+        {# Nút Submit và Hủy #}
+        <div class="mt-4 mb-5">
+            <button type="submit" class="btn btn-primary">Thêm Transition</button>
+            <a href="{{ cancel_url }}" class="btn btn-secondary">Hủy</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block styles %}
+{{ super() }}
+<style>
+    .font-monospace {
+        font-family: var(--bs-font-monospace);
+    }
+</style>
+{% endblock %}

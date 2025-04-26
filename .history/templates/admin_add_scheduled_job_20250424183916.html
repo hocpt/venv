@@ -1,0 +1,133 @@
+{# templates/admin_add_scheduled_job.html - Đã cải thiện #}
+{% extends "admin_base.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<form method="POST">
+    <div class="form-group">
+        <label for="job_id">Job ID (Định danh duy nhất - bắt buộc):</label><br>
+        <input type="text" id="job_id" name="job_id" required value="{{ current_data.job_id if current_data else '' }}"
+            maxlength="100" placeholder="ví dụ: daily_suggestion_job, weekly_cleanup...">
+        {# <<< THÊM MÔ TẢ>>> #}
+            <small>Đặt một tên định danh duy nhất, không trùng lặp, không dấu cách, dùng chữ thường, số, gạch
+                dưới.</small>
+    </div>
+
+    <div class="form-group">
+        <label for="job_function_path">Chức năng Thực thi (bắt buộc):</label><br>
+        {# <<< THAY INPUT BẰNG DROPDOWN>>> #}
+            <select name="job_function_path" id="job_function_path" required style="width: 80%;">
+                <option value="">-- Chọn chức năng cần chạy --</option>
+                {# Lặp qua dictionary available_tasks được truyền từ route #}
+                {% for display_name, function_path in available_tasks.items() %}
+                <option value="{{ function_path }}" {% if current_data and current_data.job_function_path==function_path
+                    %}selected{% endif %}>
+                    {{ display_name }} (<code>{{ function_path }}</code>)
+                </option>
+                {% endfor %}
+            </select>
+            <small>Chọn tác vụ nền đã được lập trình sẵn để lên lịch chạy.</small>
+            {# Optional: Giữ lại input text nếu muốn cho phép nhập đường dẫn tùy chỉnh nâng cao #}
+            {# <input type="text" id="job_function_path_custom" name="job_function_path_custom"
+                value="{{ current_data.job_function_path if current_data }}" style="width: 80%; margin-top: 5px;"
+                placeholder="Hoặc nhập đường dẫn Python tùy chỉnh (nâng cao)..."><br> #}
+    </div>
+
+    <div class="form-group">
+        <label for="trigger_type">Loại Trigger (Cách kích hoạt - bắt buộc):</label><br>
+        <select name="trigger_type" id="trigger_type" required>
+            <option value="">-- Chọn Loại Trigger --</option>
+            {% set current_type = current_data.trigger_type if current_data else '' %}
+            {% for type in trigger_types %}
+            <option value="{{ type }}" {% if current_type==type %}selected{% endif %}>{{ type | capitalize }}</option>
+            {# Hiển thị viết hoa chữ đầu #}
+            {% endfor %}
+        </select>
+        <small>Chọn 'interval' để chạy định kỳ, 'cron' để chạy theo lịch phức tạp, 'date' để chạy một lần.</small>
+    </div>
+
+    <div class="form-group">
+        <label for="trigger_args">Tham số Trigger (JSON - bắt buộc):</label><br>
+        <textarea id="trigger_args" name="trigger_args" rows="6" style="width: 80%; font-family: monospace;" required
+            placeholder='Nhập cấu hình trigger dạng JSON...'>{{ current_data.trigger_args if current_data else '{}' }}</textarea><br>
+        {# <<< THÊM MÔ TẢ CHI TIẾT HƠN>>> #}
+            <small>
+                Nhập đối tượng JSON (bắt đầu bằng <code>{</code>, kết thúc bằng <code>}</code>) chứa các tham số cho
+                loại trigger đã chọn.<br>
+                <strong>Ví dụ cho 'interval':</strong> <code>{"minutes": 30}</code> (30 phút một lần),
+                <code>{"hours": 1, "jitter": 60}</code> (1 giờ một lần, +/- 60s ngẫu nhiên).<br>
+                <strong>Ví dụ cho 'cron':</strong> <code>{"hour": 3, "minute": 0}</code> (3 giờ sáng mỗi ngày),
+                <code>{"day_of_week": "0", "hour": "9-17"}</code> (9h-17h Chủ Nhật). Xem <a href="https://crontab.guru/"
+                    target="_blank">crontab.guru</a> để hiểu thêm.<br>
+                <strong>Ví dụ cho 'date':</strong> <code>{"run_date": "2025-12-31 23:59:00"}</code> (Chạy một lần vào
+                ngày giờ cụ thể).<br>
+                <em>Lưu ý: Ngày giờ nên dùng định dạng YYYY-MM-DD HH:MM:SS. Múi giờ theo server ({{
+                    config.SCHEDULER_TIMEZONE if config and config.SCHEDULER_TIMEZONE else 'Asia/Ho_Chi_Minh' }}).</em>
+            </small>
+    </div>
+
+    <div class="form-group">
+        <label for="description">Mô tả (Tùy chọn):</label><br>
+        <textarea id="description" name="description" rows="2"
+            style="width: 80%;">{{ current_data.description if current_data else '' }}</textarea>
+    </div>
+
+    <div class="form-group">
+        <label for="is_enabled">Kích hoạt sau khi thêm?</label>
+        <input type="checkbox" id="is_enabled" name="is_enabled" value="on" {% if current_data is not defined or
+            current_data.get('is_enabled')=='on' %}checked{% endif %}>
+        <small>(Nếu chọn, job sẽ được thêm vào lịch chạy ở lần khởi động server tiếp theo).</small>
+    </div>
+
+    <div class="form-actions" style="margin-top: 20px;">
+        <button type="submit" class="button">Thêm Tác vụ</button>
+        <a href="{{ url_for('admin.view_scheduled_jobs') }}">Hủy</a>
+    </div>
+</form>
+{% endblock %}
+
+{# Kế thừa style từ base và thêm style cho form-group nếu cần #}
+{% block styles %}
+{{ super() }}
+<style>
+    .form-group {
+        margin-bottom: 15px;
+    }
+
+    .form-group label {
+        font-weight: bold;
+        display: block;
+        margin-bottom: 5px;
+    }
+
+    .form-group input[type="text"],
+    .form-group input[type="number"],
+    .form-group select,
+    .form-group textarea {
+        width: 100%;
+        max-width: 600px;
+        /* Giới hạn chiều rộng tối đa */
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-sizing: border-box;
+    }
+
+    .form-group small {
+        font-size: 0.85em;
+        color: #555;
+        margin-top: 4px;
+        display: block;
+    }
+
+    .form-group code {
+        background-color: #eee;
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 0.9em;
+    }
+
+    .form-actions {
+        margin-top: 20px;
+    }
+</style>
+{% endblock %}

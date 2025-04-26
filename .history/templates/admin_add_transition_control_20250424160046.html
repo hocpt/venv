@@ -1,0 +1,321 @@
+{# templates/admin_add_transition_control.html #}
+{% extends "admin_base.html" %}
+
+{% block title %}{{ title | default("Thêm Control Transition") }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <h1 class="mt-4">{{ title }}</h1>
+    {# Hiển thị strategy_id nếu được truyền từ route #}
+    {% if strategy_id %}
+    <p><small>Cho Strategy: <code>{{ strategy_id }}</code></small></p>
+    {% endif %}
+
+    {# Hiển thị flash messages #}
+    {% include '_flash_messages.html' ignore missing %}
+
+    {# Form POST về route add_transition_control #}
+    <form method="POST" action="{{ url_for('admin.add_transition_control') }}">
+        {# Trường ẩn để gửi strategy_id #}
+        <input type="hidden" name="strategy_id" value="{{ strategy_id }}">
+
+        {# === Phần Thông tin Cơ bản === #}
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Thông tin Transition Cơ bản</h6>
+            </div>
+            <div class="card-body">
+                {# Dùng current_data để giữ lại giá trị nếu POST lỗi #}
+                {% set current = current_data if current_data else {} %}
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="current_stage_id" class="form-label">Từ Stage (Current Stage ID):</label>
+                        {# Dropdown này chỉ chứa các stage của strategy hiện tại (truyền qua strategy_stages) #}
+                        <select class="form-select form-select-sm" id="current_stage_id" name="current_stage_id"
+                            required>
+                            <option value="">-- Chọn Stage Hiện tại --</option>
+                            {% if strategy_stages %}
+                            {% for stage in strategy_stages | sort(attribute='stage_id') %} {# Sắp xếp stage hiện tại #}
+                            {# Chọn sẵn stage nếu được truyền từ URL hoặc từ lỗi POST #}
+                            <option value="{{ stage.stage_id }}" {% if current_stage_id_prefill==stage.stage_id or
+                                current.current_stage_id==stage.stage_id %}selected{% endif %}>
+                                {{ stage.stage_id }} {{ ('('+stage.description[:30]+'...)') if stage.description else ''
+                                }}
+                            </option>
+                            {% endfor %}
+                            {% endif %}
+                        </select>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="user_intent" class="form-label">Khi Intent/Trigger là:</label>
+                        {# Dùng datalist cho phép nhập tùy ý hoặc chọn từ gợi ý #}
+                        <input list="intent_list" class="form-control form-control-sm" id="user_intent"
+                            name="user_intent" required value="{{ current.user_intent | default('any') }}">
+                        <datalist id="intent_list">
+                            <option value="any">any</option>
+                            <option value="on_stage_entry">on_stage_entry</option>
+                            <option value="element_clicked">element_clicked</option>
+                            <option value="element_not_found">element_not_found</option>
+                            <option value="user_input_match:*">user_input_match:*</option>
+                            <option value="api_call_success">api_call_success</option>
+                            <option value="api_call_error">api_call_error</option>
+                            {# Thêm các intent khác nếu cần #}
+                        </datalist>
+                        <small>Trigger để kích hoạt transition này.</small>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="next_stage_id" class="form-label">Thì chuyển đến Stage (Next Stage ID):</label>
+                        <select class="form-select form-select-sm" id="next_stage_id" name="next_stage_id">
+                            <option value="">-- (Không chuyển Stage / Kết thúc) --</option>
+                            {% if all_stages %}
+                            {# === ĐẢM BẢO CÓ | sort(attribute='stage_id') Ở ĐÂY === #}
+                            {% for stage in all_stages | sort(attribute='stage_id') %}
+                            <option value="{{ stage.stage_id }}" {% if current.next_stage_id==stage.stage_id
+                                %}selected{% endif %}>
+                                {# Hiển thị stage_id và strategy_id gốc để phân biệt #}
+                                {{ stage.stage_id }} ({{ stage.strategy_id }})
+                            </option>
+                            {% endfor %}
+                            {# === KẾT THÚC SORT === #}
+                            {% else %}
+                            <option value="" disabled>Chưa có stage nào được định nghĩa cho strategy này.</option> {#
+                            Sửa lại text nếu cần #}
+                            {% endif %}
+                        </select>
+                        <small>Chỉ hiển thị các stage thuộc strategy này (Đã sắp xếp theo ID).</small> {# Cập nhật hướng
+                        dẫn #}
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="priority" class="form-label">Độ ưu tiên (Priority):</label>
+                        <input type="number" class="form-control form-control-sm" id="priority" name="priority"
+                            value="{{ current.priority | default(0) }}" required>
+                        <small>Số lớn hơn ưu tiên cao hơn.</small>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label for="notes" class="form-label">Ghi chú:</label>
+                    <textarea class="form-control form-control-sm" id="notes" name="notes"
+                        rows="2">{{ current.notes | default('') }}</textarea>
+                </div>
+            </div>
+        </div>
+
+        {# === Phần Điều kiện (Optional) === #}
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Điều kiện bổ sung (Tùy chọn)</h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="condition_type" class="form-label">Loại điều kiện:</label>
+                        <select class="form-select form-select-sm" id="condition_type" name="condition_type">
+                            <option value="">-- Không có điều kiện --</option>
+                            {# Giả sử valid_condition_types được truyền từ route #}
+                            {% if valid_condition_types %}
+                            {% for ctype in valid_condition_types %}
+                            {% if ctype %}
+                            <option value="{{ ctype }}" {% if current.condition_type==ctype %}selected{% endif %}>{{
+                                ctype }}</option>
+                            {% endif %}
+                            {% endfor %}
+                            {% endif %}
+                            <option value="element_visible" {% if current.condition_type=='element_visible' %}selected{%
+                                endif %}>element_visible</option>
+                            <option value="element_not_visible" {% if current.condition_type=='element_not_visible'
+                                %}selected{% endif %}>element_not_visible</option>
+                            <option value="variable_check" {% if current.condition_type=='variable_check' %}selected{%
+                                endif %}>variable_check</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="condition_value" class="form-label">Giá trị điều kiện:</label>
+                        <input type="text" class="form-control form-control-sm" id="condition_value"
+                            name="condition_value" value="{{ current.condition_value | default('') }}">
+                        <small>Ví dụ: ID element, text, hoặc <code>var_name:expected_value</code>.</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# === Phần Hành động (Action) === #}
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Hành động Thực thi</h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="action_macro_code" class="form-label">Thực thi Macro Code:</label>
+                        <select class="form-select form-select-sm" id="action_macro_code" name="action_macro_code">
+                            <option value="">-- Không thực thi Macro --</option>
+                            {% if all_macros %}
+                            {% for macro in all_macros | sort(attribute='macro_code') %} {# Sắp xếp macro #}
+                            {# Có thể lọc chỉ hiện macro cho Control ở đây nếu muốn #}
+                            <option value="{{ macro.macro_code }}" {% if current.action_macro_code==macro.macro_code
+                                %}selected{% endif %}>
+                                {{ macro.macro_code }} ({{ macro.description | default('') | truncate(40) }})
+                            </option>
+                            {% endfor %}
+                            {% endif %}
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label for="action_params_str" class="form-label">Tham số cho Macro (Action Params - JSON):</label>
+                    <textarea class="form-control form-control-sm font-monospace" id="action_params_str"
+                        name="action_params_str" rows="4">{{ current.action_params_str | default('{}') }}</textarea>
+                    <small>Nhập dạng JSON object, ví dụ: <code>{"target": {"text": "Next"}}</code></small>
+                </div>
+            </div>
+        </div>
+
+        {# === Phần Vòng lặp (Loop Configuration) === #}
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Cấu hình Vòng lặp (Tùy chọn)</h6>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label for="loop_type" class="form-label">Loại Vòng lặp:</label>
+                        <select class="form-select form-select-sm" id="loop_type" name="loop_type">
+                            <option value="">-- Không lặp --</option>
+                            <option value="repeat_n" {% if current.loop_type=='repeat_n' %}selected{% endif %}>Repeat N
+                                Times</option>
+                            <option value="while_condition_met" {% if current.loop_type=='while_condition_met'
+                                %}selected{% endif %}>While Condition Met</option>
+                            <option value="for_each" {% if current.loop_type=='for_each' %}selected{% endif %}>For Each
+                                Element</option>
+                        </select>
+                    </div>
+                    {# Trường số lần lặp (chỉ hiện khi cần) #}
+                    <div class="col-md-4 mb-3 loop-detail loop-repeat-n" style="display: none;">
+                        <label for="loop_count" class="form-label">Số lần lặp (cho Repeat N):</label>
+                        <input type="number" class="form-control form-control-sm" id="loop_count" name="loop_count"
+                            value="{{ current.loop_count if current.loop_count is not none else '' }}" min="1">
+                    </div>
+                </div>
+                {# Trường điều kiện lặp (chỉ hiện khi cần) #}
+                <div class="row loop-detail loop-while" style="display: none;">
+                    <div class="col-md-4 mb-3">
+                        <label for="loop_condition_type" class="form-label">Điều kiện Lặp (cho While):</label>
+                        <select class="form-select form-select-sm" id="loop_condition_type" name="loop_condition_type">
+                            <option value="">-- Chọn loại điều kiện --</option>
+                            <option value="element_exists" {% if current.loop_condition_type=='element_exists'
+                                %}selected{% endif %}>Element Exists</option>
+                            <option value="element_not_exists" {% if current.loop_condition_type=='element_not_exists'
+                                %}selected{% endif %}>Element Not Exists</option>
+                            <option value="variable_equals" {% if current.loop_condition_type=='variable_equals'
+                                %}selected{% endif %}>Variable Equals</option>
+                            {# Thêm các loại điều kiện khác #}
+                        </select>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label for="loop_condition_value" class="form-label">Giá trị Điều kiện Lặp:</label>
+                        <input type="text" class="form-control form-control-sm" id="loop_condition_value"
+                            name="loop_condition_value" value="{{ current.loop_condition_value | default('') }}">
+                        <small>Ví dụ: Selector hoặc <code>var_name:value</code>.</small>
+                    </div>
+                </div>
+                {# Trường selector và tên biến (chỉ hiện khi cần) #}
+                <div class="loop-detail loop-for-each" style="display: none;">
+                    <div class="mb-3">
+                        <label for="loop_target_selector_str" class="form-label">Selector Mục tiêu Lặp (cho For Each -
+                            JSON):</label>
+                        <textarea class="form-control form-control-sm font-monospace" id="loop_target_selector_str"
+                            name="loop_target_selector_str"
+                            rows="3">{{ current.loop_target_selector_str | default('') }}</textarea>
+                        <small>JSON object mô tả các element cần lặp qua (ví dụ:
+                            <code>{"resource_id": "com.xyz/item"}</code>).</small>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label for="loop_variable_name" class="form-label">Tên Biến Lưu Phần tử Lặp:</label>
+                        <input type="text" class="form-control form-control-sm" id="loop_variable_name"
+                            name="loop_variable_name" value="{{ current.loop_variable_name | default('') }}">
+                        <small>Tên biến client sẽ dùng để lưu trữ element hiện tại.</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# === Phần Response Template (Giữ lại cho Control) === #}
+        <div class="card shadow mb-4">
+            <div class="card-header py-3">
+                <h6 class="m-0 font-weight-bold text-primary">Phản hồi Tùy chỉnh (nếu Action là gọi AI - Tùy chọn)</h6>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="response_template_ref" class="form-label">Sử dụng Response Template:</label>
+                    <select class="form-select form-select-sm" id="response_template_ref" name="response_template_ref">
+                        <option value="">-- Không dùng / Mặc định --</option>
+                        {% if all_templates %}
+                        {% for tpl in all_templates | sort(attribute='template_ref') %} {# Sắp xếp template #}
+                        <option value="{{ tpl.template_ref }}" {% if current.response_template_ref==tpl.template_ref
+                            %}selected{% endif %}>
+                            {{ tpl.template_ref }} {{ ('('+tpl.category+')') if tpl.category else '' }}
+                        </option>
+                        {% endfor %}
+                        {% endif %}
+                    </select>
+                    <small>Chọn template định nghĩa các câu trả lời.</small>
+                </div>
+            </div>
+        </div>
+
+        {# Nút Submit và Hủy #}
+        <div class="mt-4 mb-5">
+            <button type="submit" class="btn btn-primary">Thêm Transition</button>
+            {# Đảm bảo cancel_url được truyền từ route #}
+            <a href="{{ cancel_url | default(url_for('admin.view_strategy_stages_control', strategy_id=strategy_id)) }}"
+                class="btn btn-secondary">Hủy</a>
+        </div>
+    </form>
+</div> {# End container-fluid #}
+{% endblock %}
+
+{% block styles %}
+{{ super() }}
+<style>
+    .font-monospace {
+        font-family: var(--bs-font-monospace);
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{# Script ẩn/hiện các trường loop chi tiết #}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const loopTypeSelect = document.getElementById('loop_type');
+        const loopDetails = document.querySelectorAll('.loop-detail'); // Lấy tất cả các nhóm trường loop chi tiết
+
+        function toggleLoopFields() {
+            const selectedType = loopTypeSelect ? loopTypeSelect.value : '';
+
+            // Ẩn tất cả các nhóm chi tiết trước
+            loopDetails.forEach(el => el.style.display = 'none');
+
+            // Hiện nhóm tương ứng
+            if (selectedType === 'repeat_n') {
+                const targetGroup = document.querySelector('.loop-repeat-n');
+                if (targetGroup) targetGroup.style.display = 'block'; // Hoặc dùng class tương ứng
+            } else if (selectedType === 'while_condition_met') {
+                const targetGroup = document.querySelector('.loop-while');
+                if (targetGroup) targetGroup.style.display = 'flex'; // Hoặc 'block' nếu cấu trúc khác
+            } else if (selectedType === 'for_each') {
+                const targetGroup = document.querySelector('.loop-for-each');
+                if (targetGroup) targetGroup.style.display = 'block';
+            }
+        }
+
+        if (loopTypeSelect) {
+            toggleLoopFields(); // Chạy lần đầu khi tải trang
+            loopTypeSelect.addEventListener('change', toggleLoopFields); // Chạy khi thay đổi lựa chọn
+        }
+    });
+</script>
+{% endblock %}

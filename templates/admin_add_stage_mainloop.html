@@ -1,0 +1,56 @@
+{# templates/admin_add_stage_mainloop.html #}
+{% extends "admin_base.html" %}
+
+{% block title %}{{ title | default("Thêm Stage cho Mainloop Strategy") }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <h1 class="mt-4">{{ title }}</h1>
+
+    {# Hiển thị flash messages nếu có lỗi validation hoặc DB #}
+    {% include '_flash_messages.html' ignore missing %}
+
+    {# Form POST về route add_stage_mainloop #}
+    <form method="POST" action="{{ url_for('admin.add_stage_mainloop') }}">
+        {# Trường ẩn để gửi strategy_id #}
+        <input type="hidden" name="strategy_id" value="{{ strategy_id }}">
+
+        {# Các trường input thông tin Stage #}
+        <div class="row">
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <label for="stage_id" class="form-label">Stage ID (bắt buộc):</label>
+                    <input type="text" class="form-control form-control-sm" id="stage_id" name="stage_id" required
+                        maxlength="50" value="{{ current_data.stage_id if current_data else '' }}">
+                    <small class="form-text text-muted">Mã định danh duy nhất cho stage này trong strategy hiện tại (ví
+                        dụ: init_loop, select_account, run_task).</small>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <label for="stage_order" class="form-label">Thứ tự hiển thị (Stage Order):</label>
+                    <input type="number" class="form-control form-control-sm" id="stage_order" name="stage_order"
+                        value="{{ current_data.stage_order if current_data else '0' }}" required>
+                    <small class="form-text text-muted">Số nguyên để sắp xếp thứ tự hiển thị các stage.</small>
+                </div>
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label for="description" class="form-label">Mô tả:</label>
+            <textarea class="form-control form-control-sm" id="description" name="description"
+                rows="3">{{ current_data.description if current_data else '' }}</textarea>
+            <small class="form-text text-muted">Mô tả ngắn gọn về mục đích của stage này trong vòng lặp chính.</small>
+        </div>
+
+        {# === KHÔNG CÓ TRƯỜNG IDENTIFYING ELEMENTS CHO MAINLOOP === #}
+
+        {# Nút Submit và Hủy #}
+        <div class="mt-4">
+            <button type="submit" class="btn btn-primary">Thêm Stage</button>
+            <a href="{{ cancel_url | default(url_for('admin.view_strategies_mainloop')) }}"
+                class="btn btn-secondary">Hủy</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
