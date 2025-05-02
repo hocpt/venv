@@ -1,0 +1,41 @@
+{
+    "device_id": "[v=v_device_id]",
+    "account_id": "[v=v_current_account_id]",
+    "assignment_id": null,
+    "status_report": {
+        "current_status": "exploring_start"
+    },
+    "logs": [],
+    "current_ui_state": {
+        "current_screen": "exploring_start",
+        "current_action": null,
+        "previous_screen": null,
+        "previous_action": null
+    },
+    "current_action": null
+}
+
+  {
+    "device_id": "{lv=device_id}",
+    "account_id": "{lv=account_id}",
+    "assignment_id": null,
+    "status_report"{
+        "current_status": "exploring_start"
+    },
+    "logs": [],
+    "current_ui_state": {
+    
+        "timestamp": "{lv=strDate}",
+    
+        "package_name": "{lv=package_name}",
+    
+        "activity_name": "",
+    
+        "ids": "{lv=arrID}",
+    
+        "texts": "{lv=arrTen}",
+    
+        "coords": "{lv=arrXY}"
+    },
+    "previous_action": nul
+}
