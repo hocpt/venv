@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <meta name="description" content="Bảng điều khiển Quản trị HPT Automation" />
+    <meta name="author" content="HPT" />
+    <title>{% block title %}Admin Dashboard{% endblock %} - HPT Automation</title>
+
+    {# --- CSS --- #}
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+        integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA=="
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
+    {# File CSS tùy chỉnh của bạn - Bây giờ không cần các style cho sidebar cũ nữa #}
+    <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet" />
+    <style>
+        /* Thêm style nhỏ để đảm bảo khoảng cách dưới navbar */
+        body {
+            padding-top: 56px;
+            /* Chiều cao mặc định của navbar Bootstrap */
+            /* Xóa các style liên quan đến margin/padding của sidebar cũ trong style.css */
+        }
+
+        /* Căn chỉnh dropdown menu con sang trái nếu cần */
+        .dropdown-menu {
+            /* Có thể thêm style custom cho dropdown nếu muốn */
+        }
+
+        .navbar-nav .nav-item {
+            margin-right: 0.5rem;
+            /* Khoảng cách giữa các mục menu chính */
+        }
+
+        .navbar-dark .navbar-nav .nav-link {
+            color: rgba(255, 255, 255, .75);
+            /* Màu chữ nhạt hơn mặc định */
+        }
+
+        .navbar-dark .navbar-nav .nav-link:hover,
+        .navbar-dark .navbar-nav .nav-link:focus {
+            color: rgba(255, 255, 255, 1);
+            /* Sáng hơn khi hover/focus */
+        }
+
+        .navbar-dark .navbar-nav .nav-link.active {
+            color: #fff;
+            /* Màu chữ active */
+            font-weight: 500;
+        }
+
+        .dropdown-item {
+            font-size: 0.9em;
+        }
+
+        .dropdown-item.active,
+        .dropdown-item:active {
+            background-color: #0d6efd;
+            /* Màu nền khi active */
+        }
+    </style>
+
+    {% block styles %}{% endblock %}
+</head>
+
+<body> {# <<< Xóa class sb-nav-fixed nếu bạn không muốn navbar cố định khi cuộn>>> #}
+
+        {# ==================== Thanh Điều hướng Ngang Mới ==================== #}
+        {# Dùng navbar của Bootstrap, cố định ở trên cùng (fixed-top) #}
+        <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top shadow-sm">
+            <div class="container-fluid"> {# Dùng container-fluid để chiếm hết chiều ngang #}
+                {# Brand/Logo #}
+                <a class="navbar-brand" href="{{ url_for('admin.index') }}">HPT Automation</a>
+
+                {# Nút bấm Thu gọn cho màn hình nhỏ #}
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#navbarNavDropdown" aria-controls="navbarNavDropdown" aria-expanded="false"
+                    aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                {# Nội dung Menu Chính (sẽ thu gọn trên màn hình nhỏ) #}
+                <div class="collapse navbar-collapse" id="navbarNavDropdown">
+                    <ul class="navbar-nav me-auto mb-2 mb-lg-0"> {# me-auto để đẩy các mục sang trái #}
+
+                        {# --- Mục Dashboard --- #}
+                        <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'admin.index' %}active{% endif %}"
+                                href="{{ url_for('admin.index') }}">
+                                <i class="fas fa-tachometer-alt fa-fw me-1"></i>Dashboard
+                            </a>
+                        </li>
+
+                        {# --- Mục Thiết bị & Tài khoản (Dropdown) --- #}
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle {% if request.endpoint.startswith('admin.view_devices') or request.endpoint.startswith('admin.view_accounts') %}active{% endif %}"
+                                href="#" id="navbarDropdownDevicesAccounts" role="button" data-bs-toggle="dropdown"
+                                aria-expanded="false">
+                                <i class="fas fa-server fa-fw me-1"></i> Thiết bị & Tài khoản
+                            </a>
+                            <ul class="dropdown-menu" aria-labelledby="navbarDropdownDevicesAccounts">
+                                <li><a class="dropdown-item {% if request.endpoint.startswith('admin.view_devices') %}active{% endif %}"
+                                        href="{{ url_for('admin.view_devices') }}">Quản lý Thiết bị</a></li>
+                                <li><a class="dropdown-item {% if request.endpoint.startswith('admin.view_accounts') %}active{% endif %}"
+                                        href="{{ url_for('admin.view_accounts') }}">Quản lý Tài khoản</a></li>
+                            </ul>
+                        </li>
+
+                        {# --- Mục Nhiệm vụ & Vận hành (Dropdown) --- #}
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle {% if request.endpoint.startswith('admin.view_task_assignments') or request.endpoint == 'admin.view_history' %}active{% endif %}"
+                                href="#" id="navbarDropdownTasksOps" role="button" data-bs-toggle="dropdown"
+                                aria-expanded="false">
+                                <i class="fas fa-tasks fa-fw me-1"></i> Nhiệm vụ & Vận hành
+                            </a>
+                            <ul class="dropdown-menu" aria-labelledby="navbarDropdownTasksOps">
+                                <li><a class="dropdown-item {% if request.endpoint.startswith('admin.view_task_assignments') %}active{% endif %}"
+                                        href="{{ url_for('admin.view_task_assignments') }}">Quản lý Giao việc</a></li>
+                                <li><a class="dropdown-item {% if request.endpoint == 'admin.view_history' %}active{% endif %}"
+                                        href="{{ url_for('admin.view_history') }}">Lịch sử Tương tác</a></li>
+                                {# Thêm link Phone Logs nếu có #}
+                            </ul>
+                        </li>
+
+                        {# --- Mục Cấu hình Chiến lược (Dropdown) --- #}
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle {% if request.endpoint.startswith('admin.view_strategies') or request.endpoint.startswith('admin.view_strategy_stages') or request.endpoint.startswith('admin.edit_strategy') or request.endpoint.startswith('admin.add_strategy') or request.endpoint.startswith('admin.view_macro') or request.endpoint.startswith('admin.view_rules') or request.endpoint.startswith('admin.view_templates') or request.endpoint.startswith('admin.edit_stage') or request.endpoint.startswith('admin.add_stage') or request.endpoint.startswith('admin.edit_transition') or request.endpoint.startswith('admin.add_transition') %}active{% endif %}"
+                                href="#" id="navbarDropdownStrategies" role="button" data-bs-toggle="dropdown"
+                                aria-expanded="false">
+                                <i class="fas fa-cogs fa-fw me-1"></i> Cấu hình Chiến lược
+                            </a>
+                            <ul class="dropdown-menu" aria-labelledby="navbarDropdownStrategies">
+                                <li>
+                                    <h6 class="dropdown-header">--Control--</h6>
+                                </li>
+                                <li><a class="dropdown-item {% if request.endpoint.startswith('admin.view_strategies_control') %}active{% endif %}"
+                                        href="{{ url_for('admin.view_strategies_control') }}">Chiến lược Điều khiển</a>
+                                </li>
+                                <li><a class="dropdown-item {% if request.endpoint.startswith('admin.view_macro_definitions') %}active{% endif %}"
+                                        href="{{ url_for('admin.view_macro_definitions') }}">Định nghĩa Macro</a></li>
+                                <li><a class="dropdown-item {% if request.endpoint.startswith('admin.view_strategies_mainloop') %}active{% endif %}"
+                                        href="{{ url_for('admin.view_strategies_mainloop') }}">Chiến lược Main Loop</a>
+                                </li>
+                                <li>
+                                    <hr class="dropdown-divider">
+                                </li>
+                                <li>
+                                    <h6 class="dropdown-header">--Language--</h6>
+                                </li>
+                                <li><a class="dropdown-item {% if request.endpoint.startswith('admin.view_strategies_language') %}active{% endif %}"
+                                        href="{{ url_for('admin.view_strategies_language') }}">Chiến lược Language</a>
+                                </li>
+                                <li><a class="dropdown-item {% if request.endpoint.startswith('admin.view_rules') %}active{% endif %}"
+                                        href="{{ url_for('admin.view_rules') }}">Simple Rules</a></li>
+                                <li><a class="dropdown-item {% if request.endpoint.startswith('admin.view_templates') %}active{% endif %}"
+                                        href="{{ url_for('admin.view_templates') }}">Response Templates</a></li>
+                            </ul>
+                        </li>
+
+                        {# --- Mục Cấu hình AI & Hệ thống (Dropdown) --- #}
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle {% if request.endpoint.startswith('admin.view_api_keys') or request.endpoint.startswith('admin.view_personas') or request.endpoint.startswith('admin.view_prompt_templates') or request.endpoint.startswith('admin.view_suggestions') or request.endpoint.startswith('admin.view_ai_simulations') or request.endpoint.startswith('admin.view_api_documentation') or request.endpoint.startswith('admin.view_scheduled_jobs') %}active{% endif %}"
+                                href="#" id="navbarDropdownAISystem" role="button" data-bs-toggle="dropdown"
+                                aria-expanded="false">
+                                <i class="fas fa-brain fa-fw me-1"></i> AI & Hệ thống
+                            </a>
+                            <ul class="dropdown-menu" aria-labelledby="navbarDropdownAISystem">
+                                <li>
+                                    <h6 class="dropdown-header">Cấu hình AI</h6>
+                                </li>
+                                <li><a class="dropdown-item {% if request.endpoint.startswith('admin.view_api_keys') %}active{% endif %}"
+                                        href="{{ url_for('admin.view_api_keys') }}">API Keys</a></li>
+                                <li><a class="dropdown-item {% if request.endpoint.startswith('admin.view_personas') %}active{% endif %}"
+                                        href="{{ url_for('admin.view_personas') }}">AI Personas</a></li>
+                                <li><a class="dropdown-item {% if request.endpoint.startswith('admin.view_prompt_templates') %}active{% endif %}"
+                                        href="{{ url_for('admin.view_prompt_templates') }}">Prompt Templates</a></li>
+                                <li><a class="dropdown-item {% if request.endpoint.startswith('admin.view_suggestions') %}active{% endif %}"
+                                        href="{{ url_for('admin.view_suggestions') }}">AI Suggestions</a></li>
+                                <li><a class="dropdown-item {% if request.endpoint.startswith('admin.view_ai_simulations') %}active{% endif %}"
+                                        href="{{ url_for('admin.view_ai_simulations') }}">AI Simulations</a></li>
+                                <li>
+                                    <hr class="dropdown-divider">
+                                </li>
+                                <li>
+                                    <h6 class="dropdown-header">Hệ thống</h6>
+                                </li>
+                                <li><a class="dropdown-item {% if request.endpoint.startswith('admin.view_scheduled_jobs') %}active{% endif %}"
+                                        href="{{ url_for('admin.view_scheduled_jobs') }}">Scheduled Jobs</a></li>
+                                <li><a class="dropdown-item {% if request.endpoint == 'admin.view_api_documentation' %}active{% endif %}"
+                                        href="{{ url_for('admin.view_api_documentation') }}">API Docs (Client)</a></li>
+                                {# Thêm link khác nếu cần #}
+                            </ul>
+                        </li>
+
+                        {# Thêm các mục menu cấp cao khác nếu cần #}
+
+                    </ul>
+
+                    {# User Dropdown ở bên phải (ms-auto) #}
+                    <ul class="navbar-nav ms-auto ms-md-0 me-3 me-lg-4">
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" id="navbarDropdownUser" href="#" role="button"
+                                data-bs-toggle="dropdown" aria-expanded="false"><i class="fas fa-user fa-fw"></i></a>
+                            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdownUser">
+                                <li><a class="dropdown-item" href="#!">Cài đặt</a></li>
+                                <li><a class="dropdown-item" href="#!">Nhật ký hoạt động</a></li>
+                                <li>
+                                    <hr class="dropdown-divider" />
+                                </li>
+                                <li><a class="dropdown-item" href="#">Đăng xuất</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div> {# Kết thúc div.collapse #}
+            </div> {# Kết thúc div.container-fluid #}
+        </nav>
+        {# ==================== Kết thúc Navbar Ngang Mới ==================== #}
+
+        {# ==================== Khu vực Nội dung Chính ==================== #}
+        {# ID layoutSidenav_content không còn cần thiết nữa, dùng trực tiếp <main> #}
+            <main role="main">
+                <div class="container-fluid px-4 pt-4 pb-4"> {# Thêm padding top (pt-4) #}
+
+                    {# ----- Nhúng file hiển thị Flash Messages ----- #}
+                    {% include '_flash_messages.html' ignore missing %}
+
+                    {# ----- Khối nội dung chính mà các trang con sẽ điền vào ----- #}
+                    {% block content %}
+                    <h1 class="mt-4">Dashboard</h1>
+                    <p>Chào mừng đến với Bảng điều khiển Quản trị HPT Automation.</p>
+                    {% endblock %}
+
+                </div> {# Kết thúc container-fluid của main #}
+            </main>
+            {# ==================== Kết thúc Khu vực Nội dung Chính ==================== #}
+
+            {# ==================== Footer của trang (Giữ nguyên hoặc chỉnh sửa) ==================== #}
+            <footer class="py-4 bg-light mt-auto">
+                <div class="container-fluid px-4">
+                    <div class="d-flex align-items-center justify-content-between small">
+                        <div class="text-muted">Bản quyền &copy; HPT Automation 2025</div>
+                        <div>
+                            <a href="#">Chính sách Bảo mật</a>
+                            &middot;
+                            <a href="#">Điều khoản &amp; Điều kiện</a>
+                        </div>
+                    </div>
+                </div>
+            </footer>
+            {# ==================== Kết thúc Footer ==================== #}
+
+            {# === CÁC MODAL ĐÃ DI CHUYỂN RA NGOÀI layoutSidenav === #}
+            {# --- Modal Xem Gói JSON Control --- #}
+            <div class="modal fade" id="controlPackageModal" tabindex="-1" aria-labelledby="controlPackageModalLabel"
+                aria-hidden="true">
+                <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="controlPackageModalLabel">Xem Gói JSON cho Client</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p class="text-muted small">Đây là ví dụ gói JSON được biên dịch mà Client sẽ nhận được để
+                                thực thi.</p>
+                            <pre id="modal-json-package-content"
+                                class="bg-light p-2 rounded"><code class="language-json json-code-block">Đang tải...</code></pre>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {# --- Modal Xem JSON Definition (Dùng chung cho các loại Strategy) --- #}
+            <div class="modal fade" id="strategyJsonModal" tabindex="-1" aria-labelledby="strategyJsonModalLabel"
+                aria-hidden="true">
+                <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="strategyJsonModalLabel">Xem JSON Định nghĩa Strategy</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <h6>Định nghĩa Thô (Raw Definition):</h6>
+                            <pre id="modal-json-raw-content"
+                                class="bg-light p-2 rounded"><code class="language-json json-code-block">Đang tải...</code></pre>
+                            <hr>
+                            <h6>Ví dụ Gói JSON cho Client (Client Package Example):</h6>
+                            <pre id="modal-json-client-content"
+                                class="bg-light p-2 rounded"><code class="language-json json-code-block">Đang tải...</code></pre>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {# --- Modal Xem API Docs --- #}
+            <div class="modal fade" id="apiDocDetailModal" tabindex="-1" aria-labelledby="apiDocDetailModalLabel"
+                aria-hidden="true">
+                <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="apiDocDetailModalLabel">Chi tiết API</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div id="modal-api-details-content">
+                                <p class="placeholder-glow"><span class="placeholder col-10"></span></p> {# Placeholder
+                                loading #}
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {# --- Modal Xem UI State --- #}
+            <div class="modal fade" id="uiStateModal" tabindex="-1" aria-labelledby="uiStateModalLabel"
+                aria-hidden="true">
+                <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="uiStateModalLabel">Chi tiết Trạng thái Giao diện Người dùng (UI
+                                State)</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <p class="mb-1"><small><strong>Timestamp:</strong> <span id="modal-ui-timestamp"
+                                        class="text-muted"></span></small></p>
+                            <p class="mb-1"><small><strong>Package:</strong> <code id="modal-ui-package"></code></small>
+                            </p>
+                            <p class="mb-3"><small><strong>Activity:</strong> <code
+                                        id="modal-ui-activity"></code></small></p>
+                            <h6>Danh sách Elements:</h6>
+                            <div class="table-responsive">
+                                <table class="table table-sm table-bordered table-hover">
+                                    <thead class="table-light sticky-top">
+                                        <tr>
+                                            <th scope="col">Index</th>
+                                            <th scope="col">Resource ID</th>
+                                            <th scope="col">Text</th>
+                                            <th scope="col">Tọa độ (X, Y)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="modal-ui-elements-table-body">
+                                        <tr>
+                                            <td colspan="4" class="text-center">Đang tải...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {# ==================== Kết thúc Modals ==================== #}
+
+
+            {# --- JavaScript --- #}
+            <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
+                integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
+                crossorigin="anonymous"></script>
+
+            {# Script toggle sidebar không cần nữa #}
+            {#
+            <script> ... sidebar toggle script ... </script> #}
+
+            {% block scripts %}{% endblock %}
+
+</body>
+
+</html>

@@ -1,0 +1,457 @@
+{% extends "admin_base.html" %} {# Kế thừa từ template admin cơ sở của bạn #}
+
+{% block title %}{{ title or "Trình xem Bản đồ Ứng dụng" }}{% endblock %}
+
+{% block head_extra %} {# Thêm CSS và JS cho Cytoscape #}
+{# Nhúng thư viện Cytoscape.js #}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.23.0/cytoscape.min.js"
+    integrity="sha512-gF+H48HjY3w5hXGpqpP/5mX/uR5y+oFjBZJ3lB7jCmwVvYZ+83S+j/tP+TkbY1/qf4YqJdF+bQsL9+bI6Wc9AQ=="
+    crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+<style>
+    /* --- CSS cho Layout và Overlay --- */
+    /* Đặt chiều cao và flex cho card chứa đồ thị */
+    #cy-parent-card {
+        display: flex;
+        flex-direction: column;
+        flex-grow: 1;
+        /* Cho phép card chiếm không gian dọc còn lại */
+        /* Đặt min-height để tránh bị collapse hoàn toàn khi chưa có nội dung */
+        min-height: 65vh;
+        /* Điều chỉnh chiều cao tối thiểu nếu cần */
+    }
+
+    /* Đặt chiều cao và flex cho card-body chứa đồ thị */
+    #cy-parent-card .card-body.graph-display-area {
+        flex-grow: 1;
+        /* Cho phép card-body chiếm hết không gian dọc của card */
+        padding: 0 !important;
+        /* Bỏ padding để #cy chiếm hết */
+        display: flex;
+        /* Dùng flex để #cy bên trong co giãn */
+        position: relative;
+        /* Cần cho loading indicator */
+        overflow: hidden;
+        /* Tránh tràn nội dung */
+    }
+
+    /* Cho #cy chiếm toàn bộ không gian của card-body */
+    #cy {
+        width: 100%;
+        height: 100%;
+        /* Chiếm 100% chiều cao của .graph-display-area */
+        display: block;
+        border: none;
+        background-color: #fdfdff;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 1;
+    }
+
+    /* CSS cho loading indicator */
+    .loading-indicator {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 1.5em;
+        color: #888;
+        z-index: 10;
+        display: none;
+        background-color: rgba(255, 255, 255, 0.8);
+        padding: 15px 25px;
+        border-radius: 5px;
+    }
+
+    /* CSS cho phần hiển thị chi tiết */
+    #selection-details {
+        font-size: 0.9em;
+        max-height: 60vh;
+        /* Tăng chiều cao tối đa cho panel chi tiết */
+        overflow-y: auto;
+        /* Thêm cuộn dọc */
+    }
+
+    #selection-details h5 {
+        font-size: 1.1em;
+        margin-bottom: 0.75rem;
+    }
+
+    #selection-details h6 {
+        font-size: 1em;
+        margin-top: 1rem;
+        margin-bottom: 0.5rem;
+    }
+
+    #selection-details .list-group-item {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.85em;
+        border: none;
+        background-color: transparent;
+    }
+
+    #selection-details .list-group-item strong {
+        min-width: 100px;
+        display: inline-block;
+    }
+
+    /* Điều chỉnh min-width nếu cần */
+    #selection-details code {
+        font-size: 90%;
+        color: #d63384;
+        background-color: #f8f9fa;
+        padding: 0.1rem 0.3rem;
+        border-radius: 0.2rem;
+        word-break: break-all;
+    }
+
+    #selection-details pre code {
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+
+    #selection-details img.screenshot-thumbnail {
+        max-width: 100%;
+        max-height: 250px;
+        /* Tăng chiều cao tối đa thumbnail */
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background-color: #fff;
+        padding: 3px;
+        margin-top: 5px;
+    }
+
+    /* Các style tùy chỉnh khác cho node/edge (giữ nguyên) */
+    .cy-node-label {
+        font-size: 8px;
+        color: #333;
+        text-outline-width: 1px;
+        text-outline-color: #fff;
+        text-valign: center;
+        text-halign: center;
+    }
+
+    .cy-edge-label {
+        font-size: 7px;
+        color: #666;
+        text-outline-width: 1px;
+        text-outline-color: #fff;
+    }
+
+    .cy-node-selected {
+        border-width: 2px;
+        border-color: #ff6600;
+        background-color: #ffa500;
+    }
+
+    .cy-edge-selected {
+        line-color: #ff6600;
+        target-arrow-color: #ff6600;
+        width: 2px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <h1 class="mt-4">{{ title or "Trình xem Bản đồ Ứng dụng" }}</h1>
+    <ol class="breadcrumb mb-4">
+        <li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Bảng điều khiển</a></li>
+        <li class="breadcrumb-item active">{{ title or "Trình xem Bản đồ Ứng dụng" }}</li>
+    </ol>
+
+    {# --- Phần chọn App --- #}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header">
+            Chọn ứng dụng để xem bản đồ
+        </div>
+        <div class="card-body">
+            <form method="GET" id="appSelectForm" action="{{ url_for('admin.admin_mapping_viewer') }}">
+                <div class="input-group input-group-sm">
+                    <select class="form-select" id="app_name_select" name="app_name" aria-label="Chọn ứng dụng">
+                        <option value="">-- Chọn một ứng dụng --</option>
+                        {# available_apps được truyền từ route #}
+                        {% for name in available_apps %}
+                        <option value="{{ name }}" {{ 'selected' if name==selected_app_name else '' }}>
+                            {{ name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <button class="btn btn-primary" type="submit">Tải Bản đồ</button>
+                </div>
+            </form>
+            <script>
+                document.getElementById('app_name_select').addEventListener('change', function () {
+                    const selectedApp = this.value;
+                    if (selectedApp) {
+                        window.location.href = "{{ url_for('admin.admin_mapping_viewer') }}/" + encodeURIComponent(selectedApp);
+                    } else {
+                        window.location.href = "{{ url_for('admin.admin_mapping_viewer') }}";
+                    }
+                });
+            </script>
+        </div>
+    </div>
+
+    {# --- Phần hiển thị Đồ thị và Chi tiết --- #}
+    {% if selected_app_name %}
+    <div class="row">
+        {# Cột cho Đồ thị #}
+        <div class="col-lg-8 mb-4 d-flex"> {# Thêm d-flex để card con co giãn #}
+            <div class="card shadow h-100 w-100" id="cy-parent-card"> {# Thêm w-100 #}
+                <div class="card-header py-3 d-flex justify-content-between align-items-center">
+                    <h6 class="m-0 font-weight-bold text-primary">Bản đồ Tương tác Ứng dụng: {{ selected_app_name }}
+                    </h6>
+                    <button id="refresh-graph-btn" class="btn btn-sm btn-outline-secondary" title="Làm mới Đồ thị">
+                        <i class="fas fa-sync-alt fa-fw"></i> Làm mới
+                    </button>
+                </div>
+                <div class="card-body graph-display-area">
+                    <div id="loading" class="loading-indicator">Đang tải đồ thị...</div>
+                    <div id="cy"></div> {# Cytoscape container #}
+                </div>
+            </div>
+        </div>
+
+        {# Cột cho Thông tin Chi tiết #}
+        <div class="col-lg-4 mb-4 d-flex"> {# Thêm d-flex #}
+            <div class="card shadow h-100 w-100"> {# Thêm w-100 #}
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-info"><i class="fas fa-info-circle me-1"></i> Chi tiết Lựa chọn
+                    </h6>
+                </div>
+                <div class="card-body" id="selection-details">
+                    <p class="text-muted fst-italic">Nhấp vào một node (màn hình) hoặc cạnh (chuyển tiếp) để xem chi
+                        tiết tại đây.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Hướng dẫn sử dụng #}
+    <div class="alert alert-secondary small" role="alert">
+        <i class="fas fa-mouse-pointer me-1"></i> <strong>Mẹo:</strong> Nhấp vào node màn hình để xem chi tiết và ảnh
+        (nếu có), hoặc đến trang phân loại phần tử. Nhấp vào cạnh để xem chi tiết chuyển tiếp. Nhấp vào nền trống để bỏ
+        chọn. Dùng bánh xe chuột để thu phóng, nhấp và kéo để di chuyển bản đồ.
+    </div>
+
+    {% else %} {# Nếu chưa chọn app_name #}
+    <div class="alert alert-info" role="alert">
+        Vui lòng chọn một ứng dụng từ danh sách thả xuống ở trên để xem bản đồ của nó.
+    </div>
+    {% endif %} {# Kết thúc if selected_app_name #}
+
+</div> {# End container-fluid #}
+{% endblock %} {# Kết thúc block content #}
+
+{% block scripts %}
+{{ super() }} {# Giữ lại script từ base #}
+
+{% if selected_app_name %}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const appName = "{{ selected_app_name }}";
+        const graphContainer = document.getElementById('cy');
+        const loadingIndicator = document.getElementById('loading');
+        const selectionDetailsDiv = document.getElementById('selection-details');
+        const refreshButton = document.getElementById('refresh-graph-btn');
+        let cyInstance = null;
+
+        function escapeHtml(unsafe) { /* ... hàm escapeHtml ... */
+            if (unsafe === null || unsafe === undefined) return '';
+            const str = typeof unsafe !== 'string' ? String(unsafe) : unsafe;
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+
+        function fetchAndRenderGraph(appName) {
+            if (!graphContainer || !loadingIndicator || !selectionDetailsDiv) { console.error("Essential DOM elements not found!"); return; }
+            if (typeof cytoscape === 'undefined') { console.error("Cytoscape library not loaded!"); loadingIndicator.textContent = 'Lỗi: Thư viện Cytoscape chưa tải.'; loadingIndicator.style.display = 'block'; return; }
+
+            console.log(`Initializing/Refreshing Cytoscape for app: ${appName}`);
+            loadingIndicator.style.display = 'block';
+            selectionDetailsDiv.innerHTML = '<p class="text-muted fst-italic">Đang tải chi tiết...</p>';
+
+            if (cyInstance) { cyInstance.destroy(); cyInstance = null; console.log("Destroyed previous Cytoscape instance."); }
+            graphContainer.innerHTML = '';
+
+            // API Endpoint (Đảm bảo đúng: không có /admin)
+            fetch(`/admin/api/map/graph_data/${encodeURIComponent(appName)}`)
+                .then(response => {
+                    if (!response.ok) { return response.json().then(errData => { throw new Error(errData.error || `Network response was not ok (${response.status})`); }).catch(() => { throw new Error(`Network response was not ok (${response.status})`); }); }
+                    return response.json();
+                })
+                .then(graphData => {
+                    loadingIndicator.style.display = 'none';
+                    console.log("Graph data received:", graphData);
+
+                    if (!graphData || !graphData.nodes) { /* ... xử lý lỗi dữ liệu không hợp lệ ... */
+                        console.error("Invalid graph data received:", graphData);
+                        graphContainer.innerHTML = `<p class="text-center text-danger mt-5">Lỗi: Dữ liệu đồ thị không hợp lệ.</p>`;
+                        selectionDetailsDiv.innerHTML = '<p class="text-danger">Không thể tải dữ liệu đồ thị.</p>';
+                        return;
+                    }
+                    if (!graphData.nodes.length && (!graphData.edges || !graphData.edges.length)) { /* ... xử lý không có node/edge ... */
+                        console.warn("Graph data has 0 nodes and 0 edges.");
+                        graphContainer.innerHTML = '<p class="text-center text-muted mt-5">Chưa có dữ liệu bản đồ cho ứng dụng này.</p>';
+                        selectionDetailsDiv.innerHTML = '<p class="text-info">Không có gì để hiển thị.</p>';
+                        return;
+                    }
+
+                    // Khởi tạo Cytoscape
+                    cyInstance = cytoscape({
+                        container: graphContainer,
+                        elements: { nodes: graphData.nodes || [], edges: graphData.edges || [] },
+                        style: [ /* ... style node/edge giữ nguyên như trước ... */
+                            { selector: 'node', style: { 'background-color': '#66a3ff', 'label': 'data(label)', 'width': '30px', 'height': '30px', 'font-size': '8px', 'color': '#333', 'text-outline-width': 1, 'text-outline-color': '#fff', 'text-valign': 'center', 'text-halign': 'center', 'border-width': 1, 'border-color': '#444' } },
+                            { selector: 'node[status="provisional"]', style: { 'background-color': '#66a3ff' } },
+                            { selector: 'node[status="confirmed"]', style: { 'background-color': '#4CAF50' } },
+                            { selector: 'node[status="error"]', style: { 'background-color': '#f44336' } },
+                            { selector: 'node[status="needs_review"]', style: { 'background-color': '#ffeb3b' } },
+                            { selector: 'node:selected', style: { 'border-width': 3, 'border-color': '#ff6600', 'background-color': '#ffa500' } },
+                            { selector: 'edge', style: { 'width': 1.5, 'line-color': '#ccc', 'target-arrow-color': '#ccc', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'font-size': '7px', 'color': '#555', 'text-outline-width': 1, 'text-outline-color': '#fff', 'arrow-scale': 0.8 } },
+                            { selector: 'edge[status="provisional"]', style: { 'line-color': '#aaaaaa', 'target-arrow-color': '#aaaaaa', 'line-style': 'dashed' } },
+                            { selector: 'edge[status="confirmed"]', style: { 'line-color': '#4CAF50', 'target-arrow-color': '#4CAF50', 'line-style': 'solid' } },
+                            { selector: 'edge[status="failed"]', style: { 'line-color': '#f44336', 'target-arrow-color': '#f44336', 'line-style': 'dotted', 'width': 1 } },
+                            { selector: 'edge:selected', style: { 'line-color': '#ff6600', 'target-arrow-color': '#ff6600', 'width': 3 } }
+                        ],
+                        layout: { /* ... cấu hình layout giữ nguyên ... */
+                            name: 'cose', idealEdgeLength: 120, nodeOverlap: 30, refresh: 30, fit: true, padding: 40, randomize: false, componentSpacing: 150, nodeRepulsion: (node) => 450000, edgeElasticity: (edge) => 100, nestingFactor: 5, gravity: 80, numIter: 1500, initialTemp: 200, coolingFactor: 0.95, minTemp: 1.0, animate: 'end', animationDuration: 500
+                        },
+                        wheelSensitivity: 0.2, minZoom: 0.1, maxZoom: 5
+                    }); // Kết thúc cytoscape init
+
+                    // --- Gắn lại các Event Listener ---
+                    cyInstance.on('tap', 'node', function (evt) {
+                        var node = evt.target;
+                        const nodeData = node.data(); // Lấy dữ liệu node
+                        console.log('Tapped node ' + node.id());
+                        console.log('Node data:', nodeData);
+
+                        // --- Cập nhật phần hiển thị chi tiết ---
+                        let detailsHtml = `<h5>Chi tiết Node (Màn hình)</h5>
+                            <ul class="list-group list-group-flush">
+                              <li class="list-group-item"><strong>ID:</strong> <code>${escapeHtml(nodeData.id)}</code></li>
+                              <li class="list-group-item"><strong>Nhãn:</strong> ${escapeHtml(nodeData.label)}</li>
+                              <li class="list-group-item"><strong>Activity:</strong> ${escapeHtml(nodeData.activity)}</li>
+                              <li class="list-group-item"><strong>Trạng thái:</strong> <span class="badge bg-info">${escapeHtml(nodeData.status || 'N/A')}</span></li>
+                              <li class="list-group-item"><strong>Số Element:</strong> ${nodeData.element_count !== undefined ? nodeData.element_count : 'N/A'}</li>
+                            </ul>`;
+
+                        // === THÊM HIỂN THỊ ẢNH VÀO ĐÂY ===
+                        if (nodeData.screenshot_url) {
+                            detailsHtml += `
+                                 <div class="mt-3 text-center">
+                                     <h6>Ảnh chụp màn hình</h6>
+                                     <a href="${escapeHtml(nodeData.screenshot_url)}" target="_blank" title="Xem ảnh đầy đủ">
+                                         <img src="${escapeHtml(nodeData.screenshot_url)}" alt="Screenshot for ${escapeHtml(nodeData.id)}"
+                                              class="screenshot-thumbnail">
+                                     </a>
+                                 </div>`;
+                        } else {
+                            detailsHtml += '<p class="text-muted mt-2 text-center small">(Không có ảnh chụp màn hình)</p>';
+                        }
+                        // ==================================
+
+                        // Thêm nút để đi đến trang phân loại element
+                        const screenId = node.id();
+                        if (screenId) {
+                            const elementPageUrl = "{{ url_for('admin.admin_screen_elements', screen_id='PLACEHOLDER') }}".replace('PLACEHOLDER', encodeURIComponent(screenId));
+                            detailsHtml += `<div class="mt-3">
+                                <a href="${elementPageUrl}" class="btn btn-sm btn-outline-primary" target="_blank">
+                                    <i class="fas fa-search me-1"></i> Xem/Phân loại Elements
+                                </a>
+                             </div>`;
+                        }
+                        selectionDetailsDiv.innerHTML = detailsHtml;
+                    });
+
+                    cyInstance.on('tap', 'edge', function (evt) { /* ... xử lý tap edge giữ nguyên ... */
+                        var edge = evt.target; const edgeData = edge.data(); console.log('Tapped edge ' + edge.id()); console.log('Edge data: ', edgeData);
+                        let edgeDetailsHtml = `<h5>Chi tiết Cạnh (Transition)</h5><ul class="list-group list-group-flush">`;
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>ID (Neo4j):</strong> <code>${escapeHtml(edge.id())}</code></li>`;
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Nguồn:</strong> <code>${escapeHtml(edgeData.source)}</code></li>`;
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Đích:</strong> <code>${escapeHtml(edgeData.target)}</code></li>`;
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Trạng thái:</strong> <span class="badge bg-secondary">${escapeHtml(edgeData.status || 'N/A')}</span></li>`;
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Loại Hành động:</strong> ${escapeHtml(edgeData.action_type || 'N/A')}</li>`;
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Macro Code:</strong> <code>${escapeHtml(edgeData.macro_code || 'N/A')}</code></li>`;
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Element ID:</strong> <code>${escapeHtml(edgeData.element_id || 'N/A')}</code></li>`;
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Loại ID:</strong> ${escapeHtml(edgeData.identifier_type || 'N/A')}</li>`;
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Element Text:</strong> ${escapeHtml(edgeData.element_text || '--')}</li>`;
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Lần thử:</strong> ${edgeData.attempt_count !== undefined ? edgeData.attempt_count : 'N/A'}</li>`;
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Thành công:</strong> ${edgeData.success_count !== undefined ? edgeData.success_count : 'N/A'}</li>`;
+                        if (edgeData.params_json) { try { const paramsObj = JSON.parse(edgeData.params_json); const formattedParams = JSON.stringify(paramsObj, null, 2); edgeDetailsHtml += `<li class="list-group-item"><strong>Params (JSON):</strong> <pre><code style="white-space: pre-wrap; word-break: break-all;">${escapeHtml(formattedParams)}</code></pre></li>`; } catch (e) { edgeDetailsHtml += `<li class="list-group-item"><strong>Params (Raw):</strong> <pre><code>${escapeHtml(edgeData.params_json)}</code></pre></li>`; console.warn("Could not parse edge params_json:", e); } } else { edgeDetailsHtml += `<li class="list-group-item"><strong>Params:</strong> N/A</li>`; }
+                        edgeDetailsHtml += `</ul>`;
+                        selectionDetailsDiv.innerHTML = edgeDetailsHtml;
+                    });
+
+                    cyInstance.on('tap', function (event) { /* ... xử lý tap background giữ nguyên ... */
+                        if (event.target === cyInstance) {
+                            selectionDetailsDiv.innerHTML = '<p class="text-muted fst-italic">Nhấp vào một node hoặc cạnh để xem chi tiết.</p>';
+                        }
+                    });
+
+                    cyInstance.ready(function () { /* ... xử lý ready giữ nguyên ... */
+                        cyInstance.fit(null, 50);
+                        console.log("Cytoscape layout ready and fit.");
+                    });
+                    cyInstance.resize(); // Đảm bảo kích thước đúng
+
+                }) // Kết thúc .then(graphData => ...)
+                .catch(error => { /* ... xử lý lỗi fetch giữ nguyên ... */
+                    console.error("Error fetching or rendering graph:", error);
+                    loadingIndicator.style.display = 'none';
+                    graphContainer.innerHTML = `<div class="alert alert-danger m-5" role="alert">...</div>`;
+                    selectionDetailsDiv.innerHTML = '<p class="text-danger">Tải đồ thị thất bại.</p>';
+                });
+        } // Kết thúc hàm fetchAndRenderGraph
+
+        // Gọi hàm lần đầu khi trang tải
+        fetchAndRenderGraph(appName);
+
+        // Xử lý nút Refresh
+        if (refreshButton) { /* ... xử lý refresh giữ nguyên ... */
+            refreshButton.addEventListener('click', function () {
+                console.log('Refresh button clicked.');
+                fetchAndRenderGraph(appName);
+            });
+        }
+
+    }); // Kết thúc DOMContentLoaded
+</script>
+{% endif %} {# Kết thúc if selected_app_name #}
+
+{% endblock %} {# Kết thúc block scripts #}
+```
+
+**Giải thích các thay đổi:**
+
+1. **CSS:**
+* Điều chỉnh CSS cho `#cy-parent-card` và `.graph-display-area` để đảm bảo chúng co giãn đúng theo chiều cao.
+* Thêm style cho `.screenshot-thumbnail` trong `#selection-details` để giới hạn kích thước và thêm border.
+2. **HTML:**
+* Bố cục lại trang bằng `row` và `col-lg-8`/`col-lg-4` để đặt đồ thị và panel chi tiết cạnh nhau.
+* Thêm `d-flex` vào các cột và `h-100`, `w-100` vào các card để chúng tự điều chỉnh chiều cao/rộng.
+3. **JavaScript:**
+* **Quan trọng:** Trong hàm xử lý sự kiện `cyInstance.on('tap', 'node', ...)`:
+* Lấy `nodeData = node.data()`.
+* Kiểm tra xem `nodeData.screenshot_url` có tồn tại không.
+* Nếu có, tạo một `div` chứa thẻ `<h6>Ảnh chụp màn hình</h6>` và thẻ `<a>` bao quanh thẻ `<img>`.
+    * Thuộc tính `src` của `<img>` được gán bằng `nodeData.screenshot_url`.
+    * Thêm class `screenshot-thumbnail` cho `<img>` để áp dụng style CSS.
+    * Thêm đoạn HTML này vào `detailsHtml`.
+    * Nếu không có `screenshot_url`, hiển thị thông báo "(Không có ảnh chụp màn hình)".
+    * Các phần xử lý sự kiện khác (tap edge, tap background, refresh) giữ nguyên.
+
+    **Hành động:**
+
+    1. **Cập nhật Backend (Đảm bảo):** Chắc chắn rằng API `/api/mapping_data` của bạn đang trả về `screenshot_url` trong
+    dữ liệu của mỗi node (như đã thảo luận ở lần trước).
+    2. **Áp dụng thay đổi Frontend:** Thay thế nội dung file `admin_mapping_viewer.html` bằng code mới này.
+    3. **Khởi động lại Server:** Để đảm bảo các thay đổi backend (nếu có) được áp dụng.
+    4. **Tải lại Trang Mapping Viewer:** Truy cập lại trang `/mapping/<app_name>`.
+        5. **Kiểm tra:** Nhấp vào một node trên đồ thị. Panel "Chi tiết Lựa chọn" giờ đây sẽ hiển thị ảnh chụp màn hình
+        (nếu node đó có `screenshot_path` được lưu trong Neo4j và backend đã tạo URL thành công).
+
+        Giờ đây, bạn có thể xem nhanh ảnh chụp màn hình ngay trên trang mapping mà không cần chuyển trang, giúp việc
+        quản lý và phân tích trực quan hơn rất nhi

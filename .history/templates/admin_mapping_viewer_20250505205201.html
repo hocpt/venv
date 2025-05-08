@@ -1,0 +1,452 @@
+{% extends "admin_base.html" %}
+
+{% block title %}{{ title or "App Mapping Viewer" }}{% endblock %}
+
+{% block head_extra %} {# Thêm CSS và JS cho Cytoscape #}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.23.0/cytoscape.min.js"
+    integrity="sha512-gF+H48HjY3w5hXGpqpP/5mX/uR5y+oFjBZJ3lB7jCmwVvYZ+83S+j/tP+TkbY1/qf4YqJdF+bQsL9+bI6Wc9AQ=="
+    crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+{# Nếu cần các extension khác của Cytoscape, thêm vào đây #}
+{#
+<script src="https://unpkg.com/cytoscape-layout-utilities/cytoscape-layout-utilities.js"></script> #}
+{#
+<script src="https://unpkg.com/cytoscape-cola/cytoscape-cola.js"></script> #}
+{#
+<script src="https://unpkg.com/cytoscape-fcose/cytoscape-fcose.js"></script> #}
+
+<style>
+    /* CSS MỚI: Đặt chiều cao cho khu vực card-body chứa đồ thị */
+    .graph-display-area {
+        height: 75vh;
+        /* Hoặc 80vh, hoặc giá trị pixel cố định nếu muốn */
+        padding: 0 !important;
+        /* Quan trọng: Loại bỏ padding để #cy chiếm hết */
+        display: flex;
+        /* Sử dụng flexbox */
+        flex-direction: column;
+        /* Sắp xếp con theo chiều dọc */
+        position: relative;
+        /* Cần thiết cho absolute positioning của loading/cy */
+        overflow: hidden;
+        /* Ngăn nội dung tràn ra ngoài card-body */
+    }
+
+    /* CSS MỚI: Cho thẻ div position-relative (cha trực tiếp của #cy) co giãn */
+    .graph-display-area>.position-relative {
+        flex-grow: 1;
+        /* Cho phép thẻ này chiếm hết không gian dọc */
+        /* Không cần set height ở đây vì đã có flex-grow */
+        position: static;
+        /* Đặt lại thành static nếu không cần relative nữa */
+        /* Hoặc giữ relative nếu cần cho cái khác */
+    }
+
+    /* CSS ĐÃ SỬA: Cho #cy chiếm toàn bộ không gian */
+    #cy {
+        width: 100%;
+        height: 100%;
+        /* Chiếm 100% chiều cao của thẻ cha (.position-relative) */
+        display: block;
+        border: 1px solid #ccc;
+        /* Giữ lại border để dễ nhìn */
+        background-color: #f9f9f9;
+        /* Giữ lại background */
+        /* Nếu loading indicator nằm trong .position-relative, #cy cũng cần absolute */
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 1;
+        /* Đảm bảo #cy nằm dưới loading */
+    }
+
+    /* CSS cho loading indicator */
+    .loading-indicator {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 1.5em;
+        color: #888;
+        z-index: 10;
+        /* Đảm bảo nằm trên #cy */
+        display: none;
+        /* Ban đầu ẩn đi */
+    }
+
+    /* Các style tùy chỉnh khác cho node/edge (giữ nguyên hoặc sửa đổi) */
+    .cy-node-label {
+        font-size: 8px;
+        color: #333;
+        text-outline-width: 1px;
+        text-outline-color: #fff;
+        text-valign: center;
+        text-halign: center;
+    }
+
+    .cy-edge-label {
+        font-size: 7px;
+        color: #666;
+        text-outline-width: 1px;
+        text-outline-color: #fff;
+    }
+
+    /* Style cho node được chọn */
+    .cy-node-selected {
+        border-width: 2px;
+        border-color: #ff6600;
+        background-color: #ffa500;
+        /* Màu nền cam khi được chọn */
+    }
+
+    /* Style cho cạnh được chọn */
+    .cy-edge-selected {
+        line-color: #ff6600;
+        target-arrow-color: #ff6600;
+        width: 2px;
+    }
+
+    /* Thêm class cho các loại node khác nhau (ví dụ) */
+    .node-status-provisional {
+        background-color: #66a3ff;
+        /* Màu xanh dương nhạt cho provisional */
+    }
+
+    .node-status-confirmed {
+        background-color: #4CAF50;
+        /* Màu xanh lá cho confirmed */
+    }
+
+    .node-status-error {
+        background-color: #f44336;
+        /* Màu đỏ cho error */
+    }
+
+    /* Thêm class cho các loại cạnh khác nhau (ví dụ) */
+    .edge-status-provisional {
+        line-color: #aaaaaa;
+        target-arrow-color: #aaaaaa;
+        line-style: 'dashed';
+    }
+
+    .edge-status-confirmed {
+        line-color: #4CAF50;
+        target-arrow-color: #4CAF50;
+        line-style: 'solid';
+    }
+
+    .edge-status-failed {
+        line-color: #f44336;
+        target-arrow-color: #f44336;
+        line-style: 'dotted';
+        width: 1px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <h1 class="mt-4">{{ title or "App Mapping Viewer" }}</h1>
+    <ol class="breadcrumb mb-4">
+        <li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Dashboard</a></li>
+        <li class="breadcrumb-item active">{{ title or "App Mapping Viewer" }}</li>
+    </ol>
+
+    {# --- Phần chọn App --- #}
+    <div class="card shadow mb-4">
+        <div class="card-header">
+            Select App to View Map
+        </div>
+        <div class="card-body">
+            <form method="GET" action="{{ url_for('admin.admin_mapping_viewer') }}">
+                <div class="input-group">
+                    <select class="form-select" id="app_name_select" name="app_name">
+                        <option value="">-- Select an App --</option>
+                        {% for name in available_app_names %}
+                        <option value="{{ name }}" {{ 'selected' if name==selected_app_name else '' }}>
+                            {{ name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <button class="btn btn-primary" type="submit">Load Map</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {# --- Phần hiển thị Đồ thị --- #}
+    {% if selected_app_name %}
+    <div class="card shadow mb-4" id="cy-parent-card"> {# Đặt ID hoặc class cho card cha nếu cần target CSS #}
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary">App Interaction Map for: {{ selected_app_name }}</h6>
+            {# Thêm nút refresh #}
+            <button id="refresh-graph-btn" class="btn btn-sm btn-outline-secondary float-end" title="Refresh Graph">
+                <i class="fas fa-sync-alt"></i> Refresh
+            </button>
+        </div>
+        {# THÊM CLASS 'graph-display-area' VÀO card-body NÀY #}
+        <div class="card-body graph-display-area">
+            {# Wrapper div đã được sửa CSS ở trên #}
+            <div class="position-relative">
+                <div id="loading" class="loading-indicator">Loading graph...</div>
+                <div id="cy"></div> {# Cytoscape container #}
+            </div>
+        </div>
+    </div>
+
+    {# --- Phần Thông tin Chi tiết Node/Edge --- #}
+    <div class="card shadow mb-4">
+        <div class="card-header">
+            <h6 class="m-0 font-weight-bold text-info">Selection Details</h6>
+        </div>
+        <div class="card-body" id="selection-details">
+            <p class="text-muted">Click on a node (screen) or edge (transition) to see details here.</p>
+        </div>
+    </div>
+
+    {# === JavaScript === #}
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const selectedAppName = "{{ selected_app_name }}"; // Lấy app name từ template
+            if (!selectedAppName) return; // Không làm gì nếu chưa chọn app
+
+            const graphContainer = document.getElementById('cy');
+            const loadingIndicator = document.getElementById('loading');
+            const selectionDetailsDiv = document.getElementById('selection-details');
+            const refreshButton = document.getElementById('refresh-graph-btn');
+
+
+            // Hàm fetch dữ liệu và vẽ đồ thị
+            function fetchAndRenderGraph(appName) {
+                if (!graphContainer) {
+                    console.error("Cytoscape container 'cy' not found!");
+                    return;
+                }
+                if (!loadingIndicator) {
+                    console.error("Loading indicator 'loading' not found!");
+                    return; // Hoặc tiếp tục mà không có loading
+                }
+
+                console.log(`Initializing Cytoscape for app: ${appName}`);
+                loadingIndicator.style.display = 'block'; // Hiển thị loading
+                graphContainer.innerHTML = ''; // Xóa đồ thị cũ (nếu có) trước khi vẽ lại
+
+                // Gọi API backend để lấy dữ liệu graph
+                fetch(`{{ url_for('admin.get_mapping_data') }}?app_name=${encodeURIComponent(appName)}`)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`Network response was not ok (${response.status})`);
+                        }
+                        return response.json();
+                    })
+                    .then(graphData => {
+                        loadingIndicator.style.display = 'none'; // Ẩn loading
+                        console.log("Graph data received:", graphData);
+
+                        if (!graphData || !graphData.nodes) {
+                            console.error("Invalid graph data received:", graphData);
+                            graphContainer.innerHTML = `<p class="text-center text-danger mt-5">Error: Invalid graph data received from server.</p>`;
+                            return;
+                        }
+
+                        // Khởi tạo Cytoscape
+                        const cy = cytoscape({
+                            container: graphContainer,
+                            elements: {
+                                nodes: graphData.nodes || [], // Đảm bảo là array
+                                edges: graphData.edges || []  // Đảm bảo là array
+                            },
+                            style: [
+                                // Style mặc định cho node
+                                {
+                                    selector: 'node',
+                                    style: {
+                                        'background-color': '#66a3ff', // Màu mặc định
+                                        'label': 'data(label)', // Hiển thị label (ID rút gọn)
+                                        'width': '30px', // Kích thước node
+                                        'height': '30px',
+                                        'font-size': '8px',
+                                        'color': '#333',
+                                        'text-outline-width': 1,
+                                        'text-outline-color': '#fff',
+                                        'text-valign': 'center',
+                                        'text-halign': 'center',
+                                        'border-width': 1,
+                                        'border-color': '#444'
+                                    }
+                                },
+                                // Style cho node dựa trên status
+                                { selector: 'node[status="provisional"]', style: { 'background-color': '#66a3ff' } }, // Xanh dương
+                                { selector: 'node[status="confirmed"]', style: { 'background-color': '#4CAF50' } },   // Xanh lá
+                                { selector: 'node[status="error"]', style: { 'background-color': '#f44336' } },       // Đỏ
+                                { selector: 'node[status="needs_review"]', style: { 'background-color': '#ffeb3b' } }, // Vàng
+                                // Style cho node được chọn
+                                { selector: 'node:selected', style: { 'border-width': 3, 'border-color': '#ff6600', 'background-color': '#ffa500' } },
+
+                                // Style mặc định cho cạnh
+                                {
+                                    selector: 'edge',
+                                    style: {
+                                        'width': 1.5,
+                                        'line-color': '#ccc', // Màu mặc định
+                                        'target-arrow-color': '#ccc',
+                                        'target-arrow-shape': 'triangle',
+                                        'curve-style': 'bezier', // Làm cho cạnh cong đẹp hơn
+                                        // 'label': 'data(action_type)', // Hiển thị loại action (nếu có)
+                                        'font-size': '7px',
+                                        'color': '#555',
+                                        'text-outline-width': 1,
+                                        'text-outline-color': '#fff',
+                                        'arrow-scale': 0.8
+                                    }
+                                },
+                                // Style cho cạnh dựa trên status
+                                { selector: 'edge[status="provisional"]', style: { 'line-color': '#aaaaaa', 'target-arrow-color': '#aaaaaa', 'line-style': 'dashed' } },
+                                { selector: 'edge[status="confirmed"]', style: { 'line-color': '#4CAF50', 'target-arrow-color': '#4CAF50', 'line-style': 'solid' } },
+                                { selector: 'edge[status="failed"]', style: { 'line-color': '#f44336', 'target-arrow-color': '#f44336', 'line-style': 'dotted', 'width': 1 } },
+                                // Style cho cạnh được chọn
+                                { selector: 'edge:selected', style: { 'line-color': '#ff6600', 'target-arrow-color': '#ff6600', 'width': 3 } }
+                            ],
+                            layout: {
+                                name: 'cose', // 'cose' thường tốt cho đồ thị mạng, thử 'breadthfirst', 'grid', 'circle'
+                                // name: 'breadthfirst', // Thử layout khác nếu cose không ổn
+                                // grid_rows: Math.ceil(Math.sqrt(graphData.nodes.length)), // Cho layout grid
+                                // concentric: function( node ){ return node.degree(); }, // Cho layout concentric
+                                // levelWidth: function( nodes ){ return 2; },          // Cho layout concentric
+                                fit: true, // Tự động zoom và pan để vừa màn hình
+                                padding: 50, // Khoảng cách từ biên
+                                nodeOverlap: 20,
+                                idealEdgeLength: (eles) => 100, // Chiều dài cạnh lý tưởng
+                                edgeElasticity: (eles) => 100, // Độ đàn hồi cạnh
+                                nestingFactor: 5,
+                                gravity: 80,
+                                numIter: 1000, // Số lần lặp layout
+                                initialTemp: 200,
+                                coolingFactor: 0.95,
+                                minTemp: 1.0,
+                                animate: 'end', // Chỉ animate khi kết thúc layout
+                                animationDuration: 500 // Thời gian animation
+                                // Các tùy chọn khác cho layout 'cose' hoặc layout bạn chọn
+                            },
+                            // Wheel sensitivity for zooming
+                            wheelSensitivity: 0.2,
+                            minZoom: 0.1,
+                            maxZoom: 5
+                        }); // Kết thúc khởi tạo cytoscape
+
+                        // --- Xử lý sự kiện click vào Node ---
+                        cy.on('tap', 'node', function (evt) {
+                            var node = evt.target;
+                            console.log('Tapped node ' + node.id());
+                            console.log('Node data:', node.data());
+
+                            // --- Cập nhật phần hiển thị chi tiết ---
+                            let detailsHtml = `<h5>Node Details (Screen)</h5>
+                            <ul class="list-group list-group-flush">
+                              <li class="list-group-item"><strong>ID:</strong> ${node.data('id') || 'N/A'}</li>
+                              <li class="list-group-item"><strong>Label:</strong> ${node.data('label') || 'N/A'}</li>
+                              <li class="list-group-item"><strong>Activity:</strong> ${node.data('activity') || 'N/A'}</li>
+                              <li class="list-group-item"><strong>Status:</strong> ${node.data('status') || 'N/A'}</li>
+                              <li class="list-group-item"><strong>Element Count:</strong> ${node.data('element_count') !== undefined ? node.data('element_count') : 'N/A'}</li>
+                            </ul>`;
+
+                            // Thêm nút để đi đến trang phân loại element
+                            const screenId = node.id();
+                            if (screenId) {
+                                const elementPageUrl = "{{ url_for('admin.admin_screen_elements', screen_id='PLACEHOLDER') }}".replace('PLACEHOLDER', encodeURIComponent(screenId));
+                                detailsHtml += `<div class="mt-3">
+                                <a href="${elementPageUrl}" class="btn btn-sm btn-outline-primary" target="_blank">
+                                    <i class="fas fa-search"></i> View/Classify Elements
+                                </a>
+                             </div>`;
+                            }
+                            selectionDetailsDiv.innerHTML = detailsHtml;
+
+                            // --- Optional: Chuyển hướng khi double-click ---
+                            // (Phần này bị comment ra, bạn có thể dùng lại nếu muốn)
+                            /*
+                            clearTimeout(this.doubleTapTimeout);
+                            this.doubleTapTimeout = setTimeout(() => {
+                                // Logic xử lý single tap (đã có ở trên)
+                            }, 250); // Thời gian chờ double click
+                            */
+                        });
+
+                        /* // Logic double click cũ (bị comment)
+                        cy.on('dbltap', 'node', function(evt) {
+                            clearTimeout(this.doubleTapTimeout); // Hủy timeout single tap
+                            const node = evt.target;
+                            // Lấy screen_id từ ID của node
+                            const screenId = node.id();
+                            if (screenId) {
+                                // Tạo URL đến trang element classification
+                                const elementPageUrl = "{{ url_for('admin.admin_screen_elements', screen_id='PLACEHOLDER') }}".replace('PLACEHOLDER', encodeURIComponent(screenId));
+                                // Chuyển hướng người dùng (mở tab mới hoặc cùng tab)
+                                window.open(elementPageUrl, '_blank'); // Mở tab mới
+                            }
+                        });
+                        */
+
+                        // --- Xử lý sự kiện click vào Edge ---
+                        cy.on('tap', 'edge', function (evt) {
+                            var edge = evt.target;
+                            console.log('Tapped edge ' + edge.id());
+                            console.log('Edge data: ', edge.data());
+
+                            // --- Cập nhật phần hiển thị chi tiết ---
+                            let edgeDetailsHtml = `<h5>Edge Details (Transition)</h5>
+                            <ul class="list-group list-group-flush">
+                              <li class="list-group-item"><strong>ID:</strong> ${edge.data('id') || 'N/A'}</li>
+                              <li class="list-group-item"><strong>Source Node:</strong> ${edge.data('source') || 'N/A'}</li>
+                              <li class="list-group-item"><strong>Target Node:</strong> ${edge.data('target') || 'N/A'}</li>
+                              <li class="list-group-item"><strong>Status:</strong> ${edge.data('status') || 'N/A'}</li>
+                              <li class="list-group-item"><strong>Action Type:</strong> ${edge.data('action_type') || 'N/A'}</li>
+                              <li class="list-group-item"><strong>Target Element ID:</strong> ${edge.data('element_id') || 'N/A'}</li>
+                              {# Thêm các thuộc tính khác của edge nếu cần #}
+                            </ul>`;
+                            selectionDetailsDiv.innerHTML = edgeDetailsHtml;
+                        });
+
+                        // Clear selection khi click vào nền trống
+                        cy.on('tap', function (event) {
+                            // target an background/empty space
+                            if (event.target === cy) {
+                                selectionDetailsDiv.innerHTML = '<p class="text-muted">Click on a node or edge to see details.</p>';
+                            }
+                        });
+
+                        // Center the graph after layout is done
+                        cy.ready(function () {
+                            // cy.center(); // Có thể không cần nếu layout fit=true hoạt động tốt
+                        });
+
+
+                    }) // Kết thúc .then(graphData => ...)
+                    .catch(error => {
+                        console.error("Error fetching or rendering graph:", error);
+                        loadingIndicator.style.display = 'none'; // Ẩn loading khi lỗi
+                        // Hiển thị lỗi trong container #cy thay vì console
+                        graphContainer.innerHTML = `<div class="alert alert-danger m-5" role="alert">
+                                                <strong>Error loading graph:</strong> ${error.message || 'Unknown error'}
+                                                <p>Please check server logs or network connection.</p>
+                                               </div>`;
+                    });
+            } // Kết thúc hàm fetchAndRenderGraph
+
+            // Gọi hàm lần đầu khi trang tải xong
+            fetchAndRenderGraph(selectedAppName);
+
+            // Xử lý nút Refresh
+            if (refreshButton) {
+                refreshButton.addEventListener('click', function () {
+                    console.log('Refresh button clicked.');
+                    selectionDetailsDiv.innerHTML = '<p class="text-muted">Click on a node or edge to see details.</p>'; // Reset details view
+                    fetchAndRenderGraph(selectedAppName); // Gọi lại hàm fetch và vẽ
+                });
+            }
+
+
+        }); // Kết thúc DOMContentLoaded
+    </script>
+    {% endif %} {# Kết thúc if selected_app_name #}
+
+    {% endblock %}

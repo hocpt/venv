@@ -1,0 +1,324 @@
+{% extends "admin_base.html" %} {# Kế thừa từ template admin cơ sở của bạn #}
+
+{% block title %}Screen Elements - {{ screen.screen_id }}{% endblock %}
+
+{% block head_extra %}
+<style>
+    /* --- CSS Cơ bản cho Bảng và Form --- */
+    .table th,
+    .table td {
+        vertical-align: middle;
+        font-size: 0.9em;
+        /* Giảm cỡ chữ bảng */
+    }
+
+    .table code {
+        font-size: 0.9em;
+        color: #d63384;
+        background-color: #f8f9fa;
+        padding: 0.1rem 0.3rem;
+        border-radius: 0.2rem;
+        word-break: break-all;
+    }
+
+    .table small {
+        font-size: 0.9em;
+    }
+
+    .table .form-select-sm {
+        font-size: 0.8em;
+        /* Giảm cỡ chữ dropdown */
+        padding-top: 0.2rem;
+        padding-bottom: 0.2rem;
+    }
+
+    .update-status {
+        font-size: 0.8em;
+        font-style: italic;
+    }
+
+    .ai-suggestion-highlight {
+        background-color: #e6f7ff !important;
+        /* Màu nền xanh nhạt cho hàng được AI gợi ý */
+        transition: background-color 0.5s ease-out;
+    }
+
+    .ai-suggestion-highlight-fade {
+        background-color: transparent !important;
+        /* Quay về màu nền bình thường */
+    }
+
+    #ai-status {
+        font-style: italic;
+        font-size: 0.9em;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4"> {# Container từ base #}
+    <h1 class="mt-4">Screen Details: <code>{{ screen.screen_id | default('N/A') }}</code></h1>
+    <ol class="breadcrumb mb-4">
+        <li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Dashboard</a></li>
+        {# Thêm link về Mapping Viewer nếu có selected_app_name #}
+        {% if screen.app_name %}
+        <li class="breadcrumb-item"><a href="{{ url_for('admin.admin_mapping_viewer', app_name=screen.app_name) }}">App
+                Mapping: {{ screen.app_name }}</a></li>
+        {% endif %}
+        <li class="breadcrumb-item active">Screen Elements</li>
+    </ol>
+
+    {# Hiển thị flash messages #}
+    {% include '_flash_messages.html' ignore missing %}
+
+    {# --- Thông tin chi tiết Screen --- #}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header">
+            Screen Information
+        </div>
+        <div class="card-body small">
+            <div class="row">
+                <div class="col-md-6">
+                    <p class="mb-1"><strong>App Name:</strong> {{ screen.app_name | default('N/A') }}</p>
+                    <p class="mb-1"><strong>Activity Name:</strong> {{ screen.activity_name | default('N/A') }}</p>
+                    <p class="mb-0"><strong>Status:</strong> <span class="badge bg-secondary">{{ screen.status |
+                            default('N/A') }}</span></p> {# Cần thêm logic màu badge #}
+                </div>
+                <div class="col-md-6">
+                    <p class="mb-1"><strong>Last Seen:</strong> {{ screen.last_seen.strftime('%Y-%m-%d %H:%M:%S') if
+                        screen.last_seen else 'N/A' }}</p>
+                    <p class="mb-1"><strong>Created At:</strong> {{ screen.created_at.strftime('%Y-%m-%d %H:%M:%S') if
+                        screen.created_at else 'N/A' }}</p>
+                    <p class="mb-0"><strong>Last Analyzed Log ID:</strong> {{ screen.last_analyzed_log_id |
+                        default('N/A') }}</p>
+                </div>
+            </div>
+            {# Hiển thị ảnh chụp màn hình nếu có #}
+            {% if screenshot_url %}
+            <div class="mt-3">
+                <h6>Screenshot</h6>
+                <img src="{{ screenshot_url }}" alt="Screenshot for {{ screen.screen_id }}" class="img-fluid border"
+                    style="max-width: 300px; max-height: 600px;">
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+
+    {# --- Bảng Elements --- #}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="fas fa-th-list me-1"></i> UI Elements ({{ elements | length }})</span>
+            <div>
+                <span id="ai-status" class="me-2"></span> {# Hiển thị trạng thái AI #}
+                <button id="suggest-ai-btn" class="btn btn-outline-primary btn-sm">
+                    <i class="fas fa-magic me-1"></i> Suggest Classifications (AI)
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            {% if elements %}
+            <div class="table-responsive">
+                <table class="table table-striped table-bordered table-hover table-sm align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            {# Thêm các cột cần thiết #}
+                            <th scope="col" style="width: 20%;">Element ID</th>
+                            <th scope="col" style="width: 10%;">ID Type</th>
+                            <th scope="col" style="width: 15%;">Type</th>
+                            <th scope="col" style="width: 20%;">Text / Content Desc</th>
+                            <th scope="col" style="width: 15%;">Classification</th>
+                            <th scope="col" class="text-center" style="width: 5%;">Attempts</th>
+                            <th scope="col" class="text-center" style="width: 5%;">Success</th>
+                            <th scope="col" class="text-center" style="width: 5%;">Click?</th>
+                            <th scope="col" class="text-center" style="width: 5%;">Edit?</th>
+                            {# <th scope="col">Last Seen</th> #} {# Tạm ẩn để gọn #}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for el in elements %}
+                        {# Thêm ID duy nhất cho mỗi hàng để JS có thể target #}
+                        <tr id="row-{{ el.element_id | urlencode }}">
+                            <td><code>{{ el.element_id }}</code></td>
+                            <td><small>{{ el.identifier_type | default('N/A') }}</small></td>
+                            <td><small>{{ el.element_type | default('N/A') }}</small></td>
+                            <td>
+                                {% if el.text_content %}
+                                <span title="{{ el.text_content }}">{{ el.text_content | truncate(50) }}</span>
+                                {% elif el.content_desc %}
+                                <span class="text-muted fst-italic" title="{{ el.content_desc }}">(Desc: {{
+                                    el.content_desc | truncate(40) }})</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {# Dropdown để chọn Classification #}
+                                <select class="form-select form-select-sm classification-select"
+                                    data-element-id="{{ el.element_id }}"
+                                    aria-label="Select classification for {{ el.element_id }}">
+                                    {% for classification_option in valid_classifications %}
+                                    <option value="{{ classification_option }}" {% if
+                                        el.classification==classification_option %}selected{% endif %}>
+                                        {{ classification_option }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                {# Span để hiển thị trạng thái cập nhật (Saved!/Error!) #}
+                                <span class="update-status ms-1"></span>
+                            </td>
+                            <td class="text-center">{{ el.attempt_count | default(0) }}</td>
+                            <td class="text-center">{{ el.success_count | default(0) }}</td>
+                            <td class="text-center">
+                                {# Hiển thị Yes/No dựa trên is_clickable_observed #}
+                                {% if el.is_clickable_observed %} <i class="fas fa-check-circle text-success"
+                                    title="Yes"></i>
+                                {% else %} <i class="fas fa-times-circle text-muted" title="No"></i> {% endif %}
+                            </td>
+                            <td class="text-center">
+                                {# Hiển thị Yes/No dựa trên is_editable_observed #}
+                                {% if el.is_editable_observed %} <i class="fas fa-check-circle text-success"
+                                    title="Yes"></i>
+                                {% else %} <i class="fas fa-times-circle text-muted" title="No"></i> {% endif %}
+                            </td>
+                            {# <td class="small text-nowrap">{{ el.last_seen_timestamp | default('N/A') }}</td> #}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-center text-muted fst-italic my-3">No elements found for this screen in the database yet.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const screenId = "{{ screen.screen_id | escapejs }}"; // Lấy screen_id an toàn
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content'); // Lấy CSRF token nếu dùng Flask-WTF
+
+        // --- Xử lý sự kiện thay đổi classification ---
+        document.querySelectorAll('.classification-select').forEach(selectElement => {
+            selectElement.addEventListener('change', function (event) {
+                const elementId = this.dataset.elementId;
+                const newClassification = this.value;
+                const statusSpan = this.closest('td').querySelector('.update-status');
+                const row = this.closest('tr');
+
+                if (!statusSpan || !row) return; // Kiểm tra tồn tại
+
+                statusSpan.textContent = 'Updating...';
+                statusSpan.style.color = 'orange';
+                row.style.opacity = '0.7'; // Làm mờ hàng khi đang cập nhật
+
+                // API endpoint để cập nhật classification
+                const updateApiUrl = `/admin/api/screen/${encodeURIComponent(screenId)}/classify_element`;
+
+                fetch(updateApiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        // Thêm CSRF token nếu cần
+                        ...(csrfToken && { 'X-CSRFToken': csrfToken })
+                    },
+                    body: JSON.stringify({
+                        element_id: elementId,
+                        classification: newClassification
+                    })
+                })
+                    .then(response => {
+                        if (!response.ok) {
+                            // Thử đọc lỗi JSON từ server
+                            return response.json().then(errData => {
+                                throw new Error(errData.error || `HTTP error ${response.status}`);
+                            }).catch(() => {
+                                // Nếu không có JSON lỗi, ném lỗi HTTP gốc
+                                throw new Error(`HTTP error ${response.status}`);
+                            });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.success) {
+                            statusSpan.textContent = 'Saved!';
+                            statusSpan.style.color = 'green';
+                            console.log(data.message);
+                            // Có thể thêm hiệu ứng highlight nhẹ cho hàng
+                            row.classList.add('ai-suggestion-highlight'); // Dùng class highlight tạm
+                            setTimeout(() => {
+                                row.classList.remove('ai-suggestion-highlight');
+                                row.classList.add('ai-suggestion-highlight-fade'); // Thêm class fade out
+                                setTimeout(() => row.classList.remove('ai-suggestion-highlight-fade'), 500); // Xóa class fade sau 0.5s
+                            }, 1000); // Giữ highlight 1s
+                        } else {
+                            statusSpan.textContent = 'Error!';
+                            statusSpan.style.color = 'red';
+                            console.error('Error updating classification:', data.error);
+                            alert(`Error updating classification for ${elementId}: ${data.error || 'Unknown error'}`);
+                            // Revert dropdown về giá trị cũ? (Cần lưu giá trị cũ trước khi gửi)
+                        }
+                    })
+                    .catch(error => {
+                        statusSpan.textContent = 'Network Error!';
+                        statusSpan.style.color = 'red';
+                        console.error('Network error updating classification:', error);
+                        alert(`Network error: ${error.message}`);
+                    })
+                    .finally(() => {
+                        row.style.opacity = '1'; // Khôi phục độ mờ
+                        setTimeout(() => { statusSpan.textContent = ''; }, 3000); // Xóa thông báo trạng thái sau 3s
+                    });
+            });
+        });
+
+        // --- Xử lý nút gợi ý AI ---
+        const suggestBtn = document.getElementById('suggest-ai-btn');
+        const aiStatusSpan = document.getElementById('ai-status');
+
+        if (suggestBtn && aiStatusSpan) {
+            suggestBtn.addEventListener('click', function () {
+                suggestBtn.disabled = true;
+                suggestBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Requesting AI...';
+                aiStatusSpan.textContent = '';
+                aiStatusSpan.className = 'ms-2'; // Reset class
+
+                // API endpoint để lấy gợi ý
+                const suggestApiUrl = `/admin/api/screen/${encodeURIComponent(screenId)}/suggest_classifications`;
+
+                fetch(suggestApiUrl)
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(errData => {
+                                throw new Error(errData.error || `HTTP error ${response.status}`);
+                            }).catch(() => {
+                                throw new Error(`HTTP error ${response.status}`);
+                            });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.success && data.suggestions) {
+                            let suggestionsApplied = 0;
+                            data.suggestions.forEach(suggestion => {
+                                const elementId = suggestion.element_id;
+                                const suggestedClass = suggestion.suggested_classification;
+
+                                // Chỉ cập nhật nếu có gợi ý hợp lệ và khác 'unclassified'
+                                if (elementId && suggestedClass && suggestedClass !== 'unclassified') {
+                                    const selectElement = document.querySelector(`.classification-select[data-element-id="${elementId}"]`);
+                                    if (selectElement) {
+                                        // Cập nhật giá trị dropdown
+                                        selectElement.value = suggestedClass;
+                                        // Highlight hàng
+                                        const row = selectElement.closest('tr');
+                                        if (row) {
+                                            row.classList.add('ai-suggestion-highlight');
+                                            // Tự động lưu thay đổi bằng cách trigger sự kiện 'change'
+                                            // Bạn có thể bỏ dòng này nếu muốn người dùng tự lưu
+                                            selectElement.dispatchEvent(new Event('change'));
+                                        }
+                                        suggestionsApplied++;
+                                    }

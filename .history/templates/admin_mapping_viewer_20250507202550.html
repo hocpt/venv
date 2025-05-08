@@ -1,0 +1,376 @@
+{% extends "admin_base.html" %}
+{% block title %}{{ title or "Trình xem Bản đồ Ứng dụng" }}{% endblock %}
+
+{% block head_extra %}
+{# ... CSS và JS Libraries giữ nguyên ... #}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.23.0/cytoscape.min.js"
+    integrity="sha512-gF+H48HjY3w5hXGpqpP/5mX/uR5y+oFjBZJ3lB7jCmwVvYZ+83S+j/tP+TkbY1/qf4YqJdF+bQsL9+bI6Wc9AQ=="
+    crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<style>
+    /* ... CSS giữ nguyên như Immersive admin_mapping_viewer_with_screenshot_vi trước ... */
+    #cy-parent-card {
+        display: flex;
+        flex-direction: column;
+        flex-grow: 1;
+        min-height: 65vh;
+    }
+
+    #cy-parent-card .card-body.graph-display-area {
+        flex-grow: 1;
+        padding: 0 !important;
+        display: flex;
+        position: relative;
+        overflow: hidden;
+        min-height: 500px;
+    }
+
+    #cy {
+        width: 100%;
+        height: 100%;
+        display: block;
+        border: none;
+        background-color: #fdfdff;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 1;
+    }
+
+    .loading-indicator {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 1.5em;
+        color: #888;
+        z-index: 10;
+        display: none;
+        background-color: rgba(255, 255, 255, 0.8);
+        padding: 15px 25px;
+        border-radius: 5px;
+    }
+
+    #selection-details {
+        font-size: 0.9em;
+        max-height: 60vh;
+        overflow-y: auto;
+    }
+
+    #selection-details h5 {
+        font-size: 1.1em;
+        margin-bottom: 0.75rem;
+    }
+
+    #selection-details h6 {
+        font-size: 1em;
+        margin-top: 1rem;
+        margin-bottom: 0.5rem;
+    }
+
+    #selection-details .list-group-item {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.85em;
+        border: none;
+        background-color: transparent;
+    }
+
+    #selection-details .list-group-item strong {
+        min-width: 100px;
+        display: inline-block;
+    }
+
+    #selection-details code {
+        font-size: 90%;
+        color: #d63384;
+        background-color: #f8f9fa;
+        padding: 0.1rem 0.3rem;
+        border-radius: 0.2rem;
+        word-break: break-all;
+    }
+
+    #selection-details pre code {
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+
+    #selection-details img.screenshot-thumbnail {
+        max-width: 100%;
+        max-height: 250px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background-color: #fff;
+        padding: 3px;
+        margin-top: 5px;
+    }
+
+    .cy-node-label {
+        font-size: 8px;
+        color: #333;
+        text-outline-width: 1px;
+        text-outline-color: #fff;
+        text-valign: center;
+        text-halign: center;
+    }
+
+    .cy-edge-label {
+        font-size: 7px;
+        color: #666;
+        text-outline-width: 1px;
+        text-outline-color: #fff;
+    }
+
+    .cy-node-selected {
+        border-width: 2px;
+        border-color: #ff6600;
+        background-color: #ffa500;
+    }
+
+    .cy-edge-selected {
+        line-color: #ff6600;
+        target-arrow-color: #ff6600;
+        width: 2px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <h1 class="mt-4">{{ title or "Trình xem Bản đồ Ứng dụng" }}</h1>
+    <ol class="breadcrumb mb-4">
+        <li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Bảng điều khiển</a></li>
+        <li class="breadcrumb-item active">{{ title or "Trình xem Bản đồ Ứng dụng" }}</li>
+    </ol>
+
+    {# --- Phần chọn App --- #}
+    <div class="card shadow-sm mb-4">
+        {# ... Phần chọn app giữ nguyên ... #}
+        <div class="card-header"> Chọn ứng dụng để xem bản đồ </div>
+        <div class="card-body">
+            <form method="GET" id="appSelectForm" action="{{ url_for('admin.admin_mapping_viewer') }}">
+                <div class="input-group input-group-sm">
+                    <select class="form-select" id="app_name_select" name="app_name" aria-label="Chọn ứng dụng">
+                        <option value="">-- Chọn một ứng dụng --</option>
+                        {% for name in available_apps %}
+                        <option value="{{ name }}" {{ 'selected' if name==selected_app_name else '' }}>
+                            {{ name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <button class="btn btn-primary" type="submit">Tải Bản đồ</button>
+                </div>
+            </form>
+            <script> /* ... script chuyển trang giữ nguyên ... */
+                document.getElementById('app_name_select').addEventListener('change', function () {
+                    const selectedApp = this.value;
+                    if (selectedApp) { window.location.href = "{{ url_for('admin.admin_mapping_viewer') }}/" + encodeURIComponent(selectedApp); }
+                    else { window.location.href = "{{ url_for('admin.admin_mapping_viewer') }}"; }
+                });
+            </script>
+        </div>
+    </div>
+
+    {# --- Phần hiển thị Đồ thị và Chi tiết --- #}
+    {% if selected_app_name %}
+    <div class="row">
+        {# Cột cho Đồ thị #}
+        <div class="col-lg-8 mb-4 d-flex">
+            <div class="card shadow h-100 w-100" id="cy-parent-card">
+                <div class="card-header py-3 d-flex justify-content-between align-items-center">
+                    <h6 class="m-0 font-weight-bold text-primary">Bản đồ Tương tác Ứng dụng: {{ selected_app_name }}
+                    </h6>
+                    <button id="refresh-graph-btn" class="btn btn-sm btn-outline-secondary" title="Làm mới Đồ thị">
+                        <i class="fas fa-sync-alt fa-fw"></i> Làm mới
+                    </button>
+                </div>
+                <div class="card-body graph-display-area">
+                    <div id="loading" class="loading-indicator">Đang tải đồ thị...</div>
+                    <div id="cy"></div>
+                </div>
+            </div>
+        </div>
+
+        {# Cột cho Thông tin Chi tiết #}
+        <div class="col-lg-4 mb-4 d-flex">
+            <div class="card shadow h-100 w-100">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-info"><i class="fas fa-info-circle me-1"></i> Chi tiết Lựa chọn
+                    </h6>
+                </div>
+                <div class="card-body" id="selection-details">
+                    <p class="text-muted fst-italic">Nhấp vào một node (màn hình) hoặc cạnh (chuyển tiếp) để xem chi
+                        tiết tại đây.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Hướng dẫn sử dụng #}
+    <div class="alert alert-secondary small" role="alert">
+        <i class="fas fa-mouse-pointer me-1"></i> <strong>Mẹo:</strong> Nhấp vào node màn hình để xem chi tiết và ảnh
+        (nếu có), hoặc đến trang phân loại phần tử. Nhấp vào cạnh để xem chi tiết chuyển tiếp. Nhấp vào nền trống để bỏ
+        chọn. Dùng bánh xe chuột để thu phóng, nhấp và kéo để di chuyển bản đồ.
+    </div>
+
+    {% else %} {# Nếu chưa chọn app_name #}
+    <div class="alert alert-info" role="alert">
+        Vui lòng chọn một ứng dụng từ danh sách thả xuống ở trên để xem bản đồ của nó.
+    </div>
+    {% endif %} {# Kết thúc if selected_app_name #}
+
+</div> {# End container-fluid #}
+{% endblock %} {# Kết thúc block content #}
+
+{% block scripts %}
+{{ super() }} {# Giữ lại script từ base #}
+
+{% if selected_app_name %}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const appName = "{{ selected_app_name }}";
+        const graphContainer = document.getElementById('cy');
+        const loadingIndicator = document.getElementById('loading');
+        const selectionDetailsDiv = document.getElementById('selection-details');
+        const refreshButton = document.getElementById('refresh-graph-btn');
+        let cyInstance = null;
+
+        function escapeHtml(unsafe) { /* ... hàm escapeHtml ... */
+            if (unsafe === null || unsafe === undefined) return '';
+            const str = typeof unsafe !== 'string' ? String(unsafe) : unsafe;
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+
+        function fetchAndRenderGraph(appName) {
+            if (!graphContainer || !loadingIndicator || !selectionDetailsDiv) { console.error("Essential DOM elements not found!"); return; }
+            if (typeof cytoscape === 'undefined') { console.error("Cytoscape library not loaded!"); loadingIndicator.textContent = 'Lỗi: Thư viện Cytoscape chưa tải.'; loadingIndicator.style.display = 'block'; return; }
+
+            console.log(`Initializing/Refreshing Cytoscape for app: ${appName}`);
+            loadingIndicator.style.display = 'block';
+            selectionDetailsDiv.innerHTML = '<p class="text-muted fst-italic">Đang tải chi tiết...</p>';
+
+            if (cyInstance) { cyInstance.destroy(); cyInstance = null; console.log("Destroyed previous Cytoscape instance."); }
+            graphContainer.innerHTML = '';
+
+            // === SỬ DỤNG URL API MÀ BẠN XÁC NHẬN HOẠT ĐỘNG ===
+            // Giả sử URL đúng là /admin/api/map/graph_data/<app_name>
+            // Nếu API của bạn nhận app_name qua query param, hãy dùng URL tương ứng
+            // Ví dụ: const apiUrl = `/admin/api/mapping_data?app_name=${encodeURIComponent(appName)}`;
+            const apiUrl = `/admin/api/map/graph_data/${encodeURIComponent(appName)}`; // <<< SỬA URL NÀY NẾU CẦN
+            // =================================================
+
+            fetch(apiUrl) // <<< SỬ DỤNG apiUrl ĐÃ ĐỊNH NGHĨA
+                .then(response => {
+                    if (!response.ok) { return response.json().then(errData => { throw new Error(errData.error || `Network response was not ok (${response.status})`); }).catch(() => { throw new Error(`Network response was not ok (${response.status})`); }); }
+                    return response.json();
+                })
+                .then(graphData => {
+                    loadingIndicator.style.display = 'none';
+                    console.log("Graph data received:", graphData);
+
+                    // Kiểm tra dữ liệu nhận được
+                    if (!graphData || !graphData.nodes) { /* ... xử lý lỗi dữ liệu không hợp lệ ... */ return; }
+                    if (!graphData.nodes.length && (!graphData.edges || !graphData.edges.length)) { /* ... xử lý không có node/edge ... */ return; }
+
+                    // Khởi tạo Cytoscape
+                    cyInstance = cytoscape({
+                        container: graphContainer,
+                        elements: { nodes: graphData.nodes || [], edges: graphData.edges || [] },
+                        style: [ /* ... style node/edge giữ nguyên ... */
+                            { selector: 'node', style: { 'background-color': '#66a3ff', 'label': 'data(label)', 'width': '30px', 'height': '30px', 'font-size': '8px', 'color': '#333', 'text-outline-width': 1, 'text-outline-color': '#fff', 'text-valign': 'center', 'text-halign': 'center', 'border-width': 1, 'border-color': '#444' } },
+                            { selector: 'node[status="provisional"]', style: { 'background-color': '#66a3ff' } }, { selector: 'node[status="confirmed"]', style: { 'background-color': '#4CAF50' } }, { selector: 'node[status="error"]', style: { 'background-color': '#f44336' } }, { selector: 'node[status="needs_review"]', style: { 'background-color': '#ffeb3b' } }, { selector: 'node:selected', style: { 'border-width': 3, 'border-color': '#ff6600', 'background-color': '#ffa500' } },
+                            { selector: 'edge', style: { 'width': 1.5, 'line-color': '#ccc', 'target-arrow-color': '#ccc', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier', 'font-size': '7px', 'color': '#555', 'text-outline-width': 1, 'text-outline-color': '#fff', 'arrow-scale': 0.8 } }, { selector: 'edge[status="provisional"]', style: { 'line-color': '#aaaaaa', 'target-arrow-color': '#aaaaaa', 'line-style': 'dashed' } }, { selector: 'edge[status="confirmed"]', style: { 'line-color': '#4CAF50', 'target-arrow-color': '#4CAF50', 'line-style': 'solid' } }, { selector: 'edge[status="failed"]', style: { 'line-color': '#f44336', 'target-arrow-color': '#f44336', 'line-style': 'dotted', 'width': 1 } }, { selector: 'edge:selected', style: { 'line-color': '#ff6600', 'target-arrow-color': '#ff6600', 'width': 3 } }
+                        ],
+                        layout: { /* ... cấu hình layout giữ nguyên ... */
+                            name: 'cose', idealEdgeLength: 120, nodeOverlap: 30, refresh: 30, fit: true, padding: 40, randomize: false, componentSpacing: 150, nodeRepulsion: (node) => 450000, edgeElasticity: (edge) => 100, nestingFactor: 5, gravity: 80, numIter: 1500, initialTemp: 200, coolingFactor: 0.95, minTemp: 1.0, animate: 'end', animationDuration: 500
+                        },
+                        wheelSensitivity: 0.2, minZoom: 0.1, maxZoom: 5
+                    });
+
+                    // --- Gắn lại các Event Listener ---
+                    cyInstance.on('tap', 'node', function (evt) {
+                        var node = evt.target;
+                        const nodeData = node.data();
+                        console.log('Tapped node ' + node.id());
+                        console.log('Node data:', nodeData); // <<< KIỂM TRA nodeData xem có screenshot_url không
+
+                        let detailsHtml = `<h5>Chi tiết Node (Màn hình)</h5>
+                           <ul class="list-group list-group-flush">
+                             <li class="list-group-item"><strong>ID:</strong> <code>${escapeHtml(nodeData.id)}</code></li>
+                             <li class="list-group-item"><strong>Nhãn:</strong> ${escapeHtml(nodeData.label)}</li>
+                             <li class="list-group-item"><strong>Activity:</strong> ${escapeHtml(nodeData.activity)}</li>
+                             <li class="list-group-item"><strong>Trạng thái:</strong> <span class="badge bg-info">${escapeHtml(nodeData.status || 'N/A')}</span></li>
+                             <li class="list-group-item"><strong>Số Element:</strong> ${nodeData.element_count !== undefined ? nodeData.element_count : 'N/A'}</li>
+                           </ul>`;
+
+                        // === HIỂN THỊ ẢNH (LOGIC GIỮ NGUYÊN) ===
+                        if (nodeData.screenshot_url) { // <<< Kiểm tra key này
+                            detailsHtml += `
+                                 <div class="mt-3 text-center">
+                                     <h6>Ảnh chụp màn hình</h6>
+                                     <a href="${escapeHtml(nodeData.screenshot_url)}" target="_blank" title="Xem ảnh đầy đủ">
+                                         <img src="${escapeHtml(nodeData.screenshot_url)}" alt="Screenshot for ${escapeHtml(nodeData.id)}"
+                                              class="screenshot-thumbnail">
+                                     </a>
+                                 </div>`;
+                        } else {
+                            detailsHtml += '<p class="text-muted mt-2 text-center small">(Không có ảnh chụp màn hình)</p>';
+                        }
+                        // ==================================
+
+                        const screenId = node.id();
+                        if (screenId) {
+                            const elementPageUrl = "{{ url_for('admin.admin_screen_elements', screen_id='PLACEHOLDER') }}".replace('PLACEHOLDER', encodeURIComponent(screenId));
+                            detailsHtml += `<div class="mt-3">
+                                <a href="${elementPageUrl}" class="btn btn-sm btn-outline-primary" target="_blank">
+                                    <i class="fas fa-search me-1"></i> Xem/Phân loại Elements
+                                </a>
+                             </div>`;
+                        }
+                        selectionDetailsDiv.innerHTML = detailsHtml;
+                    });
+
+                    cyInstance.on('tap', 'edge', function (evt) { /* ... xử lý tap edge giữ nguyên ... */ });
+                    cyInstance.on('tap', function (event) { /* ... xử lý tap background giữ nguyên ... */ });
+                    cyInstance.ready(function () { /* ... xử lý ready giữ nguyên ... */ });
+                    cyInstance.resize();
+
+                })
+                .catch(error => { /* ... xử lý lỗi fetch giữ nguyên ... */ });
+        } // Kết thúc hàm fetchAndRenderGraph
+
+        // Gọi hàm lần đầu khi trang tải
+        fetchAndRenderGraph(appName);
+
+        // Xử lý nút Refresh
+        if (refreshButton) { /* ... xử lý refresh giữ nguyên ... */ }
+
+    }); // Kết thúc DOMContentLoaded
+</script>
+{% endif %} {# Kết thúc if selected_app_name #}
+
+{% endblock %} {# Kết thúc block scripts #}
+```
+
+**Giải thích các thay đổi chính:**
+
+1. **Backend (`admin_routes.py` - hàm `api_get_app_graph_data` hoặc tương đương):**
+* **Quan trọng:** Đảm bảo hàm này đang được gọi bởi URL `/admin/api/map/graph_data/...` (hoặc URL bạn xác nhận).
+* **Quan trọng:** Bên trong hàm này, sau khi lấy `graph_data` từ `graph_db`, phải có đoạn code lặp qua
+`graph_data["nodes"]`, lấy `screenshot_path` (tên file), gọi `url_for('serve_app_specific_screenshot',
+filename=filename)` để tạo `screenshot_url`, và thêm `screenshot_url` vào `node["data"]`.
+2. **Frontend (`admin_mapping_viewer.html`):**
+* **URL Fetch:** Đã cập nhật biến `apiUrl` để sử dụng URL `/admin/api/map/graph_data/${encodeURIComponent(appName)}`
+(hoặc URL đúng mà bạn đã xác nhận). **Hãy kiểm tra lại URL này một lần nữa cho chắc chắn.**
+* **Hiển thị Ảnh:** Logic Javascript trong `cyInstance.on('tap', 'node', ...)` để kiểm tra `nodeData.screenshot_url` và
+hiển thị thẻ `<img>` vẫn được giữ nguyên. Nó sẽ hoạt động đúng khi backend trả về `screenshot_url`.
+
+**Hành động:**
+
+1. **Xác nhận và Sửa Backend:** Kiểm tra lại file `admin_routes.py`. Tìm hàm xử lý route `/admin/api/map/graph_data/...`
+(hoặc tương đương). Đảm bảo bạn đã thêm logic để tạo và trả về `screenshot_url` cho mỗi node như trong Immersive
+`admin_routes_add_screenshot_url_to_map_data`.
+2. **Áp dụng Frontend:** Sử dụng code HTML/JS mới cho `admin_mapping_viewer.html` ở trên.
+3. **Khởi động lại Server.**
+4. **Tải lại Trang Mapping Viewer.**
+5. **Kiểm tra:** Nhấp vào một node. Panel chi tiết bây giờ sẽ hiển thị ảnh nếu backend đã trả về `screenshot_url` đúng.
+Nếu vẫn hiển thị "(Không có ảnh chụp màn hình)", hãy kiểm tra log console của trình duyệt (F12) xem `nodeData` khi bạn
+click vào node có chứa key `screenshot_url` khô

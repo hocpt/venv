@@ -1,0 +1,422 @@
+{% extends "admin_base.html" %} {# Kế thừa từ template admin cơ sở của bạn #}
+
+{% block title %}Screen Elements - {{ screen.screen_id }}{% endblock %}
+
+{% block head_extra %} {# Thêm CSS nếu cần, hoặc đặt trong block styles #}
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4"> {# Container từ base template #}
+    <h1 class="mt-4">Screen Element Classification</h1>
+    <ol class="breadcrumb mb-4">
+        <li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Dashboard</a></li>
+        {# Thêm link về Mapping Viewer nếu muốn #}
+        <li class="breadcrumb-item"><a href="{{ url_for('admin.admin_mapping_viewer', app_name=screen.app_name) }}">App
+                Mapping ({{ screen.app_name }})</a></li>
+        <li class="breadcrumb-item active">Screen: {{ screen.screen_id | truncate(30) }}</li>
+    </ol>
+
+    {# --- Phần Thông tin Screen --- #}
+    <div class="card shadow-sm mb-4">
+        <div class="card-header">
+            <i class="fas fa-desktop me-1"></i> Screen Details
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-8">
+                    <p class="mb-1"><strong>Screen ID:</strong> <code>{{ screen.screen_id }}</code></p>
+                    <p class="mb-1"><strong>App Name:</strong> <code>{{ screen.app_name | default('N/A') }}</code></p>
+                    <p class="mb-1"><strong>Activity Name:</strong>
+                        <code>{{ screen.activity_name | default('N/A') }}</code>
+                    </p>
+                    <p class="mb-1"><strong>Status:</strong> <span class="badge bg-info">{{ screen.status |
+                            default('N/A') }}</span></p>
+                    <p class="mb-1"><strong>Element Count (from DB):</strong> {{ screen.element_count if
+                        screen.element_count is not none else 'N/A' }}</p>
+                    <p class="mb-0"><strong>Last Seen:</strong> {{ screen.last_seen.strftime('%Y-%m-%d %H:%M:%S %Z') if
+                        screen.last_seen else 'N/A' }}</p>
+                </div>
+                {# --- Phần Ảnh chụp màn hình (nếu có) --- #}
+                <div class="col-md-4 text-center">
+                    {% if screenshot_url %}
+                    <h6 class="mb-2">Screenshot</h6>
+                    <a href="{{ screenshot_url }}" target="_blank" title="Click to view full size">
+                        <img src="{{ screenshot_url }}" alt="Screenshot for {{ screen.screen_id }}"
+                            class="img-thumbnail" style="max-height: 200px; max-width: 100%;">
+                    </a>
+                    {% else %}
+                    <div class="text-muted mt-4">(No screenshot available)</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# --- Phần Bảng Elements --- #}
+    <div class="card shadow mb-4">
+        <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+            <h6 class="m-0 font-weight-bold text-primary"><i class="fas fa-th-list me-1"></i> UI Elements</h6>
+            <div>
+                <button id="suggest-ai-btn" class="btn btn-sm btn-outline-primary">
+                    <i class="fas fa-magic me-1"></i> Suggest Classifications (AI)
+                </button>
+                <span id="ai-status" class="ms-2 small text-muted"></span> {# Hiển thị trạng thái AI #}
+            </div>
+        </div>
+        <div class="card-body">
+            {% include '_flash_messages.html' ignore missing %} {# Hiển thị flash messages #}
+
+            {% if elements %}
+            <div class="table-responsive">
+                <table class="table table-sm table-striped table-bordered table-hover align-middle" id="elementsTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th scope="col" style="width: 20%;">Element ID</th>
+                            <th scope="col" style="width: 10%;">Loại ID</th>
+                            <th scope="col" style="width: 15%;">Loại Element</th>
+                            <th scope="col" style="width: 20%;">Nội dung Text</th>
+                            <th scope="col" style="width: 15%;">Phân loại</th>
+                            <th scope="col" class="text-center" style="width: 5%;" title="Đã thử">Thử</th> {# Attempts
+                            #}
+                            <th scope="col" class="text-center" style="width: 5%;" title="Thành công">TC</th> {#
+                            Successes #}
+                            <th scope="col" class="text-center" style="width: 10%;"
+                                title="Trạng thái Khám phá (Tự động / Thủ công)">Khám phá?</th>
+                            <th scope="col" style="width: 10%;" class="text-nowrap">Nhìn thấy lần cuối</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for el in elements %}
+                        <tr id="row-{{ el.element_id | urlencode }}">
+                            <td><code class="small">{{ el.element_id }}</code></td>
+                            <td><span class="badge text-bg-secondary small">{{ el.identifier_type | default('N/A')
+                                    }}</span></td>
+                            <td><small>{{ el.element_type | default('N/A') | replace('android.widget.', '') }}</small>
+                            </td>
+                            <td>
+                                {% if el.text_content %}
+                                <span title="{{ el.text_content | escape }}">{{ el.text_content | truncate(40) }}</span>
+                                {% else %}
+                                <span class="text-muted fst-italic">--</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <select class="form-select form-select-sm classification-select"
+                                    data-element-id="{{ el.element_id }}"
+                                    data-identifier-type="{{ el.identifier_type | default('') }}"
+                                    aria-label="Select classification for {{ el.element_id }}">
+                                    {% for classification_option in valid_classifications %}
+                                    <option value="{{ classification_option }}" {% if
+                                        el.classification==classification_option %}selected{% endif %}>
+                                        {{ classification_option }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                <span class="update-status ms-1 small"></span>
+                            </td>
+                            <td class="text-center">{{ el.attempt_count | default(0) }}</td>
+                            <td class="text-center">{{ el.success_count | default(0) }}</td>
+                            {# === HIỂN THỊ TRẠNG THÁI KHÁM PHÁ TƯƠNG TÁC === #}
+                            <td class="text-center explored-status-cell" data-element-id="{{ el.element_id }}"
+                                data-current-status="{{ el.override_active }}" {# Lưu trạng thái override hiện tại #}
+                                data-auto-status="{{ 'true' if el.element_id in tried_element_ids else 'false' }}"> {#
+                                Lưu trạng thái tự động ẩn #}
+                                <div class="btn-group btn-group-sm" role="group"
+                                    aria-label="Exploration status override">
+                                    {# Nút Auto (Mặc định) #}
+                                    <button type="button"
+                                        class="btn btn-outline-secondary btn-xs override-btn auto-btn {{ 'active' if el.override_active == 'auto' else '' }}"
+                                        data-status="auto"
+                                        title="Trạng thái Tự động ({{ 'Đã khám phá' if el.element_id in tried_element_ids else 'Chưa khám phá' }})">
+                                        <i class="fas fa-robot"></i>
+                                    </button>
+                                    {# Nút Force Explored (Buộc Đã khám phá) #}
+                                    <button type="button"
+                                        class="btn btn-outline-success btn-xs override-btn explored-btn {{ 'active' if el.override_active == 'force_explored' else '' }}"
+                                        data-status="force_explored" title="Buộc Đã khám phá">
+                                        <i class="fas fa-check"></i>
+                                    </button>
+                                    {# Nút Force Unexplored (Buộc Chưa khám phá) #}
+                                    <button type="button"
+                                        class="btn btn-outline-danger btn-xs override-btn unexplored-btn {{ 'active' if el.override_active == 'force_unexplored' else '' }}"
+                                        data-status="force_unexplored" title="Buộc Chưa khám phá">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                                {# Hiển thị trạng thái cuối cùng bằng icon nhỏ bên cạnh #}
+                                <i class="fas {{ 'fa-check-circle text-success' if el.display_explored_status else 'fa-times-circle text-muted' }} ms-1 final-status-icon"
+                                    title="Trạng thái cuối cùng: {{ 'Đã khám phá' if el.display_explored_status else 'Chưa khám phá' }}"></i>
+                                <span class="override-update-status ms-1 small"></span> {# Status update cho override #}
+                            </td>
+                            {# ============================================== #}
+                            <td class="text-nowrap small">
+                                {% if el.last_seen_timestamp %}
+                                {# Thử format, nếu lỗi thì hiển thị chuỗi gốc #}
+                                {% set formatted_time = el.last_seen_timestamp %}
+                                {% set dt_obj =
+                                modules.datetime.datetime.fromisoformat(el.last_seen_timestamp.replace('Z', '+00:00'))
+                                if el.last_seen_timestamp is string else el.last_seen_timestamp %}
+                                {% if dt_obj is defined and dt_obj %}
+                                {% set formatted_time =
+                                dt_obj.astimezone(modules.pytz.timezone('Asia/Ho_Chi_Minh')).strftime('%H:%M %d/%m/%y')
+                                %}
+                                {% endif %}
+                                <span title="{{ el.last_seen_timestamp }}">{{ formatted_time }}</span>
+                                {% else %}
+                                N/A
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="alert alert-info">No elements found for this screen in the database yet.</div>
+            {% endif %}
+        </div> {# End card-body #}
+    </div> {# End card #}
+
+</div> {# End container-fluid #}
+{% endblock %} {# Kết thúc block content #}
+
+
+{% block styles %}
+{{ super() }} {# Kế thừa style từ base #}
+<style>
+    .table code.small {
+        font-size: 0.8em;
+        /* Nhỏ hơn nữa cho ID trong bảng */
+        word-break: break-all;
+        /* Ngắt ID nếu quá dài */
+    }
+
+    .table .badge.small {
+        font-size: 0.75em;
+        /* Badge nhỏ hơn */
+    }
+
+    .table .form-select-sm {
+        font-size: 0.8rem;
+        /* Dropdown nhỏ hơn */
+        padding-top: 0.2rem;
+        padding-bottom: 0.2rem;
+    }
+
+    .update-status {
+        font-style: italic;
+        font-weight: bold;
+    }
+
+    .highlight-suggestion {
+        background-color: #e6f7ff !important;
+        /* Màu nền highlight */
+        transition: background-color 0.5s ease-out;
+    }
+
+    .img-thumbnail {
+        background-color: #fff;
+        border: 1px solid #dee2e6;
+        border-radius: 0.25rem;
+        padding: 0.25rem;
+    }
+</style>
+{% endblock %}
+
+
+{% block scripts %}
+{{ super() }} {# Giữ lại script từ base #}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const screenId = "{{ screen.screen_id }}";
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+
+        // --- Xử lý sự kiện thay đổi classification (Giữ nguyên) ---
+        document.querySelectorAll('.classification-select').forEach(selectElement => {
+            selectElement.addEventListener('change', function (event) {
+                const elementId = this.dataset.elementId;
+                const identifierType = this.dataset.identifierType;
+                const newClassification = this.value;
+                const statusSpan = this.closest('td').querySelector('.update-status');
+                const row = this.closest('tr');
+
+                if (!statusSpan || !row) return;
+
+                statusSpan.textContent = 'Updating...';
+                statusSpan.style.color = 'orange';
+                row.style.opacity = '0.7';
+
+                const apiUrl = `/admin/api/element/classify`; // API lưu vào Postgres
+
+                fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(csrfToken && { 'X-CSRFToken': csrfToken })
+                    },
+                    body: JSON.stringify({
+                        screen_id: screenId,
+                        element_id: elementId,
+                        identifier_type: identifierType,
+                        classification: newClassification
+                    })
+                })
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(errData => { throw new Error(errData.error || `HTTP error ${response.status}`) });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.success) {
+                            statusSpan.textContent = 'Saved!';
+                            statusSpan.style.color = 'green';
+                            console.log(data.message);
+                            row.classList.remove('highlight-suggestion');
+                            row.style.backgroundColor = '';
+                        } else {
+                            statusSpan.textContent = 'Error!';
+                            statusSpan.style.color = 'red';
+                            console.error('Error updating classification:', data.error);
+                            alert(`Error: ${data.error || 'Unknown error updating classification.'}`);
+                        }
+                    })
+                    .catch(error => {
+                        statusSpan.textContent = 'Network Error!';
+                        statusSpan.style.color = 'red';
+                        console.error('Network or Parsing error:', error);
+                        alert(`Failed to update classification: ${error.message}`);
+                    })
+                    .finally(() => {
+                        setTimeout(() => {
+                            statusSpan.textContent = '';
+                            row.style.opacity = '1';
+                        }, 2500);
+                    });
+            });
+        });
+
+        // --- Xử lý nút gợi ý AI (ĐÃ SỬA) ---
+        const suggestBtn = document.getElementById('suggest-ai-btn');
+        const aiStatusSpan = document.getElementById('ai-status');
+        const elementsTableBody = document.querySelector('#elementsTable tbody'); // Lấy tbody của bảng
+
+        if (suggestBtn && aiStatusSpan && elementsTableBody) {
+            suggestBtn.addEventListener('click', function () {
+                suggestBtn.disabled = true;
+                suggestBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Requesting AI...';
+                aiStatusSpan.textContent = '';
+                aiStatusSpan.style.color = 'grey';
+
+                // === BƯỚC 1: THU THẬP DỮ LIỆU ELEMENT TỪ BẢNG ===
+                const elementsToSend = [];
+                elementsTableBody.querySelectorAll('tr').forEach(row => {
+                    const selectElement = row.querySelector('.classification-select');
+                    // Chỉ lấy các element đang là 'unclassified' để gửi đi (hoặc bạn có thể gửi tất cả)
+                    if (selectElement && selectElement.value === 'unclassified') {
+                        const elementId = selectElement.dataset.elementId;
+                        const identifierType = selectElement.dataset.identifierType;
+                        // Lấy các thông tin khác từ các ô trong hàng (td)
+                        const elementType = row.cells[2]?.textContent.trim() || null; // Ô thứ 3 (index 2)
+                        const textContent = row.cells[3]?.querySelector('span')?.getAttribute('title') || row.cells[3]?.textContent.trim() || null; // Ô thứ 4 (index 3) - Ưu tiên title nếu có truncate
+
+                        if (elementId) { // Chỉ thêm nếu có element ID
+                            elementsToSend.push({
+                                element_id: elementId,
+                                identifier_type: identifierType || null, // Gửi null nếu không có
+                                element_type: elementType,
+                                text_content: textContent
+                                // Thêm các trường khác nếu hàm AI cần (vd: coordinates, bounds)
+                            });
+                        }
+                    }
+                });
+                console.log(`Collected ${elementsToSend.length} unclassified elements to send for AI suggestion.`);
+
+                // Nếu không có element nào để gửi, báo cho người dùng
+                if (elementsToSend.length === 0) {
+                    aiStatusSpan.textContent = 'No unclassified elements found on this page to suggest for.';
+                    aiStatusSpan.style.color = 'grey';
+                    suggestBtn.disabled = false;
+                    suggestBtn.innerHTML = '<i class="fas fa-magic me-1"></i> Suggest Classifications (AI)';
+                    setTimeout(() => { aiStatusSpan.textContent = ''; }, 5000);
+                    return; // Dừng lại
+                }
+
+                // === BƯỚC 2: GỬI YÊU CẦU POST ĐẾN API MỚI ===
+                const suggestApiUrl = `/admin/api/screen/${encodeURIComponent(screenId)}/suggest_classifications`; // URL API không đổi
+
+                fetch(suggestApiUrl, {
+                    method: 'POST', // <<< ĐỔI SANG POST
+                    headers: {
+                        'Content-Type': 'application/json', // <<< THÊM HEADER
+                        ...(csrfToken && { 'X-CSRFToken': csrfToken })
+                    },
+                    body: JSON.stringify({ elements: elementsToSend }) // <<< GỬI BODY JSON
+                })
+                    .then(response => {
+                        if (!response.ok) {
+                            return response.json().then(errData => { throw new Error(errData.error || `HTTP error ${response.status}`) });
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        // === BƯỚC 3: XỬ LÝ KẾT QUẢ (Logic giống trước) ===
+                        if (data.success && data.suggestions) {
+                            let suggestionsApplied = 0;
+                            data.suggestions.forEach(suggestion => {
+                                const elementId = suggestion.element_id;
+                                const suggestedClass = suggestion.suggested_classification;
+                                if (elementId && suggestedClass && suggestedClass !== 'unclassified') {
+                                    const selectElement = document.querySelector(`.classification-select[data-element-id="${elementId}"]`);
+                                    if (selectElement) {
+                                        // Chỉ cập nhật nếu nó VẪN đang là unclassified (tránh ghi đè nếu người dùng vừa sửa tay)
+                                        if (selectElement.value === 'unclassified') {
+                                            selectElement.value = suggestedClass;
+                                            const row = selectElement.closest('tr');
+                                            if (row) {
+                                                row.classList.add('highlight-suggestion');
+                                                setTimeout(() => {
+                                                    row.classList.remove('highlight-suggestion');
+                                                    row.style.backgroundColor = '';
+                                                }, 3000);
+                                            }
+                                            suggestionsApplied++;
+                                        }
+                                    } else {
+                                        console.warn(`Dropdown not found for suggested element ID: ${elementId}`);
+                                    }
+                                }
+                            });
+                            if (suggestionsApplied > 0) {
+                                aiStatusSpan.textContent = `AI suggested classifications for ${suggestionsApplied} element(s). Please review and save changes manually by selecting.`;
+                                aiStatusSpan.style.color = 'blue';
+                            } else {
+                                aiStatusSpan.textContent = 'AI did not provide new suggestions for the unclassified elements sent.';
+                                aiStatusSpan.style.color = 'grey';
+                            }
+                        } else if (data.success) {
+                            aiStatusSpan.textContent = data.message || 'No suggestions available.';
+                            aiStatusSpan.style.color = 'grey';
+                        } else {
+                            aiStatusSpan.textContent = `Error: ${data.error || 'Failed to get suggestions.'}`;
+                            aiStatusSpan.style.color = 'red';
+                        }
+                    })
+                    .catch(error => {
+                        aiStatusSpan.textContent = `Network Error: ${error.message}`;
+                        aiStatusSpan.style.color = 'red';
+                        console.error('Network error getting AI suggestions:', error);
+                    })
+                    .finally(() => {
+                        suggestBtn.disabled = false;
+                        suggestBtn.innerHTML = '<i class="fas fa-magic me-1"></i> Suggest Classifications (AI)';
+                        setTimeout(() => { aiStatusSpan.textContent = ''; }, 6000);
+                    });
+            });
+        } else {
+            console.warn("Suggest AI button, status span, or elements table body not found.");
+        }
+    });
+</script>
+{% endblock %}
