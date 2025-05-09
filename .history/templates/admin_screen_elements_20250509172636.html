@@ -1,0 +1,724 @@
+{% extends "admin_base.html" %} {# Kế thừa từ template admin cơ sở của bạn #}
+
+{% block title %}Phân loại Phần tử - {{ screen.screen_id }}{% endblock %}
+
+{% block head_extra %}
+{# Nhúng thư viện JS nếu cần thêm sau này #}
+<style>
+    /* --- CSS cho Layout và Overlay --- */
+
+
+    /* --- Styles for Button Overlays --- */
+
+
+    /* Class để highlight hàng trong bảng */
+    .table-row-highlight td {
+        background-color: #e6f0ff !important;
+        /* Màu nền highlight cho hàng */
+        transition: background-color 0.2s ease;
+    }
+
+    /* Style cho bảng (giữ nguyên hoặc tùy chỉnh) */
+    .table code.small {
+        font-size: 0.8em;
+        word-break: break-all;
+    }
+
+    .table .badge.small {
+        font-size: 0.75em;
+    }
+
+    .table .form-select-sm {
+        font-size: 0.8rem;
+        padding-top: 0.2rem;
+        padding-bottom: 0.2rem;
+    }
+
+    .update-status,
+    .override-update-status {
+        font-style: italic;
+        font-weight: bold;
+    }
+
+    .highlight-suggestion td {
+        background-color: #e6f7ff !important;
+        transition: background-color 0.5s ease-out;
+    }
+
+    .explored-status-cell .btn-xs,
+    .explored-status-cell .btn-group-sm>.btn {
+        padding: 0.1rem 0.3rem;
+        font-size: 0.75rem;
+        line-height: 1.2;
+    }
+
+    .explored-status-cell .btn .fas {
+        width: 1em;
+    }
+
+    .explored-status-cell .btn:not(.active) {
+        border-color: transparent;
+    }
+
+    .explored-status-cell .btn.active {
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
+    }
+
+    .final-status-icon {
+        font-size: 1.1em;
+    }
+
+    .final-status-icon.text-muted {
+        opacity: 0.6;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <h1 class="mt-4">Phân loại Phần tử Màn hình</h1>
+    <ol class="breadcrumb mb-4">
+        <li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Bảng điều khiển</a></li>
+        <li class="breadcrumb-item"><a href="{{ url_for('admin.admin_mapping_viewer', app_name=screen.app_name) }}">Bản
+                đồ App ({{ screen.app_name }})</a></li>
+        <li class="breadcrumb-item active">Màn hình: {{ screen.screen_id | truncate(30) }}</li>
+    </ol>
+
+    {# --- Layout 2 Cột: Ảnh bên trái, Thông tin Screen & Bảng bên phải --- #}
+    <div class="row">
+        {# --- Cột Ảnh Chụp Màn Hình --- #}
+        <div class="col-lg-4 mb-4"> {# Chiếm 5/12 cột trên màn hình lớn #}
+            <div class="card shadow-sm h-100">
+                <div class="card-header">
+                    <i class="fas fa-image me-1"></i> Ảnh chụp màn hình
+                </div>
+                <div class="card-body text-center" id="screenshot-card-body"> {# ID để JS dễ tìm #}
+                    {% if screenshot_url %}
+                    <div class="screenshot-container" id="screenshot-wrapper">
+                        <img src="{{ screenshot_url }}" id="screenshot-image"
+                            alt="Ảnh chụp màn hình cho {{ screen.screen_id }}">
+                        {# Các div overlay sẽ được thêm vào đây bằng JS #}
+                    </div>
+                    {% else %}
+                    <p class="text-muted mt-5">(Không có ảnh chụp màn hình)</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        {# --- Cột Thông tin Screen và Bảng Elements --- #}
+        <div class="col-lg-8 mb-4"> {# Chiếm 7/12 cột #}
+            {# --- Card Thông tin Screen --- #}
+            <div class="card shadow-sm mb-4">
+                <div class="card-header">
+                    <i class="fas fa-desktop me-1"></i> Chi tiết Màn hình
+                </div>
+                <div class="card-body">
+                    <p class="mb-1"><strong>ID Màn hình:</strong> <code>{{ screen.screen_id }}</code></p>
+                    <p class="mb-1"><strong>Tên App:</strong> <code>{{ screen.app_name | default('N/A') }}</code></p>
+                    <p class="mb-1"><strong>Tên Activity:</strong>
+                        <code>{{ screen.activity_name | default('N/A') }}</code>
+                    </p>
+                    <p class="mb-1"><strong>Trạng thái:</strong> <span class="badge bg-info">{{ screen.status |
+                            default('N/A') }}</span></p>
+                    <p class="mb-0"><strong>Số Element (DB):</strong> {{ screen.element_count if screen.element_count is
+                        not none else 'N/A' }}</p>
+                    {# <p class="mb-0"><strong>Lần cuối thấy:</strong> {{ screen.last_seen.strftime('%Y-%m-%d %H:%M:%S
+                        %Z') if screen.last_seen else 'N/A' }}</p> #}
+                </div>
+            </div>
+
+            {# --- Card Bảng Elements --- #}
+            <div class="card shadow-sm">
+                <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+                    <h6 class="m-0 font-weight-bold text-primary"><i class="fas fa-th-list me-1"></i> Phần tử Giao diện
+                    </h6>
+                    <div>
+                        <button id="suggest-ai-btn" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-magic me-1"></i> Gợi ý (AI)
+                        </button>
+                        <span id="ai-status" class="ms-2 small text-muted"></span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    {% include '_flash_messages.html' ignore missing %}
+                    {% if elements %}
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped table-bordered table-hover align-middle"
+                            id="elementsTable">
+                            <thead class="table-light">
+                                <tr>
+                                    {# Các cột giữ nguyên như trước #}
+                                    <th scope="col" style="width: 22%;">Element ID</th>
+                                    <th scope="col" style="width: 10%;">Loại ID</th>
+                                    <th scope="col" style="width: 15%;">Loại Element</th>
+                                    <th scope="col" style="width: 18%;">Nội dung Text</th>
+                                    <th scope="col" style="width: 15%;">Phân loại</th>
+                                    <th scope="col" class="text-center" style="width: 5%;" title="Đã thử">Thử</th>
+                                    <th scope="col" class="text-center" style="width: 5%;" title="Thành công">TC</th>
+                                    <th scope="col" class="text-center" style="width: 15%;"
+                                        title="Trạng thái Khám phá (Tự động / Thủ công)">Khám phá?</th>
+                                    {# <th scope="col" style="width: 10%;" class="text-nowrap">Nhìn thấy lần cuối</th>
+                                    #} {# Tạm ẩn cột này #}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for el in elements %}
+                                {# === SỬA LỖI JSON SERIALIZABLE === #}
+                                {% set element_data = {
+                                "id": el.element_id | default(None),
+                                "type": el.element_type | default(None),
+                                "text": el.text_content | default(None),
+                                "coords": el.coordinates | default(None),
+                                "bounds": el.bounds | default(None)
+                                } %}
+                                <tr id="row-{{ el.element_id | urlencode }}"
+                                    data-element-info='{{ element_data | tojson }}'>
+                                    {# ================================ #}
+                                    <td><code class="small">{{ el.element_id }}</code></td>
+                                    <td><span class="badge text-bg-secondary small">{{ el.identifier_type |
+                                            default('N/A') }}</span></td>
+                                    <td><small>{{ el.element_type | default('N/A') | replace('android.widget.', '')
+                                            }}</small></td>
+                                    <td>
+                                        {% if el.text_content %}
+                                        <span title="{{ el.text_content | escape }}">{{ el.text_content | truncate(30)
+                                            }}</span> {# Rút gọn hơn #}
+                                        {% else %}
+                                        <span class="text-muted fst-italic">--</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <select class="form-select form-select-sm classification-select"
+                                            data-element-id="{{ el.element_id }}"
+                                            data-identifier-type="{{ el.identifier_type | default('') }}"
+                                            aria-label="Select classification for {{ el.element_id }}">
+                                            {% for classification_option in valid_classifications %}
+                                            <option value="{{ classification_option }}" {% if
+                                                el.classification==classification_option %}selected{% endif %}>
+                                                {{ classification_option }}
+                                            </option>
+                                            {% endfor %}
+                                        </select>
+                                        <span class="update-status ms-1 small"></span>
+                                    </td>
+                                    <td class="text-center">{{ el.attempt_count | default(0) }}</td>
+                                    <td class="text-center">{{ el.success_count | default(0) }}</td>
+                                    <td class="text-center explored-status-cell" data-element-id="{{ el.element_id }}"
+                                        data-current-status="{{ el.override_active }}">
+                                        <div class="btn-group btn-group-sm" role="group"
+                                            aria-label="Exploration status override">
+                                            <button type="button"
+                                                class="btn btn-outline-secondary btn-xs override-btn auto-btn {{ 'active' if el.override_active == 'auto' else '' }}"
+                                                data-status="auto" title="Trạng thái Tự động (...)">
+                                                <i class="fas fa-robot"></i>
+                                            </button>
+                                            <button type="button"
+                                                class="btn btn-outline-success btn-xs override-btn explored-btn {{ 'active' if el.override_active == 'force_explored' else '' }}"
+                                                data-status="force_explored" title="Buộc Đã khám phá">
+                                                <i class="fas fa-check"></i>
+                                            </button>
+                                            <button type="button"
+                                                class="btn btn-outline-danger btn-xs override-btn unexplored-btn {{ 'active' if el.override_active == 'force_unexplored' else '' }}"
+                                                data-status="force_unexplored" title="Buộc Chưa khám phá">
+                                                <i class="fas fa-times"></i>
+                                            </button>
+                                        </div>
+                                        <i class="fas {{ 'fa-check-circle text-success' if el.display_explored_status else 'fa-times-circle text-muted' }} ms-1 final-status-icon"
+                                            title="Trạng thái cuối cùng: ..."></i>
+                                        <span class="override-update-status ms-1 small"></span>
+                                    </td>
+                                    {# <td class="text-nowrap small"> ... </td> #}
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-info">Chưa tìm thấy phần tử nào cho màn hình này trong cơ sở dữ liệu.</div>
+                    {% endif %}
+                </div> {# End card-body #}
+            </div> {# End card #}
+        </div> {# End col-lg-7 #}
+    </div> {# End row #}
+</div> {# End container-fluid #}
+{% endblock %} {# Kết thúc block content #}
+
+{% block scripts %}
+{{ super() }} {# Giữ lại script từ base #}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const screenId = "{{ screen.screen_id }}";
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        const screenshotImage = document.getElementById('screenshot-image');
+        const screenshotWrapper = document.getElementById('screenshot-wrapper');
+        const elementsTableBody = document.querySelector('#elementsTable tbody');
+
+        let tableElementsData = [];
+
+        // --- LẤY KÍCH THƯỚC MÀN HÌNH GỐC TỪ BACKEND (ĐÃ DÙNG tojson) ---
+        const ORIGINAL_TOTAL_WIDTH = {{ original_screen_width | default (none) | tojson
+    }};    // 1080
+    const ORIGINAL_TOTAL_HEIGHT = {{ original_screen_height | default (none) | tojson }}; // 1920
+
+    // *** ĐIỀU CHỈNH CÁC GIÁ TRỊ NÀY CHO PHÙ HỢP ***
+    const ACTUAL_TOP_BAR_ORIGINAL_PIXELS = 70;    // Chiều cao thực tế của status bar trên màn hình gốc
+    const ACTUAL_BOTTOM_BAR_ORIGINAL_PIXELS = 150; // Chiều cao thực tế của nav bar dưới trên màn hình gốc (nếu có và ảnh chụp bao gồm nó)
+    const ACTUAL_LEFT_BAR_ORIGINAL_PIXELS = 0;
+    const ACTUAL_RIGHT_BAR_ORIGINAL_PIXELS = 0;
+
+    const displayedImgWidth = screenshotImage.clientWidth;
+    const displayedImgHeight = screenshotImage.clientHeight;
+
+    if (!ORIGINAL_TOTAL_WIDTH || !ORIGINAL_TOTAL_HEIGHT || displayedImgWidth === 0 || displayedImgHeight === 0) {
+        console.warn("Thiếu kích thước gốc hoặc kích thước ảnh hiển thị, không thể vẽ overlay chính xác.");
+        return;
+    }
+
+    // Tỷ lệ scale tổng thể của ảnh so với màn hình gốc
+    const overallScaleX = displayedImgWidth / ORIGINAL_TOTAL_WIDTH;
+    const overallScaleY = displayedImgHeight / ORIGINAL_TOTAL_HEIGHT;
+    console.log(`Overall Scale: X=${overallScaleX}, Y=${overallScaleY}`);
+
+    // Kích thước của các thanh bar trên ảnh hiển thị (đã scale)
+    const scaledTopBarHeight = ACTUAL_TOP_BAR_ORIGINAL_PIXELS * overallScaleY;
+    const scaledBottomBarHeight = ACTUAL_BOTTOM_BAR_ORIGINAL_PIXELS * overallScaleY;
+    const scaledLeftBarWidth = ACTUAL_LEFT_BAR_ORIGINAL_PIXELS * overallScaleX;
+    const scaledRightBarWidth = ACTUAL_RIGHT_BAR_ORIGINAL_PIXELS * overallScaleX;
+    console.log(`Scaled Bars: Top=${scaledTopBarHeight}, Bottom=${scaledBottomBarHeight}, Left=${scaledLeftBarWidth}, Right=${scaledRightBarWidth}`);
+
+    // Chiều rộng và chiều cao hiệu dụng của vùng ứng dụng TRÊN MÀN HÌNH GỐC
+    const effectiveOriginalAppWidth = ORIGINAL_TOTAL_WIDTH - ACTUAL_LEFT_BAR_ORIGINAL_PIXELS - ACTUAL_RIGHT_BAR_ORIGINAL_PIXELS;
+    const effectiveOriginalAppHeight = ORIGINAL_TOTAL_HEIGHT - ACTUAL_TOP_BAR_ORIGINAL_PIXELS - ACTUAL_BOTTOM_BAR_ORIGINAL_PIXELS;
+    console.log(`Effective Original App Dimensions: W=${effectiveOriginalAppWidth}, H=${effectiveOriginalAppHeight}`);
+
+    // Chiều rộng và chiều cao của vùng ứng dụng TRÊN ẢNH HIỂN THỊ
+    const displayedAppAreaWidth = displayedImgWidth - scaledLeftBarWidth - scaledRightBarWidth;
+    const displayedAppAreaHeight = displayedImgHeight - scaledTopBarHeight - scaledBottomBarHeight;
+    console.log(`Displayed App Area Dimensions: W=${displayedAppAreaWidth}, H=${displayedAppAreaHeight}`);
+
+    // Tỷ lệ scale CHỈ DÀNH CHO NỘI DUNG BÊN TRONG ỨNG DỤNG
+    // (Tỷ lệ giữa kích thước vùng app trên ảnh hiển thị và kích thước vùng app trên màn hình gốc)
+    const appContentScaleX = (effectiveOriginalAppWidth > 0 && displayedAppAreaWidth > 0) ? displayedAppAreaWidth / effectiveOriginalAppWidth : overallScaleX;
+    const appContentScaleY = (effectiveOriginalAppHeight > 0 && displayedAppAreaHeight > 0) ? displayedAppAreaHeight / effectiveOriginalAppHeight : overallScaleY;
+    console.log(`App Content Scale: X_app=${appContentScaleX}, Y_app=${appContentScaleY}`);
+    // Hàm escape HTML cơ bản
+    function escapeHtml(unsafe) {
+        if (unsafe === null || unsafe === undefined) return '';
+        const str = typeof unsafe !== 'string' ? String(unsafe) : unsafe;
+        return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+
+    // Kích thước mặc định ước lượng cho overlay (pixel trên màn hình gốc) nếu dùng 'coords'
+    const defaultSizes = {
+        'android.widget.Button': { width: 100, height: 40 },
+        'android.widget.EditText': { width: 200, height: 40 },
+        'android.widget.ImageView': { width: 50, height: 50 },
+        'android.widget.TextView': { width: 150, height: 30 },
+        'default': { width: 60, height: 30 }
+    };
+
+
+    function drawOverlays() {
+        if (!screenshotImage || !screenshotWrapper || !elementsTableBody || !tableElementsData.length) {
+            console.warn("Không thể vẽ overlay: Thiếu ảnh, wrapper, tbody hoặc dữ liệu element.");
+            return;
+        }
+
+        screenshotWrapper.querySelectorAll('.element-overlay').forEach(ov => ov.remove());
+
+        const displayedWidth = screenshotImage.clientWidth;
+        const displayedHeight = screenshotImage.clientHeight;
+
+        if (displayedWidth === 0 || displayedHeight === 0) {
+            console.warn("Kích thước ảnh hiển thị là 0, không thể vẽ overlay. Ảnh có thể chưa tải xong hoặc bị ẩn.");
+            return;
+        }
+
+        let scaleX_overall = 1;
+        let scaleY_overall = 1;
+        let scaledStatusBarHeight = 0;
+        let scaledLeftBarWidth = 0;
+        let scaleX_app = 1;
+        let scaleY_app = 1;
+
+        if (originalScreenWidth && originalScreenHeight && originalScreenWidth > 0 && originalScreenHeight > 0) {
+            scaleX_overall = displayedWidth / originalScreenWidth;
+            scaleY_overall = displayedHeight / originalScreenHeight;
+            console.log(`Overall Scale: X=${scaleX_overall}, Y=${scaleY_overall}`);
+
+            scaledStatusBarHeight = ORIGINAL_STATUS_BAR_HEIGHT * scaleY_overall;
+            scaledLeftBarWidth = ORIGINAL_LEFT_BAR_WIDTH * scaleX_overall;
+            // (Tương tự cho scaledNavBarHeight, scaledRightBarWidth nếu cần)
+
+            const effectiveOriginalAppWidth = originalScreenWidth - ORIGINAL_LEFT_BAR_WIDTH - ORIGINAL_RIGHT_BAR_WIDTH;
+            const effectiveOriginalAppHeight = originalScreenHeight - ORIGINAL_STATUS_BAR_HEIGHT - ORIGINAL_NAV_BAR_HEIGHT;
+
+            const displayedAppAreaWidth = displayedWidth - scaledLeftBarWidth - (ORIGINAL_RIGHT_BAR_WIDTH * scaleX_overall);
+            const displayedAppAreaHeight = displayedHeight - scaledStatusBarHeight - (ORIGINAL_NAV_BAR_HEIGHT * scaleY_overall);
+
+            scaleX_app = (effectiveOriginalAppWidth > 0 && displayedAppAreaWidth > 0) ? displayedAppAreaWidth / effectiveOriginalAppWidth : scaleX_overall;
+            scaleY_app = (effectiveOriginalAppHeight > 0 && displayedAppAreaHeight > 0) ? displayedAppAreaHeight / effectiveOriginalAppHeight : scaleY_overall;
+
+            console.log(`Effective Original App Dimensions: W=${effectiveOriginalAppWidth}, H=${effectiveOriginalAppHeight}`);
+            console.log(`Displayed App Area Dimensions: W=${displayedAppAreaWidth}, H=${displayedAppAreaHeight}`);
+            console.log(`App-Specific Scale: X_app=${scaleX_app}, Y_app=${scaleY_app}`);
+            console.log(`Scaled Status Bar Height: ${scaledStatusBarHeight}, Scaled Left Bar Width: ${scaledLeftBarWidth}`);
+
+        } else {
+            console.warn("Không có kích thước màn hình gốc đầy đủ, overlay có thể không đúng tỷ lệ. Dùng scale=1.");
+        }
+
+
+        tableElementsData.forEach(elData => {
+            if (!elData || !elData.id) return;
+
+            let x_on_image, y_on_image, width_on_image, height_on_image;
+            let bounds = elData.bounds; // {left, top, right, bottom} - tọa độ gốc từ client (trong vùng app)
+            let coords = elData.coords; // {x, y} - tọa độ gốc từ client (trong vùng app)
+
+            if (bounds && bounds.left !== undefined && bounds.top !== undefined && bounds.right !== undefined && bounds.bottom !== undefined) {
+                let element_original_left_in_app = bounds.left;
+                let element_original_top_in_app = bounds.top;
+                let element_original_width = bounds.right - bounds.left;
+                let element_original_height = bounds.bottom - bounds.top;
+
+                // Scale tọa độ và kích thước của element (vốn nằm trong vùng app) bằng tỷ lệ scale của vùng app
+                x_on_image = element_original_left_in_app * appContentScaleX;
+                y_on_image = element_original_top_in_app * appContentScaleY;
+                width_on_image = element_original_width * appContentScaleX;
+                height_on_image = element_original_height * appContentScaleY;
+
+                // Dịch chuyển overlay để đặt nó đúng vị trí trên ảnh full màn hình
+                x_on_image += scaledLeftBarWidth;
+                y_on_image += scaledTopBarHeight;
+
+            } else if (coords && coords.x !== undefined && coords.y !== undefined) {
+                const defaultSize = defaultSizes[elData.type || 'default'] || defaultSizes['default'];
+                // Scale kích thước mặc định theo tỷ lệ của vùng app
+                const scaledDefaultWidth = defaultSize.width * appContentScaleX;
+                const scaledDefaultHeight = defaultSize.height * appContentScaleY;
+
+                // Scale tọa độ tâm của element (trong vùng app)
+                let center_x_in_app_scaled = coords.x * appContentScaleX;
+                let center_y_in_app_scaled = coords.y * appContentScaleY;
+
+                // Tính toán top-left trên ảnh, sau đó dịch chuyển
+                x_on_image = center_x_in_app_scaled - (scaledDefaultWidth / 2) + scaledLeftBarWidth;
+                y_on_image = center_y_in_app_scaled - (scaledDefaultHeight / 2) + scaledTopBarHeight;
+                width_on_image = scaledDefaultWidth;
+                height_on_image = scaledDefaultHeight;
+            } else {
+                return;
+            }
+
+            width_on_image = Math.max(width_on_image, 5); // Giảm kích thước tối thiểu một chút để dễ test
+            height_on_image = Math.max(height_on_image, 5);
+
+            const overlay = document.createElement('div');
+            overlay.classList.add('element-overlay');
+            overlay.dataset.elementId = elData.id;
+            overlay.title = `ID: ${elData.id}\nType: ${elData.type || 'N/A'}\nText: ${elData.text || '--'}\nBounds: ${JSON.stringify(elData.bounds)}\nCoords: ${JSON.stringify(elData.coords)}\nTop: ${y_on_image.toFixed(2)}, Left: ${x_on_image.toFixed(2)}, W: ${width_on_image.toFixed(2)}, H: ${height_on_image.toFixed(2)}`;
+            overlay.style.left = `${x_on_image}px`;
+            overlay.style.top = `${y_on_image}px`;
+            overlay.style.width = `${width_on_image}px`;
+            overlay.style.height = `${height_on_image}px`;
+
+            const elementType = elData.type || '';
+            if (elementType.toLowerCase().includes('button')) {
+                overlay.classList.add('element-overlay-button');
+            }
+
+            overlay.addEventListener('mouseover', handleOverlayMouseOver);
+            overlay.addEventListener('mouseout', handleOverlayMouseOut);
+            overlay.addEventListener('click', handleOverlayClick);
+            screenshotWrapper.appendChild(overlay);
+        });
+        console.log(`Đã vẽ ${screenshotWrapper.querySelectorAll('.element-overlay').length} overlays.`);
+    }
+
+
+    function handleOverlayMouseOver(event) {
+        const overlay = event.target;
+        const elementId = overlay.dataset.elementId;
+        const row = document.getElementById(`row-${encodeURIComponent(elementId)}`);
+        if (row) {
+            row.classList.add('table-row-highlight');
+        }
+    }
+
+    function handleOverlayMouseOut(event) {
+        const overlay = event.target;
+        const elementId = overlay.dataset.elementId;
+        const row = document.getElementById(`row-${encodeURIComponent(elementId)}`);
+        if (row) {
+            row.classList.remove('table-row-highlight');
+        }
+    }
+
+    function handleOverlayClick(event) {
+        const overlay = event.target;
+        const elementId = overlay.dataset.elementId;
+        const row = document.getElementById(`row-${encodeURIComponent(elementId)}`);
+        if (row) {
+            row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Highlight tạm thời khi click
+            row.classList.add('table-row-highlight');
+            setTimeout(() => {
+                if (row) { // Kiểm tra row còn tồn tại không (phòng trường hợp DOM thay đổi)
+                    row.classList.remove('table-row-highlight');
+                }
+            }, 2000); // Bỏ highlight sau 2 giây
+        }
+    }
+
+    // --- KHỞI TẠO KHI TRANG TẢI ---
+    if (screenshotImage && elementsTableBody) {
+        elementsTableBody.querySelectorAll('tr[data-element-info]').forEach(row => {
+            try {
+                const info = JSON.parse(row.dataset.elementInfo);
+                if (info && info.id) {
+                    tableElementsData.push(info);
+                } else {
+                    console.warn("Parsed element info is missing ID or invalid:", info, "on row:", row);
+                }
+            } catch (e) {
+                console.error("Lỗi parse JSON từ data-element-info:", e, "Value:", row.dataset.elementInfo, "on row:", row);
+            }
+        });
+        console.log("Đã lấy dữ liệu element từ bảng:", tableElementsData.length);
+
+        if (screenshotImage.complete && screenshotImage.naturalWidth > 0) {
+            console.log("Ảnh đã tải xong (complete), vẽ overlays.");
+            drawOverlays();
+        } else {
+            screenshotImage.addEventListener('load', () => {
+                console.log("Sự kiện load ảnh, vẽ overlays.");
+                drawOverlays();
+            });
+            screenshotImage.addEventListener('error', () => {
+                console.error("Lỗi tải ảnh chụp màn hình.");
+                document.getElementById('screenshot-card-body').innerHTML = '<p class="text-danger">Lỗi tải ảnh chụp màn hình.</p>';
+            });
+            // Fallback nếu ảnh không bao giờ 'load' (ví dụ: lỗi src)
+            if (!screenshotImage.src) {
+                console.warn("Ảnh không có src, không thể vẽ overlay.");
+                document.getElementById('screenshot-card-body').innerHTML = '<p class="text-warning">Không có đường dẫn ảnh.</p>';
+            }
+        }
+
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(drawOverlays, 250); // Vẽ lại sau khi resize dừng
+        });
+
+    } else {
+        console.log("Không tìm thấy ảnh hoặc bảng element, không vẽ overlay.");
+        if (!screenshotImage) console.warn("screenshotImage is null or undefined.");
+        if (!elementsTableBody) console.warn("elementsTableBody is null or undefined.");
+    }
+
+    // --- Xử lý các sự kiện khác (classification, AI, override) ---
+    document.querySelectorAll('.classification-select').forEach(selectElement => {
+        selectElement.addEventListener('change', function (event) {
+            const elementId = this.dataset.elementId;
+            const newClassification = this.value;
+            const identifierType = this.dataset.identifierType; // Lấy identifier_type
+            const statusSpan = this.nextElementSibling; // Span hiển thị status
+
+            if (statusSpan) statusSpan.textContent = 'Đang cập nhật...';
+            if (statusSpan) statusSpan.className = 'update-status text-muted';
+
+            fetch(`/admin/api/element/classify`, { // Endpoint lưu vào PostgreSQL
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken // Nếu bạn dùng CSRF
+                },
+                body: JSON.stringify({
+                    screen_id: screenId,
+                    element_id: elementId,
+                    identifier_type: identifierType, // Gửi identifier_type
+                    classification: newClassification
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (statusSpan) {
+                        if (data.success) {
+                            statusSpan.textContent = 'Đã lưu!';
+                            statusSpan.classList.remove('text-muted', 'text-danger');
+                            statusSpan.classList.add('text-success');
+                        } else {
+                            statusSpan.textContent = 'Lỗi!';
+                            statusSpan.classList.remove('text-muted', 'text-success');
+                            statusSpan.classList.add('text-danger');
+                            console.error("Lỗi phân loại:", data.error);
+                            alert("Lỗi phân loại: " + data.error);
+                        }
+                        setTimeout(() => { if (statusSpan) statusSpan.textContent = ''; }, 3000);
+                    }
+                })
+                .catch(error => {
+                    if (statusSpan) {
+                        statusSpan.textContent = 'Lỗi mạng!';
+                        statusSpan.classList.remove('text-muted', 'text-success');
+                        statusSpan.classList.add('text-danger');
+                        setTimeout(() => { if (statusSpan) statusSpan.textContent = ''; }, 3000);
+                    }
+                    console.error('Lỗi fetch phân loại:', error);
+                    alert("Lỗi mạng khi cập nhật phân loại.");
+                });
+        });
+    });
+
+    const suggestBtn = document.getElementById('suggest-ai-btn');
+    const aiStatusSpan = document.getElementById('ai-status');
+    if (suggestBtn && aiStatusSpan) {
+        suggestBtn.addEventListener('click', function () {
+            aiStatusSpan.textContent = 'Đang lấy gợi ý AI...';
+            suggestBtn.disabled = true;
+
+            // Chuẩn bị dữ liệu elements cần gửi cho AI
+            // Chỉ gửi các trường cơ bản mà AI cần (vd: id, text, type)
+            const elementsForAISuggestion = tableElementsData.map(el => ({
+                element_id: el.id, // Đảm bảo gửi đúng key 'element_id'
+                text_content: el.text,
+                element_type: el.type
+                // Thêm các trường khác nếu AI model của bạn cần
+            }));
+
+            fetch(`/admin/api/screen/${encodeURIComponent(screenId)}/suggest_classifications`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({ elements: elementsForAISuggestion }) // Gửi dưới key 'elements'
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(err => { throw new Error(err.error || `Lỗi HTTP ${response.status}`) });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success && data.suggestions) {
+                        let suggestionsApplied = 0;
+                        data.suggestions.forEach(suggestedEl => {
+                            const select = document.querySelector(`.classification-select[data-element-id="${suggestedEl.element_id}"]`);
+                            if (select && suggestedEl.suggested_classification) {
+                                const currentClassification = select.value;
+                                // Chỉ cập nhật nếu gợi ý khác với hiện tại VÀ gợi ý không phải là 'unclassified' (hoặc một giá trị không mong muốn khác)
+                                if (currentClassification !== suggestedEl.suggested_classification && suggestedEl.suggested_classification !== 'unclassified') {
+                                    select.value = suggestedEl.suggested_classification;
+                                    // Tạo sự kiện change để trigger logic lưu (nếu có) hoặc chỉ cập nhật UI
+                                    // select.dispatchEvent(new Event('change')); // Bỏ dòng này để không tự động lưu
+                                    // Đánh dấu hàng được gợi ý
+                                    const row = document.getElementById(`row-${encodeURIComponent(suggestedEl.element_id)}`);
+                                    if (row) {
+                                        row.classList.add('highlight-suggestion');
+                                        setTimeout(() => row.classList.remove('highlight-suggestion'), 2500);
+                                    }
+                                    suggestionsApplied++;
+                                }
+                            }
+                        });
+                        aiStatusSpan.textContent = `AI đã gợi ý. ${suggestionsApplied} thay đổi được áp dụng (cần lưu thủ công).`;
+                        if (suggestionsApplied === 0 && data.suggestions.length > 0) {
+                            aiStatusSpan.textContent = 'AI đã gợi ý, nhưng không có thay đổi nào cần áp dụng hoặc gợi ý không phù hợp.';
+                        } else if (data.suggestions.length === 0) {
+                            aiStatusSpan.textContent = 'AI không có gợi ý nào cho các element này.';
+                        }
+                    } else {
+                        aiStatusSpan.textContent = 'Lỗi: ' + (data.error || 'Không nhận được gợi ý.');
+                    }
+                })
+                .catch(error => {
+                    console.error('Lỗi gọi AI suggestions:', error);
+                    aiStatusSpan.textContent = 'Lỗi gọi AI: ' + error.message;
+                })
+                .finally(() => {
+                    suggestBtn.disabled = false;
+                    setTimeout(() => { if (aiStatusSpan) aiStatusSpan.textContent = ''; }, 5000);
+                });
+        });
+    }
+
+    document.querySelectorAll('.override-btn').forEach(button => {
+        button.addEventListener('click', function (event) {
+            const cell = this.closest('.explored-status-cell');
+            const elementId = cell.dataset.elementId;
+            const newOverrideStatus = this.dataset.status; // 'auto', 'force_explored', 'force_unexplored'
+            const statusSpan = cell.querySelector('.override-update-status');
+            const finalStatusIcon = cell.querySelector('.final-status-icon');
+
+            if (statusSpan) statusSpan.textContent = 'Đang cập nhật...';
+
+            fetch(`/admin/api/element/mark_explored`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({
+                    screen_id: screenId,
+                    element_id: elementId,
+                    override_status: newOverrideStatus
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (statusSpan) {
+                        if (data.success) {
+                            statusSpan.textContent = 'Đã lưu!';
+                            // Cập nhật UI cho các nút và icon
+                            cell.querySelectorAll('.override-btn').forEach(btn => btn.classList.remove('active'));
+                            this.classList.add('active');
+                            cell.dataset.currentStatus = newOverrideStatus; // Cập nhật trạng thái hiện tại trên cell
+
+                            // Cập nhật icon trạng thái cuối cùng (Cần logic để biết auto_explored_status)
+                            // Tạm thời làm mờ icon nếu không phải auto, hoặc cần lấy lại auto_explored_status
+                            if (finalStatusIcon) {
+                                if (newOverrideStatus === 'force_explored') {
+                                    finalStatusIcon.className = 'fas fa-check-circle text-success ms-1 final-status-icon';
+                                    finalStatusIcon.title = "Trạng thái cuối cùng: Đã khám phá (Thủ công)";
+                                } else if (newOverrideStatus === 'force_unexplored') {
+                                    finalStatusIcon.className = 'fas fa-times-circle text-danger ms-1 final-status-icon'; // Dùng text-danger
+                                    finalStatusIcon.title = "Trạng thái cuối cùng: Chưa khám phá (Thủ công)";
+                                } else { // auto - Cần biết trạng thái tự động
+                                    // Để đơn giản, tạm thời hiển thị icon dựa trên trạng thái trước đó hoặc cần reload
+                                    finalStatusIcon.title = "Trạng thái cuối cùng: Theo tự động (Làm mới để xem)";
+                                    // Cần logic lấy auto_explored_status từ đâu đó, ví dụ từ tableElementsData
+                                    const elDataFromTable = tableElementsData.find(el => el.id === elementId);
+                                    if (elDataFromTable && elDataFromTable.auto_explored_status_placeholder) { // Giả sử có placeholder này
+                                        finalStatusIcon.className = elDataFromTable.auto_explored_status_placeholder ?
+                                            'fas fa-check-circle text-success ms-1 final-status-icon' :
+                                            'fas fa-times-circle text-muted ms-1 final-status-icon';
+                                    } else {
+                                        finalStatusIcon.className = 'fas fa-question-circle text-muted ms-1 final-status-icon';
+                                    }
+                                }
+                            }
+
+                        } else {
+                            statusSpan.textContent = 'Lỗi!';
+                            alert("Lỗi cập nhật override: " + data.error);
+                        }
+                        setTimeout(() => { if (statusSpan) statusSpan.textContent = ''; }, 3000);
+                    }
+                })
+                .catch(error => {
+                    if (statusSpan) {
+                        statusSpan.textContent = 'Lỗi mạng!';
+                        setTimeout(() => { if (statusSpan) statusSpan.textContent = ''; }, 3000);
+                    }
+                    console.error('Lỗi fetch override:', error);
+                    alert("Lỗi mạng khi cập nhật override.");
+                });
+        });
+    });
+    }); // Kết thúc DOMContentLoaded
+</script>
+{% endblock %}
