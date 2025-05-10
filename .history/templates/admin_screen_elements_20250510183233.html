@@ -1,0 +1,771 @@
+{% extends "admin_base.html" %} {# Kế thừa từ template admin cơ sở của bạn #}
+
+{% block title %}Chi tiết Phần tử - Màn hình {{ screen_id_prop }}{% endblock %}
+
+{% block head_extra %}
+{{ super() }}
+<style>
+    /* --- CSS cho Layout và Overlay --- */
+    .screenshot-container {
+        position: relative;
+        display: inline-block;
+        border: 1px solid #dee2e6;
+        /* Màu border Bootstrap */
+        line-height: 0;
+        /* Loại bỏ khoảng trống thừa nếu ảnh là inline-block */
+    }
+
+    #screenshot-image {
+        display: block;
+        max-width: 100%;
+        height: auto;
+        background-color: #f8f9fa;
+        /* Màu nền nhẹ cho khu vực ảnh */
+    }
+
+    .element-overlay {
+        position: absolute;
+        border: 1px dashed rgba(255, 0, 0, 0.7);
+        background-color: rgba(255, 0, 0, 0.1);
+        box-sizing: border-box;
+        pointer-events: auto;
+        cursor: pointer;
+        transition: background-color 0.15s ease-in-out;
+    }
+
+    .element-overlay:hover {
+        background-color: rgba(255, 0, 0, 0.3);
+        border-style: solid;
+    }
+
+    .element-overlay .overlay-id-tag {
+        /* Tag nhỏ hiển thị ID trên overlay */
+        position: absolute;
+        top: -1px;
+        /* Điều chỉnh vị trí nếu cần */
+        left: -1px;
+        background-color: rgba(220, 53, 69, 0.85);
+        /* Màu đỏ của Bootstrap (danger) */
+        color: white;
+        font-size: 8px;
+        padding: 1px 3px;
+        border-radius: 0 0 3px 0;
+        /* Bo góc dưới phải */
+        line-height: 1;
+        white-space: nowrap;
+        pointer-events: none;
+        /* Để không cản trở sự kiện hover của overlay chính */
+    }
+
+    /* Class để highlight hàng trong bảng */
+    .table-row-highlight td {
+        background-color: #cfe2ff !important;
+        /* Màu primary-subtle của Bootstrap */
+        transition: background-color 0.2s ease;
+    }
+
+    /* Các style khác từ file gốc của bạn */
+    .table code.small {
+        font-size: 0.8em;
+        word-break: break-all;
+    }
+
+    .table .badge.small {
+        font-size: 0.75em;
+    }
+
+    .table .form-select-sm {
+        font-size: 0.8rem;
+        padding-top: 0.2rem;
+        padding-bottom: 0.2rem;
+        width: auto;
+        display: inline-block;
+        min-width: 120px;
+    }
+
+    .update-status,
+    .override-update-status {
+        font-style: italic;
+        font-weight: bold;
+        display: inline-block;
+        margin-left: 5px;
+    }
+
+    .explored-status-cell .btn-xs,
+    .explored-status-cell .btn-group-sm>.btn {
+        padding: 0.1rem 0.3rem;
+        font-size: 0.75rem;
+        line-height: 1.2;
+    }
+
+    .explored-status-cell .btn .fas {
+        width: 1em;
+    }
+
+    .explored-status-cell .btn:not(.active) {
+        /* border-color: transparent; */
+    }
+
+    /* Giữ border để dễ nhìn hơn */
+    .explored-status-cell .btn.active {
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
+    }
+
+    .final-status-icon {
+        font-size: 1.1em;
+        margin-left: 0.25rem;
+        vertical-align: middle;
+    }
+
+    .final-status-icon.text-muted {
+        opacity: 0.6;
+    }
+
+    .sticky-top {
+        top: 56px;
+        /* Điều chỉnh nếu chiều cao navbar khác */
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <h1 class="mt-4">Chi tiết Phần tử Màn hình</h1>
+    <ol class="breadcrumb mb-4">
+        {# Thay thế admin_bp.name bằng tên blueprint thực tế của bạn, ví dụ 'admin' #}
+        <li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Bảng điều khiển</a></li>
+        <li class="breadcrumb-item"><a
+                href="{{ url_for('admin.admin_mapping_viewer', app_name=screen_data_neo4j.appName | default('_unknown_app_')) }}">Bản
+                đồ App ({{ screen_data_neo4j.appName | default('N/A') }})</a></li>
+        <li class="breadcrumb-item active">Màn hình: {{ screen_id_prop | truncate(40) }}</li>
+    </ol>
+
+    {% include '_flash_messages.html' ignore missing %}
+
+    <div class="row">
+        {# --- Cột Ảnh Chụp Màn Hình --- #}
+        <div class="col-lg-5 col-xl-4 mb-4"> {# Điều chỉnh cột cho phù hợp #}
+            <div class="card shadow-sm h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="fas fa-image me-1"></i> Ảnh chụp màn hình</span>
+                    <span id="overlay-status" class="small text-muted"></span>
+                </div>
+                <div class="card-body text-center p-2" id="screenshot-card-body">
+                    {% if screenshot_url %}
+                    <div class="screenshot-container" id="screenshot-wrapper">
+                        <img src="{{ screenshot_url }}" id="screenshot-image"
+                            alt="Ảnh chụp màn hình cho {{ screen_id_prop }}"
+                            data-original-width="{{ original_screen_width | default(0) }}"
+                            data-original-height="{{ original_screen_height | default(0) }}">
+                        {# Overlays được vẽ bằng JS #}
+                    </div>
+                    {% else %}
+                    <div class="d-flex align-items-center justify-content-center h-100">
+                        <p class="text-muted mt-3">(Không có ảnh chụp màn hình)</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        {# --- Cột Thông tin Screen và Bảng Elements --- #}
+        <div class="col-lg-7 col-xl-8 mb-4">
+            <div class="card shadow-sm mb-3">
+                <div class="card-header">
+                    <i class="fas fa-desktop me-1"></i> Chi tiết Màn hình (Neo4j)
+                </div>
+                <div class="card-body">
+                    <p class="mb-1"><strong>ID Màn hình:</strong> <code
+                            id="screen-id-display">{{ screen_id_prop }}</code></p>
+                    <p class="mb-1"><strong>Tên App:</strong>
+                        <code>{{ screen_data_neo4j.appName | default('N/A') }}</code></p>
+                    <p class="mb-1"><strong>Tên Activity:</strong>
+                        <code>{{ screen_data_neo4j.activityName | default('N/A') }}</code></p>
+                    <p class="mb-1"><strong>Hash (đã lưu):</strong> <code>{{ actual_hash | default('N/A') }}</code></p>
+                    {% if recalculated_screen_id_for_debug %}
+                    <p class="mb-1"><strong>Screen ID (tính toán lại):</strong>
+                        <code>{{ recalculated_screen_id_for_debug }}</code>
+                        {% if recalculated_screen_id_for_debug != screen_id_prop %}
+                        <span class="badge bg-danger ms-2">KHÔNG KHỚP!</span>
+                        {% else %}
+                        <span class="badge bg-success ms-2">Khớp</span>
+                        {% endif %}
+                    </p>
+                    {% endif %}
+                    <p class="mb-1"><strong>Kích thước gốc (W x H):</strong> {{ original_screen_width | default('N/A')
+                        }} x {{ original_screen_height | default('N/A') }}</p>
+                    <p class="mb-0"><strong>Trạng thái (Neo4j):</strong> <span class="badge bg-info">{{
+                            screen_data_neo4j.status | default('N/A') }}</span></p>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mb-3">
+                <div class="card-header">
+                    <i class="fas fa-search-location me-1"></i> Thông tin Debug Structure Hash
+                </div>
+                <div class="card-body">
+                    <p class="mb-1"><strong>Chuỗi đầu vào được dùng để hash:</strong></p>
+                    <pre class="bg-light p-2 rounded small"
+                        style="white-space: pre-wrap; word-wrap: break-word; max-height: 150px; overflow-y: auto;"><code>{{ string_hashed | default('Không có thông tin.') }}</code></pre>
+
+                    <h6 class="mt-2 mb-1">Các Thuộc tính Đóng góp vào Hash:</h6>
+                    {% set has_contrib_features = false %}
+                    {% for el_data in elements_to_display %}
+                    {% if el_data.xpath_id and el_data.contributing_attributes and el_data.contributing_attributes |
+                    length > 0 %}
+                    {% set has_contrib_features = true %}
+                    {% endif %}
+                    {% endfor %}
+
+                    {% if has_contrib_features %}
+                    <ul class="list-group list-group-flush small" style="max-height: 150px; overflow-y: auto;">
+                        {% for el_data in elements_to_display %}
+                        {% if el_data.xpath_id and el_data.contributing_attributes and el_data.contributing_attributes |
+                        length > 0 %}
+                        {% for attr_name, attr_value in el_data.contributing_attributes.items() %}
+                        <li class="list-group-item py-1 px-2">
+                            <code>{{ el_data.xpath_id }}</code> &rarr; <strong>{{ attr_name }}</strong>:
+                            <pre
+                                style="display: inline; white-space: pre-wrap; margin-bottom: 0; font-size: inherit;">{{ attr_value | truncate(80) }}</pre>
+                        </li>
+                        {% endfor %}
+                        {% endif %}
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="text-muted small"><em>Không xác định được thuộc tính cụ thể nào đóng góp vào hash.</em>
+                    </p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="card shadow-sm">
+                <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+                    <h6 class="m-0 font-weight-bold text-primary"><i class="fas fa-th-list me-1"></i> Phần tử Giao diện
+                        (từ PostgreSQL)</h6>
+                    <div>
+                        <button id="suggest-ai-btn" class="btn btn-sm btn-outline-primary"
+                            title="Sử dụng AI để gợi ý phân loại.">
+                            <i class="fas fa-magic me-1"></i> Gợi ý (AI)
+                        </button>
+                        <span id="ai-status" class="ms-2 small text-muted"></span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <p class="small text-muted mb-2"><em>Dữ liệu phần tử dưới đây được lấy từ log PostgreSQL gần
+                            nhất.</em></p>
+                    {% if elements_to_display %}
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped table-bordered table-hover align-middle"
+                            id="elementsTable">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th style="min-width: 150px;">Element ID (XPath)</th>
+                                    <th style="min-width: 120px;">Resource ID</th>
+                                    <th style="min-width: 120px;">Class Name</th>
+                                    <th style="min-width: 150px;">Text</th>
+                                    <th style="min-width: 150px;">Phân loại</th>
+                                    <th class="text-center" title="Đóng góp vào Structure Hash?">Hash?</th>
+                                    <th class="text-center" style="min-width: 130px;">Khám phá?</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for el in elements_to_display %}
+                                <tr id="row-{{ el.xpath_id | urlencode if el.xpath_id else loop.index }}"
+                                    data-element-xpath-id="{{ el.xpath_id | default('') }}"
+                                    data-element-bounds="{{ el.bounds | tojson | safe if el.bounds else '' }}"
+                                    data-element-coords="{{ el.coordinates | tojson | safe if el.coordinates else '' }}"
+                                    data-element-resource-id="{{ el.resource_id | default('') }}"
+                                    data-element-class-name="{{ el.class_name | default('') }}"
+                                    data-element-text="{{ el.text | default('') | truncate(50) }}" {# Truncate cho data
+                                    attribute #}
+                                    data-element-type="{{ el.element_type | default(el.class_name | default('')) }}"
+                                    data-classification="{{ el.classification_info.classification if el.classification_info else '' }}"
+                                    data-auto-explored-status="{{ el.auto_explored_status_placeholder | default(false) | tojson }}"
+                                    {% if el.is_contributing_to_hash_overall %}class="table-info" {% endif %}>
+                                    <td><code class="small">{{ el.xpath_id | default('N/A') }}</code></td>
+                                    <td><small>{{ el.resource_id | default('') }}</small></td>
+                                    <td><small>{{ el.class_name | default('') | replace('android.widget.', '')
+                                            }}</small></td>
+                                    <td>
+                                        {% if el.text %}
+                                        <span title="{{ el.text | escape }}">{{ el.text | truncate(35, True) }}</span>
+                                        {% else %}<span class="text-muted fst-italic">--</span>{% endif %}
+                                    </td>
+                                    <td>
+                                        <select class="form-select form-select-sm classification-select"
+                                            data-element-id="{{ el.xpath_id | default('') }}" {#
+                                            data-identifier-type="{{ el.identifier_type | default(el.xpath_id | default('')) }}"
+                                            #} aria-label="Phân loại cho {{ el.xpath_id }}">
+                                            <option value="">-- Chọn --</option>
+                                            {% for cat_option in valid_classifications | default([]) %}
+                                            <option value="{{ cat_option }}" {% if el.classification_info and
+                                                el.classification_info.classification==cat_option %}selected{% endif %}>
+                                                {{ cat_option }}
+                                            </option>
+                                            {% endfor %}
+                                        </select>
+                                        <span class="update-status ms-1 small"></span>
+                                    </td>
+                                    <td class="text-center">
+                                        {% if el.is_contributing_to_hash_overall %}
+                                        <span class="badge bg-primary"
+                                            title="Có thuộc tính của element này được dùng trong hash">Có</span>
+                                        {% else %}
+                                        <span class="badge bg-light text-dark"
+                                            title="Không có thuộc tính nào của element này được dùng trong hash">Không</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-center explored-status-cell"
+                                        data-element-id="{{ el.xpath_id | default('') }}"
+                                        data-current-status="{{ el.classification_info.override_active if el.classification_info and el.classification_info.override_active else 'auto' }}">
+                                        <div class="btn-group btn-group-sm" role="group">
+                                            <button type="button"
+                                                class="btn btn-outline-secondary btn-xs override-btn auto-btn {% if not el.classification_info or el.classification_info.override_active == 'auto' %}active{% endif %}"
+                                                data-status="auto" title="Tự động"><i class="fas fa-robot"></i></button>
+                                            <button type="button"
+                                                class="btn btn-outline-success btn-xs override-btn explored-btn {% if el.classification_info and el.classification_info.override_active == 'force_explored' %}active{% endif %}"
+                                                data-status="force_explored" title="Buộc Đã khám phá"><i
+                                                    class="fas fa-check"></i></button>
+                                            <button type="button"
+                                                class="btn btn-outline-danger btn-xs override-btn unexplored-btn {% if el.classification_info and el.classification_info.override_active == 'force_unexplored' %}active{% endif %}"
+                                                data-status="force_unexplored" title="Buộc Chưa khám phá"><i
+                                                    class="fas fa-times"></i></button>
+                                        </div>
+                                        {# <i
+                                            class="fas {{ el.final_display_status_icon_class | default('fa-question-circle text-muted') }} ms-1 final-status-icon"
+                                            title="{{ el.final_display_status_title | default('Trạng thái cuối cùng không xác định') }}"></i>
+                                        #}
+                                        <span class="override-update-status ms-1 small"></span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-info mt-2">Chưa tìm thấy phần tử nào cho màn hình này trong log PostgreSQL.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# Modal cho Phân loại - Giữ lại từ file HTML gốc của bạn nếu có #}
+<div class="modal fade" id="classifyElementModal" tabindex="-1" aria-labelledby="classifyElementModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="classifyElementModalLabel">Phân loại Phần tử</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p><strong>XPath ID:</strong> <code id="modal-element-xpath"></code></p>
+                {# Thay thế admin_bp.name bằng tên blueprint thực tế #}
+                <form id="classify-element-form" method="POST"
+                    action="{{ url_for('admin.classify_element_admin_api', screen_id=screen_id_prop) }}"> {# Sửa lại
+                    action nếu cần #}
+                    <input type="hidden" name="element_xpath_id" id="form-element-xpath-id">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"> {# Thêm CSRF Token cho form POST
+                    #}
+                    <div class="mb-3">
+                        <label for="elementClassificationSelect" class="form-label">Phân loại:</label>
+                        <select class="form-select" id="elementClassificationSelect" name="classification">
+                            <option value="">-- Bỏ phân loại --</option>
+                            {% for cat_opt in valid_classifications | default([]) %}
+                            <option value="{{ cat_opt }}">{{ cat_opt }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" value="true" id="modalManualExploredOverride"
+                            name="manual_explored_override">
+                        <label class="form-check-label" for="modalManualExploredOverride">
+                            Manual Explored Override
+                        </label>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Lưu thay đổi</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const screenIdForJS = "{{ screen_id_prop }}";
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+        const screenshotImage = document.getElementById('screenshot-image');
+        const screenshotWrapper = document.getElementById('screenshot-wrapper');
+        const overlayStatusSpan = document.getElementById('overlay-status');
+
+        const ORIGINAL_TOTAL_WIDTH = parseFloat(screenshotImage ? screenshotImage.dataset.originalWidth : 0);
+        const ORIGINAL_TOTAL_HEIGHT = parseFloat(screenshotImage ? screenshotImage.dataset.originalHeight : 0);
+        console.log("JS - Original Screen Dims:", ORIGINAL_TOTAL_WIDTH, "x", ORIGINAL_TOTAL_HEIGHT);
+
+        let tableElementsData = [];
+        document.querySelectorAll('#elementsTable tbody tr').forEach(row => {
+            if (row.dataset.elementXpathId) {
+                let boundsData = null, coordsData = null;
+                if (row.dataset.elementBounds && row.dataset.elementBounds !== 'null') { // Kiểm tra 'null' string
+                    try { boundsData = JSON.parse(row.dataset.elementBounds); } catch (e) { console.warn("Bad bounds JSON:", row.dataset.elementBounds, e); }
+                }
+                if (row.dataset.elementCoords && row.dataset.elementCoords !== 'null') {
+                    try { coordsData = JSON.parse(row.dataset.elementCoords); } catch (e) { console.warn("Bad coords JSON:", row.dataset.elementCoords, e); }
+                }
+                tableElementsData.push({
+                    id: row.dataset.elementXpathId,
+                    bounds: boundsData,
+                    coords: coordsData,
+                    type: row.dataset.elementType,
+                    text: row.dataset.elementText,
+                    resource_id: row.dataset.elementResourceId,
+                    class_name: row.dataset.elementClassName
+                });
+            }
+        });
+        console.log(`JS - Found ${tableElementsData.length} elements for overlay drawing.`);
+
+        const defaultSizes = {
+            'android.widget.Button': { width: 100, height: 48 }, 'android.widget.ImageButton': { width: 56, height: 56 },
+            'android.widget.EditText': { width: 200, height: 48 }, 'android.widget.ImageView': { width: 80, height: 80 },
+            'android.widget.TextView': { width: 150, height: 30 }, 'default': { width: 60, height: 30 }
+        };
+
+        function drawOverlays() {
+            if (!screenshotImage || !screenshotWrapper || !tableElementsData) {
+                if (overlayStatusSpan) overlayStatusSpan.textContent = "Thiếu dữ liệu vẽ overlay.";
+                return;
+            }
+            screenshotWrapper.querySelectorAll('.element-overlay').forEach(ov => ov.remove());
+
+            const displayedImgWidth = screenshotImage.clientWidth;
+            const displayedImgHeight = screenshotImage.clientHeight;
+
+            if (!ORIGINAL_TOTAL_WIDTH || !ORIGINAL_TOTAL_HEIGHT || ORIGINAL_TOTAL_WIDTH <= 0 || ORIGINAL_TOTAL_HEIGHT <= 0) {
+                if (overlayStatusSpan) overlayStatusSpan.textContent = "Kích thước gốc không hợp lệ.";
+                return;
+            }
+            if (displayedImgWidth === 0 || displayedImgHeight === 0) {
+                if (overlayStatusSpan) overlayStatusSpan.textContent = "Ảnh chưa hiển thị.";
+                // Thử lại sau một chút nếu ảnh chưa có kích thước
+                // setTimeout(drawOverlays, 200); 
+                return;
+            }
+
+            const overallScaleX = displayedImgWidth / ORIGINAL_TOTAL_WIDTH;
+            const overallScaleY = displayedImgHeight / ORIGINAL_TOTAL_HEIGHT;
+            if (overlayStatusSpan) overlayStatusSpan.textContent = `Scaling: W=${overallScaleX.toFixed(3)}, H=${overallScaleY.toFixed(3)}.`;
+
+            let drawnCount = 0;
+            tableElementsData.forEach((elData, index) => {
+                if (!elData || !elData.id) return;
+                let el_orig_left, el_orig_top, el_orig_width, el_orig_height;
+
+                if (elData.bounds && typeof elData.bounds.left === 'number' && typeof elData.bounds.right === 'number') {
+                    el_orig_left = elData.bounds.left; el_orig_top = elData.bounds.top;
+                    el_orig_width = elData.bounds.right - el_orig_left; el_orig_height = elData.bounds.bottom - el_orig_top;
+                } else if (elData.coords && typeof elData.coords.x === 'number' && typeof elData.coords.y === 'number') {
+                    const defaultSize = defaultSizes[elData.type || 'default'] || defaultSizes['default'];
+                    el_orig_width = defaultSize.width; el_orig_height = defaultSize.height;
+                    el_orig_left = elData.coords.x - (el_orig_width / 2); el_orig_top = elData.coords.y - (el_orig_height / 2);
+                } else { return; }
+
+                if (isNaN(el_orig_left) || isNaN(el_orig_top) || isNaN(el_orig_width) || isNaN(el_orig_height) || el_orig_width <= 0 || el_orig_height <= 0) {
+                    // console.warn(`Invalid calculated original dims for ${elData.id}: L${el_orig_left} T${el_orig_top} W${el_orig_width} H${el_orig_height}`);
+                    return;
+                }
+
+                const x = el_orig_left * overallScaleX;
+                const y = el_orig_top * overallScaleY;
+                let width = el_orig_width * overallScaleX;
+                let height = el_orig_height * overallScaleY;
+
+                width = Math.max(width, 3); height = Math.max(height, 3); // Kích thước tối thiểu
+
+                const overlay = document.createElement('div');
+                overlay.className = 'element-overlay';
+                overlay.dataset.elementId = elData.id;
+                overlay.title = `ID: ${elData.id}\nType: ${elData.type || 'N/A'}\nText: ${elData.text || '--'}`;
+                if (elData.bounds) overlay.title += `\nBounds(orig): L${elData.bounds.left},T${elData.bounds.top},R${elData.bounds.right},B${elData.bounds.bottom}`;
+
+                overlay.style.left = `${x}px`; overlay.style.top = `${y}px`;
+                overlay.style.width = `${width}px`; overlay.style.height = `${height}px`;
+
+                const idTag = document.createElement('span');
+                idTag.className = 'overlay-id-tag';
+                idTag.textContent = (elData.id.length > 10 ? '...' : '') + elData.id.slice(-10); // Hiển thị phần cuối của ID dài
+                overlay.appendChild(idTag);
+
+                overlay.addEventListener('mouseover', handleOverlayMouseOver);
+                overlay.addEventListener('mouseout', handleOverlayMouseOut);
+                overlay.addEventListener('click', handleOverlayClick);
+                screenshotWrapper.appendChild(overlay);
+                drawnCount++;
+            });
+            if (overlayStatusSpan) overlayStatusSpan.textContent += ` Vẽ ${drawnCount} overlays.`;
+            console.log(`JS - Vẽ xong ${drawnCount} overlays.`);
+        }
+
+        function handleOverlayMouseOver(event) {
+            const overlay = event.target.closest('.element-overlay');
+            if (!overlay) return;
+            const elementId = overlay.dataset.elementId;
+            const rowId = `row-${elementId.replace(/([!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, "\\$1")}`;
+            const row = document.getElementById(rowId);
+            if (row) row.classList.add('table-row-highlight');
+            overlay.style.backgroundColor = 'rgba(0, 255, 0, 0.25)';
+        }
+
+        function handleOverlayMouseOut(event) {
+            const overlay = event.target.closest('.element-overlay');
+            if (!overlay) return;
+            const elementId = overlay.dataset.elementId;
+            const rowId = `row-${elementId.replace(/([!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, "\\$1")}`;
+            const row = document.getElementById(rowId);
+            if (row) row.classList.remove('table-row-highlight');
+            overlay.style.backgroundColor = 'rgba(255, 0, 0, 0.1)';
+        }
+
+        function handleOverlayClick(event) {
+            const overlay = event.target.closest('.element-overlay');
+            if (!overlay) return;
+            const elementId = overlay.dataset.elementId;
+            const rowId = `row-${elementId.replace(/([!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, "\\$1")}`;
+            const row = document.getElementById(rowId);
+            if (row) {
+                row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                row.classList.add('table-row-highlight');
+                setTimeout(() => { if (row) row.classList.remove('table-row-highlight'); }, 2500);
+            }
+        }
+
+        if (screenshotImage && screenshotImage.getAttribute('src')) {
+            if (screenshotImage.complete && screenshotImage.naturalWidth > 0) {
+                setTimeout(drawOverlays, 150); // Cho DOM chút thời gian ổn định
+            } else {
+                screenshotImage.addEventListener('load', () => { drawOverlays(); });
+                screenshotImage.addEventListener('error', () => {
+                    if (overlayStatusSpan) overlayStatusSpan.textContent = "Lỗi tải ảnh.";
+                });
+            }
+            let resizeTimeout;
+            window.addEventListener('resize', () => {
+                clearTimeout(resizeTimeout);
+                if (overlayStatusSpan) overlayStatusSpan.textContent = "Đang vẽ lại...";
+                resizeTimeout = setTimeout(drawOverlays, 300);
+            });
+        } else {
+            if (overlayStatusSpan) overlayStatusSpan.textContent = "Không có ảnh.";
+            console.log("Không có ảnh hoặc src, không vẽ overlay.");
+        }
+
+        // --- Xử lý các sự kiện khác (classification, AI, override) ---
+        // (Copy JavaScript từ file HTML gốc của bạn vào đây, đảm bảo sử dụng screenIdForJS và csrfToken)
+        // Ví dụ cho Classification Select:
+        document.querySelectorAll('.classification-select').forEach(selectElement => {
+            selectElement.addEventListener('change', function (event) {
+                const elementXpathId = this.dataset.elementId; // Đã đổi tên data attribute thành data-element-xpath-id trong HTML
+                const newClassification = this.value;
+                const statusSpan = this.nextElementSibling; // .update-status
+
+                if (!elementXpathId) {
+                    if (statusSpan) { statusSpan.textContent = 'Lỗi: Thiếu XPath ID!'; statusSpan.className = 'update-status text-danger small fw-bold'; }
+                    return;
+                }
+                if (statusSpan) { statusSpan.textContent = 'Đang lưu...'; statusSpan.className = 'update-status text-muted small'; }
+
+                fetch("{{ url_for('admin.classify_element_admin_api') }}", { // Sử dụng url_for cho API endpoint
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                    body: JSON.stringify({
+                        screen_id: screenIdForJS,
+                        element_xpath_id: elementXpathId,
+                        classification: newClassification
+                        // identifier_type: this.dataset.identifierType, // Gửi nếu API cần
+                    })
+                })
+                    .then(response => {
+                        if (!response.ok) { return response.json().then(err => { throw new Error(err.error || `HTTP ${response.status}`) }); }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (statusSpan) {
+                            if (data.success) {
+                                statusSpan.textContent = 'Đã lưu!'; statusSpan.className = 'update-status text-success small fw-bold';
+                            } else {
+                                statusSpan.textContent = 'Lỗi: ' + (data.error || 'Không rõ'); statusSpan.className = 'update-status text-danger small fw-bold';
+                            }
+                            setTimeout(() => { if (statusSpan) statusSpan.textContent = ''; }, 3500);
+                        }
+                    })
+                    .catch(error => {
+                        if (statusSpan) {
+                            statusSpan.textContent = 'Lỗi mạng!'; statusSpan.className = 'update-status text-danger small fw-bold';
+                            setTimeout(() => { if (statusSpan) statusSpan.textContent = ''; }, 3500);
+                        }
+                        console.error('Lỗi khi lưu phân loại:', error);
+                    });
+            });
+        });
+
+        // Nút Gợi ý AI
+        const suggestBtn = document.getElementById('suggest-ai-btn');
+        const aiStatusSpan = document.getElementById('ai-status');
+        if (suggestBtn && aiStatusSpan) {
+            suggestBtn.addEventListener('click', function () {
+                aiStatusSpan.textContent = 'Đang lấy gợi ý...'; suggestBtn.disabled = true;
+                aiStatusSpan.className = 'ms-2 small text-info';
+
+                const elementsForAISuggestion = tableElementsData.map(el => ({
+                    element_id: el.id, // Nên là xpath_id
+                    text_content: el.text,
+                    element_type: el.type // class_name hoặc element_type
+                }));
+
+                fetch(`{{ url_for('admin.suggest_classifications_api', screen_id=screen_id_prop) }}`, { // API endpoint
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                    body: JSON.stringify({ elements: elementsForAISuggestion })
+                })
+                    .then(response => {
+                        if (!response.ok) { return response.json().then(err => { throw new Error(err.error || `HTTP ${response.status}`) }); }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.success && data.suggestions) {
+                            let suggestionsAppliedCount = 0;
+                            data.suggestions.forEach(suggestedEl => {
+                                const select = document.querySelector(`.classification-select[data-element-id="${suggestedEl.element_id}"]`);
+                                if (select && suggestedEl.suggested_classification && select.value !== suggestedEl.suggested_classification) {
+                                    // Chỉ thay đổi nếu gợi ý khác và không phải là "bỏ phân loại" trừ khi select đang có giá trị
+                                    if (suggestedEl.suggested_classification !== "" || select.value !== "") {
+                                        select.value = suggestedEl.suggested_classification;
+                                        const row = document.getElementById(`row-${suggestedEl.element_id.replace(/([!"#$%&'()*+,./:;<=>?@[\\\]^`{|}~])/g, "\\$1")}`);
+                                        if (row) {
+                                            row.classList.add('table-warning'); // Highlight hàng được AI gợi ý
+                                            setTimeout(() => row.classList.remove('table-warning'), 3000);
+                                        }
+                                        suggestionsAppliedCount++;
+                                    }
+                                }
+                            });
+                            if (suggestionsAppliedCount > 0) {
+                                aiStatusSpan.textContent = `AI đã gợi ý ${suggestionsAppliedCount} thay đổi. Hãy review và lưu thủ công.`;
+                            } else if (data.suggestions.length > 0) {
+                                aiStatusSpan.textContent = 'AI đã gợi ý, không có thay đổi nào được áp dụng tự động.';
+                            } else {
+                                aiStatusSpan.textContent = 'AI không có gợi ý mới.';
+                            }
+                            aiStatusSpan.className = 'ms-2 small text-success';
+                        } else {
+                            aiStatusSpan.textContent = 'Lỗi: ' + (data.error || 'Không nhận được gợi ý.');
+                            aiStatusSpan.className = 'ms-2 small text-danger';
+                        }
+                    })
+                    .catch(error => {
+                        aiStatusSpan.textContent = 'Lỗi gọi AI: ' + error.message;
+                        aiStatusSpan.className = 'ms-2 small text-danger';
+                    })
+                    .finally(() => {
+                        suggestBtn.disabled = false;
+                        setTimeout(() => { if (aiStatusSpan) { aiStatusSpan.textContent = ''; aiStatusSpan.className = 'ms-2 small text-muted'; } }, 7000);
+                    });
+            });
+        }
+
+        // Nút Override Explored Status
+        document.querySelectorAll('.override-btn').forEach(button => {
+            button.addEventListener('click', function () {
+                const cell = this.closest('.explored-status-cell');
+                const elementXpathId = cell.dataset.elementId;
+                const newOverrideStatus = this.dataset.status;
+                const statusSpan = cell.querySelector('.override-update-status');
+                // const finalStatusIcon = cell.querySelector('.final-status-icon'); // Bạn cần logic để cập nhật icon này
+
+                if (!elementXpathId) {
+                    if (statusSpan) { statusSpan.textContent = 'Lỗi: Thiếu ID!'; statusSpan.className = 'override-update-status ms-1 small text-danger'; }
+                    return;
+                }
+                if (statusSpan) { statusSpan.textContent = 'Đang lưu...'; statusSpan.className = 'override-update-status ms-1 small text-muted'; }
+
+                fetch(`{{ url_for('admin.mark_element_explored_api') }}`, { // API endpoint
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+                    body: JSON.stringify({
+                        screen_id: screenIdForJS,
+                        element_xpath_id: elementXpathId,
+                        override_status: newOverrideStatus
+                    })
+                })
+                    .then(response => {
+                        if (!response.ok) { return response.json().then(err => { throw new Error(err.error || `HTTP ${response.status}`) }); }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (statusSpan) {
+                            if (data.success) {
+                                statusSpan.textContent = 'Đã lưu!'; statusSpan.className = 'override-update-status ms-1 small text-success fw-bold';
+                                cell.querySelectorAll('.override-btn').forEach(btn => btn.classList.remove('active'));
+                                this.classList.add('active');
+                                cell.dataset.currentStatus = newOverrideStatus; // Cập nhật trạng thái hiện tại
+                                // Cập nhật finalStatusIcon dựa trên data.final_explored_status nếu API trả về
+                            } else {
+                                statusSpan.textContent = 'Lỗi: ' + (data.error || 'Không rõ'); statusSpan.className = 'override-update-status ms-1 small text-danger fw-bold';
+                            }
+                            setTimeout(() => { if (statusSpan) statusSpan.textContent = ''; }, 3500);
+                        }
+                    })
+                    .catch(error => {
+                        if (statusSpan) {
+                            statusSpan.textContent = 'Lỗi mạng!'; statusSpan.className = 'override-update-status ms-1 small text-danger fw-bold';
+                            setTimeout(() => { if (statusSpan) statusSpan.textContent = ''; }, 3500);
+                        }
+                        console.error('Lỗi khi cập nhật override status:', error);
+                    });
+            });
+        });
+
+        // Xử lý modal (nếu bạn giữ lại modal phân loại từ file HTML gốc)
+        const classifyModalElement = document.getElementById('classifyElementModal');
+        if (classifyModalElement) {
+            classifyModalElement.addEventListener('show.bs.modal', function (event) {
+                const button = event.relatedTarget; // Nút đã kích hoạt modal (nếu có)
+                // Lấy thông tin từ nút đó hoặc từ hàng của bảng
+                // Ví dụ:
+                // const xpathId = button.closest('tr').dataset.elementXpathId;
+                // const currentClassification = button.closest('tr').dataset.classification;
+                // Điền thông tin vào form trong modal
+                // document.getElementById('modal-element-xpath').textContent = xpathId;
+                // document.getElementById('form-element-xpath-id').value = xpathId;
+                // document.getElementById('elementClassificationSelect').value = currentClassification;
+            });
+
+            // Xử lý submit form trong modal
+            const classifyForm = document.getElementById('classify-element-form');
+            if (classifyForm) {
+                classifyForm.addEventListener('submit', function (event) {
+                    event.preventDefault();
+                    const formData = new FormData(this);
+                    const payload = Object.fromEntries(formData.entries());
+                    payload.screen_id = screenIdForJS; // Thêm screen_id vào payload
+
+                    // Gọi API tương tự như .classification-select ở trên
+                    // fetch(this.action, { method: 'POST', ... body: JSON.stringify(payload) ...})
+                    // .then(...)
+                    // .finally(() => { bootstrap.Modal.getInstance(classifyModalElement).hide(); });
+                    console.log("Submitting classification from modal:", payload);
+                    alert("Chức năng lưu từ modal chưa được hiện thực hoàn chỉnh trong ví dụ này.");
+                });
+            }
+        }
+
+    }); // Kết thúc DOMContentLoaded
+</script>
+{% endblock %}
