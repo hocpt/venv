@@ -1,6 +1,0 @@
-@admin_bp.route('/')
-@admin_bp.route('/index')
-def index():
-stats_data = db.get_dashboard_stats()
-return render_template('admin_index_content.html', # <<< Đảm bảo tên file đúng title="Admin Dashboard" ,
-    stats=stats_data if stats_data is not None else {})
