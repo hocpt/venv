@@ -17,6 +17,40 @@ SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
 
+--
+-- Name: trigger_set_timestamp(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.trigger_set_timestamp() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.trigger_set_timestamp() OWNER TO postgres;
+
+--
+-- Name: update_modified_column(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.update_modified_column() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+   -- Gán thời gian hiện tại cho cột updated_at của bản ghi SẮP được update
+   NEW.updated_at = now();
+   -- Trả về bản ghi đã sửa đổi để quá trình UPDATE tiếp tục
+   RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.update_modified_column() OWNER TO postgres;
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
@@ -326,6 +360,83 @@ COMMENT ON COLUMN public.devices.mainloop_strategy_id IS 'ID (Text) của chiế
 
 
 --
+-- Name: element_classifications; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.element_classifications (
+    screen_id text NOT NULL,
+    element_id text NOT NULL,
+    identifier_type character varying(50),
+    classification character varying(50) NOT NULL,
+    source character varying(20) DEFAULT 'manual'::character varying,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    notes text,
+    manual_explored_override boolean
+);
+
+
+ALTER TABLE public.element_classifications OWNER TO postgres;
+
+--
+-- Name: TABLE element_classifications; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.element_classifications IS 'Stores user/AI assigned classifications for UI elements on specific screens.';
+
+
+--
+-- Name: COLUMN element_classifications.manual_explored_override; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.element_classifications.manual_explored_override IS 'Manual override for exploration status (NULL=auto, TRUE=force explored, FALSE=force not explored)';
+
+
+--
+-- Name: exploration_logs; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.exploration_logs (
+    log_id integer NOT NULL,
+    "timestamp" timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    device_id character varying(255),
+    account_id character varying(255),
+    app_name character varying(255),
+    mapping_goal text,
+    previous_action jsonb,
+    reported_ui_state jsonb NOT NULL,
+    screen_id_generated character varying(64) NOT NULL,
+    result_status character varying(50) NOT NULL,
+    error_message text,
+    next_action_suggested jsonb,
+    processed boolean DEFAULT false
+);
+
+
+ALTER TABLE public.exploration_logs OWNER TO postgres;
+
+--
+-- Name: exploration_logs_log_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.exploration_logs_log_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.exploration_logs_log_id_seq OWNER TO postgres;
+
+--
+-- Name: exploration_logs_log_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.exploration_logs_log_id_seq OWNED BY public.exploration_logs.log_id;
+
+
+--
 -- Name: interaction_history; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -618,6 +729,47 @@ ALTER SEQUENCE public.scheduler_commands_command_id_seq OWNED BY public.schedule
 
 
 --
+-- Name: screen_definitions; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.screen_definitions (
+    definition_id integer NOT NULL,
+    app_name character varying(255) NOT NULL,
+    activity_name character varying(512),
+    logical_screen_name character varying(255) NOT NULL,
+    defined_screen_id character varying(255) NOT NULL,
+    identifying_elements_json jsonb NOT NULL,
+    description text,
+    created_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
+);
+
+
+ALTER TABLE public.screen_definitions OWNER TO postgres;
+
+--
+-- Name: screen_definitions_definition_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.screen_definitions_definition_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.screen_definitions_definition_id_seq OWNER TO postgres;
+
+--
+-- Name: screen_definitions_definition_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.screen_definitions_definition_id_seq OWNED BY public.screen_definitions.definition_id;
+
+
+--
 -- Name: stage_transitions; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -812,7 +964,9 @@ CREATE TABLE public.task_assignments (
     started_at timestamp with time zone,
     last_report_at timestamp with time zone,
     completed_at timestamp with time zone,
-    notes text
+    notes text,
+    mapping_status character varying(50) DEFAULT 'active'::character varying NOT NULL,
+    updated_at timestamp with time zone DEFAULT CURRENT_TIMESTAMP
 );
 
 
@@ -984,6 +1138,13 @@ ALTER TABLE ONLY public.device_accounts ALTER COLUMN device_account_id SET DEFAU
 
 
 --
+-- Name: exploration_logs log_id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.exploration_logs ALTER COLUMN log_id SET DEFAULT nextval('public.exploration_logs_log_id_seq'::regclass);
+
+
+--
 -- Name: interaction_history history_id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -1016,6 +1177,13 @@ ALTER TABLE ONLY public.rules ALTER COLUMN rule_id SET DEFAULT nextval('public.r
 --
 
 ALTER TABLE ONLY public.scheduler_commands ALTER COLUMN command_id SET DEFAULT nextval('public.scheduler_commands_command_id_seq'::regclass);
+
+
+--
+-- Name: screen_definitions definition_id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.screen_definitions ALTER COLUMN definition_id SET DEFAULT nextval('public.screen_definitions_definition_id_seq'::regclass);
 
 
 --
@@ -1151,6 +1319,22 @@ ALTER TABLE ONLY public.devices
 
 
 --
+-- Name: element_classifications element_classifications_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.element_classifications
+    ADD CONSTRAINT element_classifications_pkey PRIMARY KEY (screen_id, element_id);
+
+
+--
+-- Name: exploration_logs exploration_logs_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.exploration_logs
+    ADD CONSTRAINT exploration_logs_pkey PRIMARY KEY (log_id);
+
+
+--
 -- Name: interaction_history interaction_history_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -1220,6 +1404,30 @@ ALTER TABLE ONLY public.scheduled_jobs
 
 ALTER TABLE ONLY public.scheduler_commands
     ADD CONSTRAINT scheduler_commands_pkey PRIMARY KEY (command_id);
+
+
+--
+-- Name: screen_definitions screen_definitions_defined_screen_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.screen_definitions
+    ADD CONSTRAINT screen_definitions_defined_screen_id_key UNIQUE (defined_screen_id);
+
+
+--
+-- Name: screen_definitions screen_definitions_logical_screen_name_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.screen_definitions
+    ADD CONSTRAINT screen_definitions_logical_screen_name_key UNIQUE (logical_screen_name);
+
+
+--
+-- Name: screen_definitions screen_definitions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.screen_definitions
+    ADD CONSTRAINT screen_definitions_pkey PRIMARY KEY (definition_id);
 
 
 --
@@ -1324,6 +1532,48 @@ CREATE INDEX idx_device_accounts_device_id ON public.device_accounts USING btree
 
 
 --
+-- Name: idx_element_classifications_screen_id; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_element_classifications_screen_id ON public.element_classifications USING btree (screen_id);
+
+
+--
+-- Name: idx_exploration_logs_account_id; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_exploration_logs_account_id ON public.exploration_logs USING btree (account_id);
+
+
+--
+-- Name: idx_exploration_logs_device_app; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_exploration_logs_device_app ON public.exploration_logs USING btree (device_id, app_name);
+
+
+--
+-- Name: idx_exploration_logs_processed; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_exploration_logs_processed ON public.exploration_logs USING btree (processed);
+
+
+--
+-- Name: idx_exploration_logs_screen_id; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_exploration_logs_screen_id ON public.exploration_logs USING btree (screen_id_generated);
+
+
+--
+-- Name: idx_exploration_logs_timestamp; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_exploration_logs_timestamp ON public.exploration_logs USING btree ("timestamp");
+
+
+--
 -- Name: idx_interaction_history_account; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -1373,6 +1623,20 @@ CREATE INDEX idx_rules_category ON public.rules USING btree (category);
 
 
 --
+-- Name: idx_screen_definitions_app_activity; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_screen_definitions_app_activity ON public.screen_definitions USING btree (app_name, activity_name);
+
+
+--
+-- Name: idx_screen_definitions_logical_name; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_screen_definitions_logical_name ON public.screen_definitions USING btree (logical_screen_name);
+
+
+--
 -- Name: idx_stage_transitions_strategy_current; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -1384,6 +1648,13 @@ CREATE INDEX idx_stage_transitions_strategy_current ON public.stage_transitions 
 --
 
 CREATE INDEX idx_task_assignments_device_account_id ON public.task_assignments USING btree (device_account_id);
+
+
+--
+-- Name: idx_task_assignments_mapping_status; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_task_assignments_mapping_status ON public.task_assignments USING btree (mapping_status);
 
 
 --
@@ -1405,6 +1676,20 @@ CREATE INDEX idx_template_variations_template_ref ON public.template_variations 
 --
 
 CREATE INDEX ix_apscheduler_jobs_next_run_time ON public.apscheduler_jobs USING btree (next_run_time);
+
+
+--
+-- Name: screen_definitions set_timestamp_screen_definitions; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER set_timestamp_screen_definitions BEFORE UPDATE ON public.screen_definitions FOR EACH ROW EXECUTE FUNCTION public.trigger_set_timestamp();
+
+
+--
+-- Name: task_assignments update_task_assignments_modtime; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER update_task_assignments_modtime BEFORE UPDATE ON public.task_assignments FOR EACH ROW EXECUTE FUNCTION public.update_modified_column();
 
 
 --
@@ -1445,6 +1730,22 @@ ALTER TABLE ONLY public.device_accounts
 
 ALTER TABLE ONLY public.device_accounts
     ADD CONSTRAINT device_accounts_device_id_fkey FOREIGN KEY (device_id) REFERENCES public.devices(device_id) ON DELETE CASCADE;
+
+
+--
+-- Name: exploration_logs exploration_logs_account_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.exploration_logs
+    ADD CONSTRAINT exploration_logs_account_id_fkey FOREIGN KEY (account_id) REFERENCES public.accounts(account_id);
+
+
+--
+-- Name: exploration_logs exploration_logs_device_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.exploration_logs
+    ADD CONSTRAINT exploration_logs_device_id_fkey FOREIGN KEY (device_id) REFERENCES public.devices(device_id);
 
 
 --
