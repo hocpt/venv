@@ -1,0 +1,968 @@
+{% extends "admin_base.html" %}
+
+{% block title %}{{ title or "Quản lý Vấn đề Node (Screens)" }}{% endblock %}
+
+{% block head_extra %}
+<style>
+    .node-thumbnail {
+        max-width: 100px;
+        max-height: 150px;
+        cursor: pointer;
+        border: 1px solid #ddd;
+    }
+
+    .element-list-popup {
+        /* Style cho popup hiển thị elements */
+    }
+
+    .action-buttons .btn {
+        margin-right: 5px;
+        margin-bottom: 5px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <h1 class="mt-4">{{ title }}</h1>
+    <ol class="breadcrumb mb-4">
+        <li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Bảng điều khiển</a></li>
+        <li class="breadcrumb-item"><a href="{{ url_for('admin.admin_mapping_viewer') }}">Bản đồ App</a></li>
+        <li class="breadcrumb-item active">{{ title }}</li>
+    </ol>
+
+    {% include '_flash_messages.html' %}
+
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary">Bộ lọc Node</h6>
+        </div>
+        <div class="card-body">
+            <form method="GET" id="nodeFilterForm">
+                <div class="row gx-2 gy-2 align-items-end">
+                    <div class="col-md-4">
+                        <label for="app_name_filter_select_node" class="form-label form-label-sm">App Name:</label>
+                        <select class="form-select form-select-sm" id="app_name_filter_select_node"
+                            name="app_name_filter">
+                            <option value="">-- Tất cả Apps --</option>
+                            {% for app_name_opt in distinct_app_names %}
+                            <option value="{{ app_name_opt }}" {% if app_name_opt==selected_app_filter %}selected{%
+                                endif %}>
+                                {{ app_name_opt }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="filter_status_select" class="form-label form-label-sm">Trạng thái Node:</label>
+                        <select class="form-select form-select-sm" id="filter_status_select" name="filter_status">
+                            <option value="all" {% if current_filter_status=='all' %}selected{% endif %}>Tất cả Trạng
+                                thái</option>
+                            <option value="unknown" {% if current_filter_status=='unknown' %}selected{% endif %}>Chưa
+                                Nhận diện (Unknown)</option>
+                            <option value="defined" {% if current_filter_status=='defined' %}selected{% endif %}>Đã Định
+                                nghĩa</option>
+                            <option value="provisional" {% if current_filter_status=='provisional' %}selected{% endif
+                                %}>Provisional (Chung)</option>
+                            {# Thêm các status khác nếu cần #}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <button type="submit" class="btn btn-sm btn-info w-100 mt-3">Lọc Nodes</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
+    <div class="card shadow mb-4">
+        <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+            <h6 class="m-0 font-weight-bold text-primary">Danh sách Nodes</h6>
+            <div>
+                <button type="button" class="btn btn-sm btn-warning disabled" id="mergeSelectedNodesBtn">
+                    <i class="fas fa-compress-arrows-alt me-1"></i> Merge Nodes Đã Chọn
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm table-striped table-bordered" id="nodesTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th scope="col"><input type="checkbox" id="selectAllNodesCheckbox"></th>
+                            <th scope="col">Screen ID</th>
+                            <th scope="col">App Name</th>
+                            <th scope="col">Activity</th>
+                            <th scope="col">Ảnh</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Phân loại Node</th>
+                            <th scope="col" title="Số element có quan hệ :HAS_ELEMENT">Elements</th>
+                            <th scope="col" title="Incoming / Outgoing Transitions">Trans. (In/Out)</th>
+                            <th scope="col">Thấy lần cuối</th>
+                            <th scope="col">Hành động</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if nodes %}
+                        {% for node in nodes %}
+                        <tr data-screen-id="{{ node.screen_id }}" data-app-name="{{ node.app_name }}"
+                            data-status="{{ node.status }}">
+                            <td><input type="checkbox" class="node-checkbox" value="{{ node.screen_id }}"></td>
+                            <td>
+                                <a href="{{ url_for('admin.admin_screen_elements', screen_id=node.screen_id) }}"
+                                    target="_blank" title="Xem chi tiết elements trang này">
+                                    <code class="small">{{ node.screen_id | truncate(25) }}</code>
+                                </a>
+                            </td>
+                            <td><code class="small">{{ node.app_name }}</code></td>
+                            <td><code class="small">{{ node.activity_name | default('N/A') | truncate(30) }}</code></td>
+                            <td>
+                                {% if node.screenshot_path %}
+                                <img src="{{ url_for('serve_app_specific_screenshot', filename=node.screenshot_path) }}"
+                                    alt="ss_{{ node.screen_id }}" class="node-thumbnail" data-bs-toggle="modal"
+                                    data-bs-target="#imagePreviewModal"
+                                    data-image-url="{{ url_for('serve_app_specific_screenshot', filename=node.screenshot_path) }}"
+                                    data-screen-id="{{ node.screen_id }}"
+                                    data-elements-url="{{ url_for('admin.api_get_screen_elements_for_mapping', screen_id=node.screen_id) }}"
+                                    data-original-width="{{ node.width }}" data-original-height="{{ node.height }}">
+                                {% else %}
+                                <span class="text-muted small">N/A</span>
+                                {% endif %}
+                            </td>
+                            <td><span class="badge bg-secondary">{{ node.status | default('N/A') }}</span></td>
+                            <td>
+                                <select class="form-select form-select-sm node-classification-select"
+                                    data-screen-id="{{ node.screen_id }}" data-app-name="{{ node.app_name }}">
+                                    <option value="">-- Chưa phân loại --</option>
+                                    {# TODO: Lấy danh sách classification từ config hoặc DB #}
+                                    <option value="login_screen" {% if node.node_classification=='login_screen'
+                                        %}selected{% endif %}>Login Screen</option>
+                                    <option value="profile_screen" {% if node.node_classification=='profile_screen'
+                                        %}selected{% endif %}>Profile Screen</option>
+                                    <option value="feed_screen" {% if node.node_classification=='feed_screen'
+                                        %}selected{% endif %}>Feed/Home Screen</option>
+                                    <option value="settings_screen" {% if node.node_classification=='settings_screen'
+                                        %}selected{% endif %}>Settings Screen</option>
+                                    <option value="popup_dialog" {% if node.node_classification=='popup_dialog'
+                                        %}selected{% endif %}>Popup/Dialog</option>
+                                    <option value="item_list" {% if node.node_classification=='item_list' %}selected{%
+                                        endif %}>Item List View</option>
+                                    <option value="item_detail" {% if node.node_classification=='item_detail'
+                                        %}selected{% endif %}>Item Detail View</option>
+                                    <option value="other" {% if node.node_classification=='other' %}selected{% endif %}>
+                                        Other</option>
+                                </select>
+                            </td>
+                            <td class="text-center">{{ node.actual_element_count_rel | default(0) }}</td>
+                            <td class="text-center">{{ node.incoming_transitions_count | default(0) }} / {{
+                                node.outgoing_transitions_count | default(0) }}</td>
+                            <td class="small">{{ node.last_seen.split('T')[0] if node.last_seen else 'N/A' }}</td>
+                            <td class="action-buttons">
+                                {% if node.status == 'provisional_unknown' %}
+                                <button class="btn btn-xs btn-outline-success define-pie-btn"
+                                    title="Định nghĩa PIE cho Node này">
+                                    <i class="fas fa-cogs"></i> Định nghĩa PIE
+                                </button>
+                                <button class="btn btn-xs btn-outline-primary merge-into-existing-btn"
+                                    title="Merge Node này vào một Định nghĩa PIE đã có">
+                                    <i class="fas fa-link"></i> Merge vào PIE
+                                </button>
+                                {% endif %}
+                                <button class="btn btn-xs btn-outline-danger delete-node-btn" title="Xóa Node này">
+                                    <i class="fas fa-trash-alt"></i> Xóa
+                                </button>
+                                {# Thêm nút xem chi tiết elements (nếu cần, mặc dù đã có link ở screen_id) #}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr>
+                            <td colspan="11" class="text-center text-muted fst-italic py-3">
+                                Không tìm thấy Node nào khớp với bộ lọc.
+                            </td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+            {% if pagination %}
+            {% from "_pagination_helper.html" import render_pagination %}
+            {{ render_pagination(pagination, request.endpoint, pagination.extra_params) }}
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="imagePreviewModal" tabindex="-1" aria-labelledby="imagePreviewModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="imagePreviewModalLabel">Xem trước Ảnh và Elements</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-5">
+                        <h6>Ảnh chụp màn hình (Screen ID: <span id="modalScreenIdDisplay"></span>)</h6>
+                        <div id="modalScreenshotContainer"
+                            style="position: relative; background-color: #f0f0f0; border:1px solid #ccc; min-height:300px; display:flex; align-items:center; justify-content:center;">
+                            <img id="modalScreenshotImage" src="" alt="Ảnh chụp màn hình"
+                                style="max-width: 100%; max-height: 70vh; display:none;">
+                            <div id="modalLoadingElements" class="text-muted small" style="display:none;">Đang tải
+                                elements...</div>
+                        </div>
+                    </div>
+                    <div class="col-md-7">
+                        <h6>Elements trên màn hình này (từ Neo4j)</h6>
+                        <div id="modalElementsList" style="max-height: 75vh; overflow-y: auto;">
+                            <p class="text-muted small">Chọn ảnh để xem elements.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="mergeToPieModal" tabindex="-1" aria-labelledby="mergeToPieModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="mergeToPieForm">
+                <input type="hidden" id="mergeUnknownScreenId" name="unknown_screen_id">
+                <input type="hidden" id="mergeUnknownAppName" name="unknown_app_name">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="mergeToPieModalLabel">Merge Node Unknown vào Định nghĩa PIE</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Bạn đang merge Node Unknown <code id="unknownScreenIdForMergeDisplay"></code>.</p>
+                    <div class="mb-3">
+                        <label for="selectTargetDefinedScreenId" class="form-label">Chọn Định nghĩa PIE đích (Defined
+                            Screen ID) <span class="text-danger">*</span></label>
+                        <select class="form-select form-select-sm" id="selectTargetDefinedScreenId"
+                            name="target_defined_screen_id" required>
+                            <option value="">-- Chọn một Defined Screen ID --</option>
+                            {# Options sẽ được điền bằng JS #}
+                        </select>
+                    </div>
+                    <p class="small text-muted">Hành động này sẽ cập nhật Screen ID của Node Unknown thành Defined
+                        Screen ID đã chọn, chuyển các transitions và xóa Node Unknown cũ.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="submit" class="btn btn-sm btn-primary" id="confirmMergeToPieBtn">Xác nhận
+                        Merge</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{# Modal cho việc chọn Primary Node khi merge nhiều node #}
+<div class="modal fade" id="selectPrimaryNodeModal" tabindex="-1" aria-labelledby="selectPrimaryNodeModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="selectPrimaryNodeModalLabel">Chọn Node Chính để Merge</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Vui lòng chọn một Node làm Node chính. Các Node khác sẽ được merge vào Node này.</p>
+                <div id="primaryNodeSelectionList" class="list-group">
+                </div>
+                <div class="mt-3">
+                    <label for="mergedNodeClassification" class="form-label">Phân loại cho Node sau khi merge (tùy
+                        chọn):</label>
+                    <select class="form-select form-select-sm" id="mergedNodeClassification">
+                        <option value="">-- Giữ nguyên/Không đổi --</option>
+                        <option value="login_screen">Login Screen</option>
+                        <option value="profile_screen">Profile Screen</option>
+                        <option value="feed_screen">Feed/Home Screen</option>
+                        <option value="settings_screen">Settings Screen</option>
+                        <option value="popup_dialog">Popup/Dialog</option>
+                        <option value="item_list">Item List View</option>
+                        <option value="item_detail">Item Detail View</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div class="mt-3">
+                    <label for="mergedNodeScreenshotPath" class="form-label">Chọn Screenshot chính cho Node sau khi
+                        merge (tùy chọn):</label>
+                    <select class="form-select form-select-sm" id="mergedNodeScreenshotPath">
+                        <option value="">-- Giữ nguyên/Không đổi --</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                <button type="button" class="btn btn-primary" id="confirmNodeMergeBtn">Xác nhận Merge Nodes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{# Thêm JS từ admin_mapping_viewer.html cho phần vẽ overlay (nếu cần dùng lại) #}
+<script>
+    // Hàm vẽ overlay, có thể copy từ admin_mapping_viewer.html và điều chỉnh
+    // Hoặc tạo một file JS chung và import
+    const defaultSizes = { /* ... giữ nguyên ... */ };
+    function drawOverlaysOnModal(imgElement, elementsData, nodeOriginalWidth, nodeOriginalHeight, containerElement) {
+        // ... (logic tương tự drawMapScreenOverlays nhưng vẽ vào containerElement) ...
+        // console.log(`[Modal Overlay] Drawing on ${containerElement.id}. Image clientW/H: <span class="math-inline">\{imgElement\.clientWidth\}x</span>{imgElement.clientHeight}. Original: <span class="math-inline">\{nodeOriginalWidth\}x</span>{nodeOriginalHeight}. Elements: ${elementsData ? elementsData.length : 'N/A'}`);
+        containerElement.querySelectorAll('.element-overlay').forEach(ov => ov.remove()); // Xóa overlay cũ trong container
+        containerElement.querySelectorAll('p.text-danger, p.text-muted, p.text-warning').forEach(p => p.remove());
+
+
+        const displayedImgWidth = imgElement.clientWidth;
+        const displayedImgHeight = imgElement.clientHeight;
+
+        if (!nodeOriginalWidth || !nodeOriginalHeight || nodeOriginalWidth <= 0 || nodeOriginalHeight <= 0 || displayedImgWidth === 0 || displayedImgHeight === 0) {
+            console.warn(`[Modal Overlay] DRAW ERROR: Kích thước không hợp lệ.`);
+            const sizeErrorMsg = document.createElement('p');
+            sizeErrorMsg.className = 'text-danger small fst-italic mt-1';
+            sizeErrorMsg.textContent = `(Lỗi: Kích thước không hợp lệ để vẽ overlay. Gốc: <span class="math-inline">\{nodeOriginalWidth\}x</span>{nodeOriginalHeight}, Hiển thị: <span class="math-inline">\{displayedImgWidth\}x</span>{displayedImgHeight})`;
+            containerElement.appendChild(sizeErrorMsg);
+            return;
+        }
+
+        const overallScaleX = displayedImgWidth / nodeOriginalWidth;
+        const overallScaleY = displayedImgHeight / nodeOriginalHeight;
+
+        if (!elementsData || !elementsData.length) {
+            const noElementsMsg = document.createElement('p');
+            noElementsMsg.className = 'text-muted small fst-italic mt-1';
+            noElementsMsg.textContent = '(Không có elements nào được ghi nhận cho màn hình này từ Neo4j.)';
+            containerElement.appendChild(noElementsMsg);
+            return;
+        }
+
+        elementsData.forEach(elData => {
+            if (!elData || !elData.element_id) return; // Phải có element_id
+
+            let x_on_image, y_on_image, width_on_image, height_on_image;
+            let el_orig_left, el_orig_top, el_orig_width, el_orig_height;
+
+            // Ưu tiên dùng bounds nếu có và hợp lệ
+            const bounds = elData.bounds; // bounds là dict {left,top,right,bottom}
+            if (bounds && bounds.left !== undefined && bounds.top !== undefined && bounds.right !== undefined && bounds.bottom !== undefined) {
+                try {
+                    el_orig_left = parseInt(bounds.left, 10);
+                    el_orig_top = parseInt(bounds.top, 10);
+                    el_orig_width = parseInt(bounds.right, 10) - el_orig_left;
+                    el_orig_height = parseInt(bounds.bottom, 10) - el_orig_top;
+                    if (isNaN(el_orig_left) || isNaN(el_orig_top) || isNaN(el_orig_width) || isNaN(el_orig_height) || el_orig_width < 0 || el_orig_height < 0) throw new Error("Invalid bounds values");
+                } catch (e) {
+                    // console.warn(`Invalid bounds for el ${elData.element_id}:`, bounds, e.message);
+                    // Fallback to coordinates if bounds are bad
+                }
+            }
+
+            // Nếu không có bounds hợp lệ, dùng coordinates
+            if (el_orig_width === undefined || el_orig_height === undefined) {
+                const coords = elData.coordinates; // coords là dict {x,y} hoặc elData.coordinate_x, elData.coordinate_y
+                let coord_x_val = elData.coordinate_x;
+                let coord_y_val = elData.coordinate_y;
+
+                if (coords && coords.x !== undefined && coords.y !== undefined) {
+                    coord_x_val = coords.x;
+                    coord_y_val = coords.y;
+                }
+
+                if (coord_x_val !== undefined && coord_y_val !== undefined) {
+                    try {
+                        const coord_x = parseInt(coord_x_val, 10);
+                        const coord_y = parseInt(coord_y_val, 10);
+                        if (isNaN(coord_x) || isNaN(coord_y)) throw new Error("Invalid coordinate values");
+
+                        const defaultSize = defaultSizes[elData.element_type || 'default'] || defaultSizes['default'];
+                        el_orig_width = defaultSize.width;
+                        el_orig_height = defaultSize.height;
+                        el_orig_left = coord_x - (el_orig_width / 2);
+                        el_orig_top = coord_y - (el_orig_height / 2);
+                    } catch (e) {
+                        // console.warn(`Invalid coords for el <span class="math-inline">\{elData\.element\_id\}\: X\=</span>{coord_x_val}, Y=${coord_y_val}`, e.message);
+                        return; // Bỏ qua element này
+                    }
+                } else {
+                    // console.warn(`Skipping el ${elData.element_id}: no valid bounds or coordinates.`);
+                    return; // Bỏ qua element này
+                }
+            }
+
+
+            x_on_image = el_orig_left * overallScaleX;
+            y_on_image = el_orig_top * overallScaleY;
+            width_on_image = el_orig_width * overallScaleX;
+            height_on_image = el_orig_height * overallScaleY;
+
+            width_on_image = Math.max(width_on_image, 3); // Kích thước tối thiểu
+            height_on_image = Math.max(height_on_image, 3);
+
+            const overlay = document.createElement('div');
+            overlay.classList.add('element-overlay');
+            overlay.title = `ID: ${elData.element_id}\nType: ${elData.element_type || 'N/A'}\nText: ${elData.text_content || '--'}`;
+            overlay.style.left = `${x_on_image.toFixed(1)}px`;
+            overlay.style.top = `${y_on_image.toFixed(1)}px`;
+            overlay.style.width = `${width_on_image.toFixed(1)}px`;
+            overlay.style.height = `${height_on_image.toFixed(1)}px`;
+
+            if (elData.element_type && (elData.element_type.toLowerCase().includes('button') || elData.element_type.toLowerCase().includes('imagebutton'))) {
+                overlay.classList.add('element-overlay-button');
+            }
+            containerElement.appendChild(overlay);
+        });
+    }
+
+
+    document.addEventListener('DOMContentLoaded', function () {
+        const imagePreviewModalEl = document.getElementById('imagePreviewModal');
+        const modalScreenshotImage = document.getElementById('modalScreenshotImage');
+        const modalScreenshotContainer = document.getElementById('modalScreenshotContainer');
+        const modalElementsListDiv = document.getElementById('modalElementsList');
+        const modalScreenIdDisplay = document.getElementById('modalScreenIdDisplay');
+        const modalLoadingElements = document.getElementById('modalLoadingElements');
+
+        const mergeToPieModalEl = document.getElementById('mergeToPieModal');
+        const mergeToPieForm = document.getElementById('mergeToPieForm');
+        const unknownScreenIdForMergeDisplay = document.getElementById('unknownScreenIdForMergeDisplay');
+        const mergeUnknownScreenIdInput = document.getElementById('mergeUnknownScreenId');
+        const mergeUnknownAppNameInput = document.getElementById('mergeUnknownAppName');
+        const selectTargetDefinedScreenId = document.getElementById('selectTargetDefinedScreenId');
+
+        const selectAllNodesCheckbox = document.getElementById('selectAllNodesCheckbox');
+        const nodeCheckboxes = document.querySelectorAll('.node-checkbox');
+        const mergeSelectedNodesBtn = document.getElementById('mergeSelectedNodesBtn');
+        const selectPrimaryNodeModalEl = document.getElementById('selectPrimaryNodeModal');
+        const primaryNodeSelectionList = document.getElementById('primaryNodeSelectionList');
+        const confirmNodeMergeBtn = document.getElementById('confirmNodeMergeBtn');
+        const mergedNodeClassificationSelect = document.getElementById('mergedNodeClassification');
+        const mergedNodeScreenshotPathSelect = document.getElementById('mergedNodeScreenshotPath');
+
+
+        // Xử lý khi modal xem ảnh được hiển thị
+        imagePreviewModalEl.addEventListener('show.bs.modal', function (event) {
+            const button = event.relatedTarget; // Nút đã trigger modal (là thẻ img thumbnail)
+            const imageUrl = button.dataset.imageUrl;
+            const screenId = button.dataset.screenId;
+            const elementsUrl = button.dataset.elementsUrl;
+            const originalWidth = parseInt(button.dataset.originalWidth, 10);
+            const originalHeight = parseInt(button.dataset.originalHeight, 10);
+
+            modalScreenIdDisplay.textContent = screenId;
+            modalScreenshotImage.src = imageUrl;
+            modalScreenshotImage.style.display = 'none'; // Ẩn trong khi load
+            modalElementsListDiv.innerHTML = '<p class="text-muted small">Đang tải ảnh...</p>';
+            modalScreenshotContainer.querySelectorAll('.element-overlay').forEach(ov => ov.remove());
+
+
+            modalScreenshotImage.onload = function () {
+                this.style.display = 'block';
+                modalElementsListDiv.innerHTML = ''; // Xóa thông báo tải ảnh
+                if (modalLoadingElements) modalLoadingElements.style.display = 'block';
+
+                // Đảm bảo ảnh có kích thước client trước khi fetch elements
+                let retryCount = 0;
+                const MAX_RETRIES_MODAL = 15;
+                const RETRY_INTERVAL_MODAL = 100;
+
+                function checkSizeAndFetchModalElements() {
+                    if (modalScreenshotImage.clientWidth > 0 && modalScreenshotImage.clientHeight > 0) {
+                        if (modalLoadingElements) modalLoadingElements.style.display = 'none';
+                        fetch(elementsUrl)
+                            .then(response => {
+                                if (!response.ok) throw new Error(`Lỗi HTTP ${response.status} khi lấy elements.`);
+                                return response.json();
+                            })
+                            .then(data => {
+                                if (data.success && data.elements) {
+                                    // console.log("Modal: Elements received:", data.elements);
+                                    drawOverlaysOnModal(modalScreenshotImage, data.elements, originalWidth, originalHeight, modalScreenshotContainer);
+
+                                    // Hiển thị danh sách text của elements
+                                    if (data.elements.length > 0) {
+                                        const ul = document.createElement('ul');
+                                        ul.className = 'list-group list-group-flush small';
+                                        data.elements.forEach(el => {
+                                            const li = document.createElement('li');
+                                            li.className = 'list-group-item py-1 px-0';
+                                            li.innerHTML = `<code class="small"><span class="math-inline">\{el\.element\_id\}</code\> <br\>
+                                            <span class="badge bg-info me-1">{el.element_type ? el.element_type.replace('android.widget.', '') : 'N/A'}</span>
+${el.text_content ? el.text_content.substring(0, 50) + (el.text_content.length > 50 ? '...' : '') : '<em class="text-muted">--no text--</em>'}; ul.appendChild(li); }); modalElementsListDiv.appendChild(ul); } else { modalElementsListDiv.innerHTML = '<p class="text-muted small">Không có element nào được ghi nhận cho màn hình này.</p>'; } } else { modalElementsListDiv.innerHTML =<p class="text-danger small">Lỗi: ${data.error || 'Không lấy được dữ liệu elements.'}</p>; } }) .catch(error => { console.error("Lỗi fetch elements cho modal:", error); modalElementsListDiv.innerHTML =<p class="text-danger small">Lỗi kết nối hoặc xử lý khi lấy elements: ${error.message}</p>`;
+                                        });
+                                    } else if (retryCount < MAX_RETRIES_MODAL) {
+                                        retryCount++;
+                                        setTimeout(checkSizeAndFetchModalElements, RETRY_INTERVAL_MODAL);
+                                    } else {
+                                        if (modalLoadingElements) modalLoadingElements.style.display = 'none';
+                                        console.error("Không thể lấy kích thước client của ảnh trong modal.");
+                                        modalElementsListDiv.innerHTML = '<p class="text-danger small">Lỗi: Không thể xác định kích thước ảnh để vẽ elements.</p>';
+                                    }
+                                }
+                                checkSizeAndFetchModalElements();
+                            };
+                        modalScreenshotImage.onerror = function () {
+                            this.style.display = 'none';
+                            modalElementsListDiv.innerHTML = '<p class="text-danger small">Lỗi tải ảnh chụp màn hình.</p>';
+                        };
+                    });
+
+        // Xử lý khi modal ẩn đi
+        imagePreviewModalEl.addEventListener('hidden.bs.modal', function () {
+            modalScreenshotImage.src = ''; // Reset để tránh hiển thị ảnh cũ nếu modal mở lại nhanh
+            modalElementsListDiv.innerHTML = '<p class="text-muted small">Chọn ảnh để xem elements.</p>';
+            modalScreenshotContainer.querySelectorAll('.element-overlay').forEach(ov => ov.remove());
+            if (modalLoadingElements) modalLoadingElements.style.display = 'none';
+        });
+
+        // Xử lý nút "Định nghĩa PIE" cho Node Unknown
+        document.querySelectorAll('.define-pie-btn').forEach(button => {
+            button.addEventListener('click', function () {
+                const row = this.closest('tr');
+                const screenId = row.dataset.screenId;
+                const appName = row.dataset.appName;
+                // Lấy activityName từ cột (nếu có)
+                const activityNameCell = row.cells[3]; // Giả sử cột Activity là cột thứ 4 (index 3)
+                const activityName = activityNameCell ? activityNameCell.querySelector('code')?.textContent.trim() : '';
+
+                // Chuyển hướng đến trang Thêm Định nghĩa PIE với các tham số query
+                // Hoặc mở modal Thêm Định nghĩa PIE đã có và tự điền thông tin
+                const addPieUrl = "{{ url_for('admin.view_screen_definitions') }}"; // URL của trang quản lý PIE (nơi có nút "Thêm mới")
+
+                // Cách 1: Mở modal thêm PIE trực tiếp (nếu có sẵn trên trang này)
+                // Hoặc fill vào form trên trang riêng
+                // Tạm thời, chúng ta sẽ alert để admin biết cần làm gì
+                // Trong tương lai, sẽ mở modal thêm PIE và truyền appName, activityName, và có thể cả list elements của screenId này.
+                // console.log(`Định nghĩa PIE cho: Screen ID (Unknown): ${screenId}, App: ${appName}, Activity: ${activityName}`);
+
+                // Mở modal "Thêm Định nghĩa PIE" của trang admin_screen_definitions.html
+                // Giả sử modal đó có id là #definitionModal và các input tương ứng
+                const definitionModalEl = document.getElementById('definitionModal'); // Lấy từ trang này
+                if (definitionModalEl) {
+                    const bsModal = bootstrap.Modal.getInstance(definitionModalEl) || new bootstrap.Modal(definitionModalEl);
+                    document.getElementById('definitionForm').reset();
+                    document.getElementById('definitionId').value = ''; // Chế độ thêm mới
+                    document.getElementById('definitionModalLabel').textContent = 'Thêm Định nghĩa PIE từ Node Unknown';
+                    document.getElementById('appName').value = appName || '';
+                    document.getElementById('activityName').value = (activityName && activityName !== 'N/A') ? activityName : '';
+
+                    // Clear và thêm PIE rỗng
+                    const pieContainer = document.getElementById('identifyingElementsContainer');
+                    if (pieContainer) {
+                        pieContainer.innerHTML = '';
+                        // Hàm createPieConditionRow cần được định nghĩa ở scope global hoặc truyền vào đây
+                        // Giả sử nó đã được định nghĩa như trong admin_screen_definitions.html
+                        if (typeof createPieConditionRowGlobal === "function") { // Giả sử bạn đặt tên hàm là createPieConditionRowGlobal
+                            createPieConditionRowGlobal(); // Thêm một PIE rỗng ban đầu
+                        } else {
+                            console.warn("Hàm createPieConditionRowGlobal() không tìm thấy để tạo PIE rỗng.")
+                        }
+                    }
+
+                    // TODO: Hiển thị danh sách elements của screenId này để admin dễ chọn làm PIE.
+                    // Đây là phần nâng cao UI.
+
+                    bsModal.show();
+                } else {
+                    alert(`Mở trang "Định nghĩa Màn hình (PIE)", tạo mới với:\nApp Name: ${appName}\nActivity: <span class="math-inline">\{activityName\}\\nSau đó, bạn cần cơ chế để gán Screen ID Unknown '</span>{screenId}' này vào Defined Screen ID mới tạo.`);
+                }
+            });
+        });
+
+        // Xử lý nút "Merge Node này vào một Định nghĩa PIE đã có"
+        document.querySelectorAll('.merge-into-existing-btn').forEach(button => {
+            button.addEventListener('click', function () {
+                const row = this.closest('tr');
+                const unknownScreenId = row.dataset.screenId;
+                const appName = row.dataset.appName;
+
+                unknownScreenIdForMergeDisplay.textContent = unknownScreenId;
+                mergeUnknownScreenIdInput.value = unknownScreenId;
+                mergeUnknownAppNameInput.value = appName;
+
+                // Lấy danh sách Defined Screen IDs cho app_name này để điền vào dropdown
+                selectTargetDefinedScreenId.innerHTML = '<option value="">-- Đang tải... --</option>';
+                fetch(`/admin/api/mapping/screen-definitions?app_name=${encodeURIComponent(appName)}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        selectTargetDefinedScreenId.innerHTML = '<option value="">-- Chọn một Defined Screen ID --</option>';
+                        if (Array.isArray(data)) {
+                            data.forEach(def => {
+                                if (def.defined_screen_id) {
+                                    const option = document.createElement('option');
+                                    option.value = def.defined_screen_id;
+                                    option.textContent = `<span class="math-inline">\{def\.defined\_screen\_id\} \(</span>{def.logical_screen_name || 'N/A'})`;
+                                    selectTargetDefinedScreenId.appendChild(option);
+                                }
+                            });
+                        } else if (data.error) {
+                            selectTargetDefinedScreenId.innerHTML = `<option value="">Lỗi: ${data.error}</option>`;
+                        }
+                    })
+                    .catch(err => {
+                        console.error("Lỗi tải defined screen IDs:", err);
+                        selectTargetDefinedScreenId.innerHTML = '<option value="">Lỗi tải danh sách</option>';
+                    });
+
+                const bsModal = new bootstrap.Modal(mergeToPieModalEl);
+                bsModal.show();
+            });
+        });
+
+        // Xử lý submit form merge node unknown vào PIE
+        if (mergeToPieForm) {
+            mergeToPieForm.addEventListener('submit', function (event) {
+                event.preventDefault();
+                const unknownScreenId = mergeUnknownScreenIdInput.value;
+                const appName = mergeUnknownAppNameInput.value;
+                const targetDefinedScreenId = selectTargetDefinedScreenId.value;
+
+                if (!targetDefinedScreenId) {
+                    alert("Vui lòng chọn một Defined Screen ID đích.");
+                    return;
+                }
+
+                if (!confirm(`Bạn có chắc muốn merge Node Unknown '<span class="math-inline">\{unknownScreenId\}' vào Defined Screen ID '</span>{targetDefinedScreenId}' không? Node Unknown sẽ bị xóa.`)) {
+                    return;
+                }
+
+                // API endpoint này cần được tạo: POST /api/mapping/management/nodes/merge-unknown-to-defined
+                fetch(`/admin/api/mapping/management/nodes/merge-unknown-to-defined`, { // Cần tạo API này
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() if csrf_token else "" }}' },
+                    body: JSON.stringify({
+                        unknown_screen_id: unknownScreenId,
+                        target_defined_screen_id: targetDefinedScreenId,
+                        app_name: appName
+                    })
+                })
+                    .then(response => response.json())
+                    .then(result => {
+                        if (result.success) {
+                            alert(result.message || "Merge thành công!");
+                            bootstrap.Modal.getInstance(mergeToPieModalEl).hide();
+                            window.location.reload();
+                        } else {
+                            alert("Lỗi Merge: " + (result.error || "Thao tác thất bại."));
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Lỗi Fetch khi merge node:', error);
+                        alert('Lỗi kết nối máy chủ khi merge.');
+                    });
+            });
+        }
+
+
+        // Xử lý nút Xóa Node
+        document.querySelectorAll('.delete-node-btn').forEach(button => {
+            button.addEventListener('click', function () {
+                const row = this.closest('tr');
+                const screenId = row.dataset.screenId;
+                const appName = row.dataset.appName; // Cần appName để xóa screenshot
+
+                if (confirm(`Bạn có chắc chắn muốn xóa Node '${screenId}' và tất cả dữ liệu liên quan (transitions, elements, screenshot) không? Hành động này không thể hoàn tác.`)) {
+                    fetch(`/admin/api/mapping/management/nodes/${encodeURIComponent(screenId)}/delete`, {
+                        method: 'POST', // Hoặc DELETE nếu API của bạn hỗ trợ
+                        headers: {
+                            'Content-Type': 'application/json', // Quan trọng nếu gửi body
+                            'X-CSRFToken': '{{ csrf_token() if csrf_token else "" }}'
+                        },
+                        body: JSON.stringify({ app_name: appName }) // Gửi app_name trong body
+                    })
+                        .then(response => response.json())
+                        .then(result => {
+                            if (result.success) {
+                                alert(result.message || `Đã xóa Node ${screenId}`);
+                                window.location.reload();
+                            } else {
+                                alert("Lỗi Xóa Node: " + (result.error || "Thao tác thất bại."));
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Lỗi Fetch khi xóa Node:', error);
+                            alert('Lỗi kết nối máy chủ khi xóa Node.');
+                        });
+                }
+            });
+        });
+
+        // Xử lý thay đổi Phân loại Node
+        document.querySelectorAll('.node-classification-select').forEach(select => {
+            select.addEventListener('change', function () {
+                const screenId = this.dataset.screenId;
+                const appName = this.dataset.appName;
+                const newClassification = this.value;
+
+                // API endpoint này cần được tạo: POST /api/mapping/management/nodes/<screen_id>/classify
+                fetch(`/admin/api/mapping/management/nodes/${encodeURIComponent(screenId)}/classify`, { // Cần tạo API này
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() if csrf_token else "" }}' },
+                    body: JSON.stringify({
+                        app_name: appName, // Gửi app_name để query đúng node
+                        node_classification: newClassification
+                    })
+                })
+                    .then(response => response.json())
+                    .then(result => {
+                        if (!result.success) {
+                            alert("Lỗi cập nhật phân loại Node: " + (result.error || "Thao tác thất bại."));
+                            // Có thể revert lại giá trị cũ của select nếu muốn
+                        } else {
+                            // Có thể hiển thị thông báo thành công nhỏ, tự biến mất
+                            const tempStatus = document.createElement('span');
+                            tempStatus.textContent = ' Đã lưu!';
+                            tempStatus.className = 'text-success small ms-1';
+                            this.parentNode.appendChild(tempStatus);
+                            setTimeout(() => tempStatus.remove(), 2000);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Lỗi Fetch khi phân loại Node:', error);
+                        alert('Lỗi kết nối máy chủ khi phân loại Node.');
+                    });
+            });
+        });
+
+        // Xử lý Checkbox cho Merge Nodes
+        if (selectAllNodesCheckbox) {
+            selectAllNodesCheckbox.addEventListener('change', function () {
+                nodeCheckboxes.forEach(checkbox => {
+                    checkbox.checked = this.checked;
+                });
+                toggleMergeButtonState();
+            });
+        }
+
+        nodeCheckboxes.forEach(checkbox => {
+            checkbox.addEventListener('change', toggleMergeButtonState);
+        });
+
+        function getSelectedNodeIds() {
+            const selectedIds = [];
+            nodeCheckboxes.forEach(checkbox => {
+                if (checkbox.checked) {
+                    selectedIds.push(checkbox.value);
+                }
+            });
+            return selectedIds;
+        }
+
+        function toggleMergeButtonState() {
+            const selectedIds = getSelectedNodeIds();
+            if (selectedIds.length >= 2) {
+                mergeSelectedNodesBtn.classList.remove('disabled');
+            } else {
+                mergeSelectedNodesBtn.classList.add('disabled');
+            }
+        }
+        toggleMergeButtonState(); // Gọi lần đầu khi tải trang
+
+        if (mergeSelectedNodesBtn) {
+            mergeSelectedNodesBtn.addEventListener('click', function () {
+                const selectedScreenIds = getSelectedNodeIds();
+                if (selectedScreenIds.length < 2) {
+                    alert("Vui lòng chọn ít nhất 2 Node để merge.");
+                    return;
+                }
+
+                primaryNodeSelectionList.innerHTML = ''; // Xóa list cũ
+                mergedNodeScreenshotPathSelect.innerHTML = '<option value="">-- Giữ nguyên/Không đổi --</option>';// Reset
+                let commonAppName = null;
+                let firstNodeData = null; // Để lấy app_name
+
+                selectedScreenIds.forEach((screenId, index) => {
+                    const row = document.querySelector(`tr[data-screen-id="${screenId}"]`);
+                    if (row) {
+                        const appName = row.dataset.appName;
+                        const screenshotPath = row.querySelector('.node-thumbnail')?.getAttribute('src'); // Lấy URL từ src
+
+                        if (index === 0) {
+                            commonAppName = appName;
+                            firstNodeData = row;
+                        } else if (appName !== commonAppName) {
+                            alert("Các Node được chọn để merge phải thuộc cùng một App Name.");
+                            primaryNodeSelectionList.innerHTML = '<p class="text-danger">Lỗi: Các Node phải cùng App.</p>';
+                            commonAppName = null; // Đánh dấu lỗi
+                            return; // Dừng vòng lặp
+                        }
+
+                        const listItem = document.createElement('label');
+                        listItem.className = 'list-group-item';
+                        listItem.innerHTML = `
+                        <input class="form-check-input me-1" type="radio" name="primaryNode" value="<span class="math-inline">\{screenId\}" id\="primaryNode\_</span>{screenId}" ${index === 0 ? 'checked' : ''}>
+                        <span class="math-inline">\{screenId\} \(</span>{appName}) - Status: ${row.dataset.status}
+                    `;
+                        primaryNodeSelectionList.appendChild(listItem);
+
+                        if (screenshotPath) {
+                            const option = document.createElement('option');
+                            option.value = row.querySelector('.node-thumbnail')?.dataset.bsTarget; // Lấy tên file từ data attribute nếu có, hoặc từ src
+                            // Cần lấy tên file gốc, không phải URL đầy đủ. Giả sử screenshot_path đã lưu tên file.
+                            // Nếu thumbnail src là URL, cần cơ chế lấy lại tên file gốc.
+                            // Tạm thời, nếu bạn lưu screenshot_path vào data attribute của img:
+                            let originalScreenshotFilename = row.querySelector('.node-thumbnail')?.dataset.originalFilename; // Cần thêm data-original-filename
+                            if (!originalScreenshotFilename && screenshotPath) { // Fallback: cố gắng trích xuất từ URL
+                                try { originalScreenshotFilename = new URL(screenshotPath).pathname.split('/').pop(); } catch (e) { }
+                            }
+                            if (originalScreenshotFilename) {
+                                option.value = originalScreenshotFilename;
+                                option.textContent = `Ảnh của <span class="math-inline">\{screenId\} \(</span>{originalScreenshotFilename.substring(0,20)}...)`;
+                                mergedNodeScreenshotPathSelect.appendChild(option);
+                            }
+                        }
+                    }
+                });
+
+                if (commonAppName && firstNodeData) { // Chỉ show modal nếu các node hợp lệ
+                    const bsModal = new bootstrap.Modal(selectPrimaryNodeModalEl);
+                    bsModal.show();
+                } else if (!commonAppName && firstNodeData) { // Nếu lỗi khác app
+                    // đã alert rồi
+                } else {
+                    alert("Không tìm thấy thông tin cho các Node đã chọn.");
+                }
+            });
+        }
+
+        if (confirmNodeMergeBtn) {
+            confirmNodeMergeBtn.addEventListener('click', function () {
+                const primaryScreenIdInput = primaryNodeSelectionList.querySelector('input[name="primaryNode"]:checked');
+                if (!primaryScreenIdInput) {
+                    alert("Vui lòng chọn một Node làm Node chính.");
+                    return;
+                }
+                const primaryScreenId = primaryScreenIdInput.value;
+                const allSelectedScreenIds = getSelectedNodeIds();
+                const secondaryScreenIds = allSelectedScreenIds.filter(id => id !== primaryScreenId);
+                const appNameToMerge = document.querySelector(`tr[data-screen-id="${primaryScreenId}"]`)?.dataset.appName;
+                const finalClassification = mergedNodeClassificationSelect.value || null; // Lấy giá trị hoặc null nếu rỗng
+                const finalScreenshotPath = mergedNodeScreenshotPathSelect.value || null;
+
+
+                if (!appNameToMerge) {
+                    alert("Không thể xác định App Name cho việc merge.");
+                    return;
+                }
+                if (secondaryScreenIds.length === 0) {
+                    alert("Cần ít nhất một Node phụ để merge vào Node chính.");
+                    return;
+                }
+
+                if (!confirm(`Bạn có chắc muốn merge <span class="math-inline">\{secondaryScreenIds\.length\} Node\(s\) vào Node chính '</span>{primaryScreenId}' không? Các Node phụ sẽ bị xóa.`)) {
+                    return;
+                }
+
+                // API endpoint này cần được tạo: POST /api/mapping/management/nodes/merge-selected
+                fetch(`/admin/api/mapping/management/nodes/merge-selected`, { // Cần tạo API này
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() if csrf_token else "" }}' },
+                    body: JSON.stringify({
+                        app_name: appNameToMerge,
+                        primary_screen_id: primaryScreenId,
+                        secondary_screen_ids: secondaryScreenIds,
+                        merged_node_classification: finalClassification,
+                        merged_node_screenshot_path: finalScreenshotPath
+                    })
+                })
+                    .then(response => response.json())
+                    .then(result => {
+                        if (result.success) {
+                            alert(result.message || "Merge Nodes thành công!");
+                            bootstrap.Modal.getInstance(selectPrimaryNodeModalEl).hide();
+                            window.location.reload();
+                        } else {
+                            alert("Lỗi Merge Nodes: " + (result.error || "Thao tác thất bại."));
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Lỗi Fetch khi merge nodes:', error);
+                        alert('Lỗi kết nối máy chủ khi merge nodes.');
+                    });
+            });
+        }
+
+
+    }); // End DOMContentLoaded
+
+    // Hàm này cần được gọi từ nút "Định nghĩa PIE" nếu modal #definitionModal nằm trên trang này
+    // Nếu #definitionModal ở trang admin_screen_definitions.html thì không cần ở đây.
+    // Giả sử createPieConditionRow được định nghĩa ở global scope hoặc trong file JS dùng chung
+    function createPieConditionRowGlobal(condition = {}) {
+        const container = document.getElementById('identifyingElementsContainer'); // ID của container trong modal thêm/sửa PIE
+        if (!container) return;
+
+        const PIE_IDENTIFIER_TYPES_GLOBAL = [ /* ... định nghĩa lại hoặc lấy từ global ... */
+            { value: "resource-id", label: "Resource ID", needsValue: true, needsText: false, needsClass: false },
+            { value: "text", label: "Chỉ Text", needsValue: false, needsText: true, needsClass: false },
+            { value: "text_and_class", label: "Text & Class Name", needsValue: false, needsText: true, needsClass: true }
+        ];
+        const PIE_PRESENCE_OPTIONS_GLOBAL = [  /* ... định nghĩa lại hoặc lấy từ global ... */
+            { value: "required", label: "Bắt buộc (Required)" },
+            { value: "optional", label: "Tùy chọn (Optional)" }
+        ];
+
+
+        const groupDiv = document.createElement('div');
+        groupDiv.className = 'pie-condition-group';
+        // ... (copy toàn bộ logic tạo row từ admin_screen_definitions.html vào đây)
+        const rowDiv = document.createElement('div');
+        rowDiv.className = 'pie-condition-row';
+
+        const typeSelect = document.createElement('select');
+        typeSelect.className = 'form-select form-select-sm pie-identifier-type';
+        PIE_IDENTIFIER_TYPES_GLOBAL.forEach(opt => { /* ... */ typeSelect.appendChild( /* ... */); });
+        // ... tạo valueInput, textValueInput, classValueInput, presenceSelect, removeBtn ...
+        // Ví dụ cho typeSelect:
+        PIE_IDENTIFIER_TYPES_GLOBAL.forEach(opt => {
+            const optionEl = document.createElement('option');
+            optionEl.value = opt.value;
+            optionEl.textContent = opt.label;
+            if (condition.identifier_type === opt.value) optionEl.selected = true;
+            typeSelect.appendChild(optionEl);
+        });
+        // Tương tự cho các input và select khác, gán giá trị từ `condition`
+
+        const valueInput = document.createElement('input'); /* ... */ valueInput.value = condition.value || '';
+        const textValueInput = document.createElement('input'); /* ... */ textValueInput.value = condition.text_value || '';
+        const classValueInput = document.createElement('input'); /* ... */ classValueInput.value = condition.class_value || '';
+        const presenceSelect = document.createElement('select'); /* ... */
+        PIE_PRESENCE_OPTIONS_GLOBAL.forEach(opt => {
+            const optionEl = document.createElement('option'); /*...*/
+            if (condition.presence === opt.value) optionEl.selected = true;
+            presenceSelect.appendChild(optionEl);
+        });
+        const removeBtn = document.createElement('button'); /* ... */
+
+        rowDiv.appendChild(typeSelect);
+        rowDiv.appendChild(valueInput);
+        rowDiv.appendChild(textValueInput);
+        rowDiv.appendChild(classValueInput);
+        rowDiv.appendChild(presenceSelect);
+        rowDiv.appendChild(removeBtn);
+        groupDiv.appendChild(rowDiv);
+
+        function togglePieInputsGlobal() {
+            const selectedTypeInfo = PIE_IDENTIFIER_TYPES_GLOBAL.find(t => t.value === typeSelect.value);
+            if (!selectedTypeInfo) return;
+            valueInput.style.display = selectedTypeInfo.needsValue ? '' : 'none';
+            valueInput.required = selectedTypeInfo.needsValue;
+            textValueInput.style.display = selectedTypeInfo.needsText ? '' : 'none';
+            textValueInput.required = selectedTypeInfo.needsText;
+            classValueInput.style.display = selectedTypeInfo.needsClass ? '' : 'none';
+            classValueInput.required = selectedTypeInfo.needsClass;
+        }
+        typeSelect.onchange = togglePieInputsGlobal;
+        togglePieInputsGlobal();
+
+        container.appendChild(groupDiv);
+    }
+
+</script>
+{% endblock %}

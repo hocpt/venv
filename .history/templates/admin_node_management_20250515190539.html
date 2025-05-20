@@ -1,0 +1,1401 @@
+{# hpt10/templates/admin_node_management.html #}
+{% extends "admin_base.html" %}
+
+{% block title %}{{ title or "Quản lý Vấn đề Node (Screens)" }}{% endblock %}
+
+{% block head_extra %}
+<style>
+    .node-thumbnail {
+        /* Giữ nguyên style cho thumbnail trong bảng */
+        max-width: 100px;
+        max-height: 150px;
+        /* Có thể điều chỉnh nếu cần */
+        cursor: pointer;
+        border: 1px solid #ddd;
+        object-fit: contain;
+        /* Đổi thành contain để thấy toàn bộ ảnh */
+    }
+
+    .action-buttons .btn {
+        margin-right: 3px;
+        margin-bottom: 3px;
+        font-size: 0.75rem;
+        padding: 0.2rem 0.4rem;
+    }
+
+    .table th,
+    .table td {
+        vertical-align: middle;
+    }
+
+    /* CSS cho modal quản lý conditions PIE (#managePieConditionsModal) */
+    #pieConditionsImageContainer {
+        position: relative;
+        border: 1px solid #ccc;
+        background-color: #f8f9fa;
+        /* Màu nền nhẹ cho vùng ảnh */
+        display: flex;
+        /* Để căn giữa ảnh nếu nhỏ hơn container */
+        align-items: center;
+        justify-content: center;
+        min-height: 300px;
+        /* Đảm bảo có không gian tối thiểu */
+        overflow: hidden;
+        /* Quan trọng để overlay không tràn */
+    }
+
+    #pieConditionsScreenshot {
+        max-width: 100%;
+        max-height: 60vh;
+        /* Giới hạn chiều cao ảnh trong modal */
+        display: block;
+        /* Block để không có khoảng trống thừa */
+        object-fit: scale-down;
+        /* Hiển thị toàn bộ ảnh, thu nhỏ nếu cần */
+    }
+
+    .element-overlay-interactive {
+        /* Overlay cho việc chọn element */
+        position: absolute;
+        border: 2px solid rgba(255, 0, 0, 0.7);
+        /* Đỏ đậm hơn, dày hơn */
+        background-color: rgba(255, 0, 0, 0.15);
+        box-sizing: border-box;
+        cursor: pointer;
+        /* Cho biết có thể click */
+        z-index: 1051;
+        /* Nổi trên ảnh, dưới các control của modal */
+    }
+
+    .element-overlay-interactive:hover {
+        background-color: rgba(255, 0, 0, 0.3);
+    }
+
+    .element-overlay-interactive.selected-for-pie {
+        /* Khi được chọn */
+        border-color: rgba(0, 255, 0, 0.9);
+        /* Xanh lá */
+        background-color: rgba(0, 255, 0, 0.2);
+    }
+
+    #pieConditionsElementTextList,
+    #pieConditionsSelectedConditionsList {
+        max-height: 350px;
+        /* Giới hạn chiều cao cho list */
+        overflow-y: auto;
+        font-size: 0.85rem;
+    }
+
+    #pieConditionsElementTextList .list-group-item,
+    #pieConditionsSelectedConditionsList .list-group-item {
+        padding: 0.4rem 0.6rem;
+    }
+
+    #pieConditionsElementTextList .list-group-item:hover {
+        background-color: #e9ecef;
+        cursor: pointer;
+    }
+
+    #pieConditionsElementTextList .list-group-item.selected-for-pie {
+        background-color: #d1e7dd;
+        /* Màu nền xanh lá nhạt khi chọn */
+        font-weight: bold;
+    }
+
+    /* Style cho các điều kiện trong Phần 3 của #managePieConditionsModal */
+    .condition-item-row .form-select,
+    .condition-item-row .form-control {
+        font-size: 0.8rem;
+        /* Thu nhỏ input/select một chút */
+    }
+
+    /* Style cho modal xem ảnh gốc (nếu vẫn giữ lại hoặc dùng cho mục đích khác) */
+    #modalScreenshotContainerOriginal {
+        /* Đổi tên ID để không trùng */
+        position: relative;
+        background-color: #f0f0f0;
+        border: 1px solid #ccc;
+        min-height: 300px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+    }
+
+    #modalScreenshotImageOriginal {
+        /* Đổi tên ID */
+        max-width: 100%;
+        max-height: 75vh;
+        display: none;
+        object-fit: scale-down;
+    }
+
+    .element-overlay-displayonly {
+        /* Overlay chỉ để hiển thị, không tương tác */
+        position: absolute;
+        border: 1px solid rgba(0, 123, 255, 0.6);
+        background-color: rgba(0, 123, 255, 0.1);
+        box-sizing: border-box;
+        pointer-events: none;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <h1 class="mt-4">{{ title }}</h1>
+    <ol class="breadcrumb mb-4">
+        <li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Bảng điều khiển</a></li>
+        <li class="breadcrumb-item"><a href="{{ url_for('admin.admin_mapping_viewer') }}">Bản đồ App</a></li>
+        <li class="breadcrumb-item active">{{ title }}</li>
+    </ol>
+
+    {% include '_flash_messages.html' %}
+
+    {# Phần Bộ lọc giữ nguyên như file gốc của bạn #}
+    <div class="card shadow mb-4">
+        <div class="card-header py-3">
+            <h6 class="m-0 font-weight-bold text-primary">Bộ lọc Node</h6>
+        </div>
+        <div class="card-body">
+            <form method="GET" id="nodeFilterForm">
+                <div class="row gx-2 gy-2 align-items-end">
+                    <div class="col-md-4">
+                        <label for="app_name_filter_select_node" class="form-label form-label-sm">App Name:</label>
+                        <select class="form-select form-select-sm" id="app_name_filter_select_node"
+                            name="app_name_filter">
+                            <option value="">-- Tất cả Apps --</option>
+                            {% for app_name_opt in distinct_app_names %}
+                            <option value="{{ app_name_opt }}" {% if app_name_opt==selected_app_filter %}selected{%
+                                endif %}>
+                                {{ app_name_opt }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="filter_status_select" class="form-label form-label-sm">Trạng thái Node:</label>
+                        <select class="form-select form-select-sm" id="filter_status_select" name="filter_status">
+                            <option value="all" {% if current_filter_status=='all' %}selected{% endif %}>Tất cả Trạng
+                                thái</option>
+                            <option value="unknown" {% if current_filter_status=='unknown' %}selected{% endif %}>Chưa
+                                Nhận diện (Unknown)</option>
+                            <option value="defined" {% if current_filter_status=='defined' %}selected{% endif %}>Đã Định
+                                nghĩa</option>
+                            <option value="provisional" {% if current_filter_status=='provisional' %}selected{% endif
+                                %}>Provisional (Chung)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <button type="submit" class="btn btn-sm btn-info w-100 mt-3">Lọc Nodes</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card shadow mb-4">
+        <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+            <h6 class="m-0 font-weight-bold text-primary">Danh sách Nodes</h6>
+            <div>
+                <button type="button" class="btn btn-sm btn-warning disabled" id="mergeSelectedNodesBtn"
+                    data-bs-toggle="tooltip" title="Chọn ít nhất 2 node để merge (chức năng này đang phát triển)">
+                    <i class="fas fa-compress-arrows-alt me-1"></i> Merge Nodes Đã Chọn
+                </button>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm table-striped table-bordered" id="nodesTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th scope="col" style="width: 3%;"><input type="checkbox" id="selectAllNodesCheckbox"
+                                    title="Chọn/Bỏ chọn tất cả"></th>
+                            <th scope="col" style="width: 17%;">Screen ID</th>
+                            <th scope="col" style="width: 12%;">App Name</th>
+                            <th scope="col" style="width: 12%;">Activity</th>
+                            <th scope="col" style="width: 8%;">Ảnh</th> {# Chỉ còn cột Ảnh #}
+                            <th scope="col" style="width: 13%;">Tên Logic PIE</th>
+                            <th scope="col" style="width: 8%;">Status</th>
+                            <th scope="col" style="width: 10%;">Phân loại Node</th>
+                            <th scope="col" style="width: 5%;" title="Số Elements">Elems</th>
+                            <th scope="col" style="width: 7%;" title="Transitions In/Out">Trans.</th>
+                            <th scope="col" style="width: 7%;">Lần cuối</th>
+                            <th scope="col" style="width: 18%;">Hành động</th>
+                        </tr>
+                    </thead>
+                    <tbody id="nodesTableBody">
+                        {# Dữ liệu sẽ được render bởi JavaScript thông qua fetchAndRenderNodes #}
+                        {# Giữ lại phần render ban đầu từ server nếu có nodes truyền vào để trang không trống khi tải
+                        lần đầu #}
+                        {% if nodes %}
+                        {% for node in nodes %}
+                        <tr data-node-neo4j-id="{{ node.id }}" {# ID từ Neo4j #}
+                            data-current-screen-id="{{ node.screen_id }}" data-app-name="{{ node.app_name }}"
+                            data-node-status="{{ node.status }}"
+                            data-screenshot-filename="{{ node.screenshot_path or '' }}"
+                            data-activity-name="{{ node.activity_name or '' }}"
+                            data-pie-logical-name="{{ node.logical_pie_name or '' }}"
+                            data-width="{{ node.width or '' }}" {# Thêm width, height từ node data #}
+                            data-height="{{ node.height or '' }}">
+                            <td><input type="checkbox" class="node-checkbox" value="{{ node.screen_id }}"></td>
+                            <td>
+                                <a href="{{ url_for('admin.admin_screen_elements', screen_id=node.screen_id) }}"
+                                    target="_blank" title="Xem chi tiết elements của: {{ node.screen_id }}">
+                                    <code class="small">{{ node.screen_id | truncate(20, True) }}</code>
+                                </a>
+                            </td>
+                            <td><code class="small">{{ node.app_name }}</code></td>
+                            <td><code class="small"
+                                    title="{{ node.activity_name }}">{{ node.activity_name | default('N/A') | truncate(20, True) }}</code>
+                            </td>
+                            <td>
+                                {# CHỈ HIỂN THỊ ẢNH THUMBNAIL #}
+                                {# Gắn class manage-pie-trigger và các data-* attributes cần thiết #}
+                                {% if node.screenshot_full_url %}
+                                <img src="{{ node.screenshot_full_url }}" alt="ss_{{ node.screen_id }}"
+                                    class="node-thumbnail manage-pie-trigger">
+                                data-image-url="{{ node.screenshot_full_url }}"
+                                data-screen-id="{{ node.screen_id }}"
+                                data-elements-url="{{ url_for('admin.api_get_screen_elements_for_mapping',
+                                screen_id=node.screen_id) }}"
+                                data-original-width="{{ node.width or '' }}"
+                                data-original-height="{{ node.height or '' }}"
+                                data-app-name="{{ node.app_name or '' }}">
+                                {% else %}
+                                <span class="text-muted small manage-pie-trigger" style="cursor:pointer;">N/A (Click để
+                                    quản
+                                    lý PIE)</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if node.logical_pie_name and node.logical_pie_name not in ["PIE Def không tìm thấy",
+                                "Lỗi lấy PIE Def"] %}
+                                <span title="{{ node.logical_pie_name }}">{{ node.logical_pie_name | truncate(25, True)
+                                    }}</span>
+                                {% elif node.logical_pie_name %}
+                                <em class="text-danger small" title="{{ node.logical_pie_name }}">{{
+                                    node.logical_pie_name | truncate(25, True) }}</em>
+                                {% else %}
+                                <em class="text-muted small">Chưa có PIE</em>
+                                {% endif %}
+                            </td>
+                            <td><span
+                                    class="badge {{ 'bg-success' if node.status == 'defined' else ('bg-warning text-dark' if node.status == 'provisional_unknown' else ('bg-info text-dark' if node.status == 'merged_to_defined' else 'bg-secondary')) }}">{{
+                                    node.status | default('N/A') }}</span></td>
+                            <td>
+                                {# Dropdown phân loại node giữ nguyên như file gốc của bạn #}
+                                <select class="form-select form-select-sm node-classification-select"
+                                    data-screen-id="{{ node.screen_id }}" data-app-name="{{ node.app_name }}">
+                                    <option value="" {% if not node.node_classification %}selected{% endif %}>-- Chưa --
+                                    </option>
+                                    <option value="login_screen" {% if node.node_classification=='login_screen'
+                                        %}selected{% endif %}>Login</option>
+                                    <option value="profile_screen" {% if node.node_classification=='profile_screen'
+                                        %}selected{% endif %}>Profile</option>
+                                    <option value="feed_screen" {% if node.node_classification=='feed_screen'
+                                        %}selected{% endif %}>Feed/Home</option>
+                                    <option value="settings_screen" {% if node.node_classification=='settings_screen'
+                                        %}selected{% endif %}>Settings</option>
+                                    <option value="popup_dialog" {% if node.node_classification=='popup_dialog'
+                                        %}selected{% endif %}>Popup</option>
+                                    <option value="item_list" {% if node.node_classification=='item_list' %}selected{%
+                                        endif %}>Item List</option>
+                                    <option value="item_detail" {% if node.node_classification=='item_detail'
+                                        %}selected{% endif %}>Item Detail</option>
+                                    <option value="other" {% if node.node_classification=='other' %}selected{% endif %}>
+                                        Khác</option>
+                                </select>
+                                <span class="classification-status small ms-1"></span>
+                            </td>
+                            <td class="text-center">{{ node.actual_element_count_rel |
+                                default(node.defined_element_count | default(0)) }}</td>
+                            <td class="text-center">{{ node.incoming_transitions_count | default(0) }} / {{
+                                node.outgoing_transitions_count | default(0) }}</td>
+                            <td class="small text-nowrap">{{ node.last_seen.split('T')[0] if node.last_seen else 'N/A'
+                                }}</td>
+                            <td class="action-buttons text-nowrap">
+                                <div class="action-button-row mb-1">
+                                    <a href="{{ url_for('admin.admin_screen_elements', screen_id=node.screen_id) }}"
+                                        target="_blank" class="btn btn-xs btn-outline-info view-elements-btn me-1"
+                                        title="Xem chi tiết Elements của Node này (Trang riêng)"
+                                        data-bs-toggle="tooltip">
+                                        <i class="fas fa-search-plus"></i> Elements
+                                    </a>
+                                    <button class="btn btn-xs btn-outline-danger delete-node-btn" title="Xóa Node này"
+                                        data-bs-toggle="tooltip">
+                                        <i class="fas fa-trash-alt"></i> Xóa
+                                    </button>
+                                </div>
+                                {% if node.status == 'unknown' or node.status == 'provisional_unknown' %}
+                                <div class="action-button-row">
+                                    <button class="btn btn-xs btn-outline-success define-new-pie-metadata-trigger" {#
+                                        Class mới #} title="Định nghĩa Metadata cho PIE mới từ Node này"
+                                        data-bs-toggle="tooltip">
+                                        <i class="fas fa-plus-circle"></i> Tạo PIE Mới
+                                    </button>
+                                    {# Nút Merge có thể giữ lại nếu bạn vẫn muốn chức năng này #}
+                                    {# <button class="btn btn-xs btn-outline-primary merge-into-existing-btn"
+                                        title="Merge Node này vào một Định nghĩa PIE đã có" data-bs-toggle="tooltip">
+                                        <i class="fas fa-link"></i> Merge
+                                    </button> #}
+                                </div>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr>
+                            <td colspan="12" class="text-center text-muted fst-italic py-3">
+                                Không tìm thấy Node nào khớp với bộ lọc.
+                            </td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+            <div id="nodeManagementPagination">
+                {% if pagination %}
+                {% from "_pagination_helper.html" import render_pagination %}
+                {{ render_pagination(pagination, request.endpoint, pagination.extra_params) }}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="originalImagePreviewModal" tabindex="-1" aria-labelledby="originalImagePreviewModalLabel"
+    aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="originalImagePreviewModalLabel">Xem trước Ảnh và Elements (Gốc)</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-5">
+                        <h6>Ảnh chụp màn hình (Screen ID: <span id="originalModalScreenIdDisplay"></span>)</h6>
+                        <div id="modalScreenshotContainerOriginal">
+                            <img id="modalScreenshotImageOriginal" src="" alt="Ảnh chụp màn hình">
+                            <div id="originalModalLoadingElements" class="text-muted small" style="display:none;">Đang
+                                tải elements...</div>
+                        </div>
+                    </div>
+                    <div class="col-md-7">
+                        <h6>Elements trên màn hình này (từ Neo4j)</h6>
+                        <div id="originalModalElementsList" style="max-height: 75vh; overflow-y: auto;">
+                            <p class="text-muted small">Chọn ảnh để xem elements.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<div class="modal fade" id="managePieConditionsModal" tabindex="-1" aria-labelledby="managePieConditionsModalLabel"
+    aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-fullscreen-xl-down modal-xl"> {# modal-xl để rộng hơn, modal-fullscreen-xl-down để
+        toàn màn hình trên mobile #}
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="managePieConditionsModalLabel">Quản lý Điều kiện Nhận diện PIE</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="small">Node: <code id="managePie_currentScreenIdDisplay"></code> | App: <code
+                        id="managePie_currentAppNameDisplay"></code></p>
+                <div class="row g-3">
+                    <div class="col-lg-6">
+                        <div class="sticky-top" style="top: 10px;"> {# Giữ cố định khi cuộn nếu cần #}
+                            <h6>Ảnh Node & Elements (Click để chọn)</h6>
+                            <div id="pieConditionsImageContainer" class="mb-2">
+                                <img id="pieConditionsScreenshot" src="" alt="Node Screenshot">
+                            </div>
+                            <h6>Danh sách Elements phát hiện được:</h6>
+                            <div id="pieConditionsElementTextList" class="list-group">
+                                <p class="text-muted small p-2">Đang tải elements...</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-lg-6">
+                        <h6>Điều kiện Nhận diện PIE Đã Chọn (Tạo/Sửa)</h6>
+                        <div id="pieConditionsSelectedConditionsList" class="border p-2 rounded bg-light"
+                            style="min-height: 200px;">
+                            <p class="text-muted small p-2 initial-prompt">Click vào element trên ảnh hoặc trong danh
+                                sách bên trái để thêm vào điều kiện nhận diện.</p>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary mt-2"
+                            id="pieConditions_addManualConditionBtn" title="Thêm một điều kiện thủ công">
+                            <i class="fas fa-plus"></i> Thêm điều kiện thủ công
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <span id="managePieConditions_errorMessages" class="text-danger me-auto small"></span>
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                {# Nút này sẽ thay đổi text và hành động dựa vào context (define new / update existing) #}
+                <button type="button" class="btn btn-sm btn-primary" id="managePieConditions_mainActionBtn">Lưu
+                    Conditions</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<div class="modal fade" id="defineNewPieMetadataModal" tabindex="-1" aria-labelledby="defineNewPieMetadataModalLabel"
+    aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form id="defineNewPieMetadataForm">
+                <input type="hidden" id="metadata_unknownNodeNeo4jId" name="unknown_node_neo4j_id">
+                <input type="hidden" id="metadata_currentUnknownScreenId" name="current_unknown_screen_id">
+                <input type="hidden" id="metadata_selectedConditionsJson" name="selected_conditions_json">
+
+                <div class="modal-header">
+                    <h5 class="modal-title" id="defineNewPieMetadataModalLabel">Hoàn tất Định nghĩa PIE Mới</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small">Định nghĩa PIE mới cho Node <code
+                            id="metadata_currentUnknownScreenIdDisplay"></code>.</p>
+                    <div class="mb-3">
+                        <label for="metadata_appName" class="form-label">App Name</label>
+                        <input type="text" class="form-control form-control-sm" id="metadata_appName" name="app_name"
+                            readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label for="metadata_activityName" class="form-label">Activity Name (Nếu có)</label>
+                        <input type="text" class="form-control form-control-sm" id="metadata_activityName"
+                            name="activity_name" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label for="metadata_logicalName" class="form-label">Tên Logic Màn hình <span
+                                class="text-danger">*</span></label>
+                        <input type="text" class="form-control form-control-sm" id="metadata_logicalName"
+                            name="logical_name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="metadata_newDefinedScreenId" class="form-label">Defined Screen ID Mới <span
+                                class="text-danger">*</span></label>
+                        <input type="text" class="form-control form-control-sm" id="metadata_newDefinedScreenId"
+                            name="new_defined_screen_id" required placeholder="Ví dụ: login_screen, user_profile_v2">
+                        <div class="form-text">ID này phải là duy nhất trong phạm vi App.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="metadata_description" class="form-label">Mô tả PIE (Tùy chọn)</label>
+                        <textarea class="form-control form-control-sm" id="metadata_description" name="description"
+                            rows="2"></textarea>
+                    </div>
+                    <div class="alert alert-info small">
+                        <strong>Điều kiện nhận diện đã chọn:</strong> <span
+                            id="metadata_conditionsCountDisplay">0</span>.
+                        <br>Các điều kiện này đã được chọn ở bước trước và sẽ được lưu cùng với PIE mới.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <span id="defineMetadata_errorMessages" class="text-danger me-auto small"></span>
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Hủy</button>
+                    <button type="submit" class="btn btn-sm btn-success" id="saveNewPieDefinitionBtn">Lưu Định nghĩa
+                        PIE</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{# Giữ lại modal #definePieForUnknownNodeModal gốc nếu bạn vẫn muốn tham khảo hoặc dùng cho chức năng merge cũ #}
+{# Nếu không, có thể xóa nó đi #}
+<div class="modal fade" id="definePieForUnknownNodeModal_OLD" tabindex="-1" aria-labelledby="definePieModalLabelOld"
+    aria-hidden="true">
+</div>
+
+{# Modal merge (giữ lại nếu vẫn dùng, hoặc sẽ tích hợp/thay thế sau) #}
+<div class="modal fade" id="mergeToPieModal" tabindex="-1" aria-labelledby="mergeToPieModalLabel" aria-hidden="true">
+    {# Nội dung modal merge hiện tại của bạn #}
+</div>
+
+
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+    // Biến global cho URL API (giữ lại và cập nhật nếu cần)
+    const API_MANAGED_NODES_URL = "{{ url_for('admin.api_get_managed_nodes') }}";
+    const API_SCREEN_ELEMENTS_BASE_URL = "{{ url_for('admin.api_get_screen_elements_for_mapping', screen_id='SCREEN_ID_PLACEHOLDER') }}";
+    const API_CLASSIFY_NODE_BASE_URL = "{{ url_for('admin.api_classify_managed_node', screen_id='SCREEN_ID_PLACEHOLDER') }}"; // Giữ lại nếu vẫn dùng phân loại nhanh
+    const API_DELETE_NODE_BASE_URL = "{{ url_for('admin.api_delete_managed_node', screen_id='SCREEN_ID_PLACEHOLDER') }}";
+
+    // APIs mới cho PIE Conditions và Definitions
+    const API_GET_PIE_CONDITIONS_URL = "{{ url_for('admin.api_get_pie_definition_conditions') }}"; // Query params: defined_screen_id, app_name
+    const API_UPDATE_PIE_CONDITIONS_BASE_URL = "{{ url_for('admin.edit_rule', rule_id=0)[:-2] }}api/pie_definition"; // Hack để lấy base /admin/api/pie_definition
+    // Kết quả sẽ là /admin/api/pie_definition/<defined_pie_id>/update_conditions (JS sẽ nối phần sau)
+
+    const API_DEFINE_NEW_PIE_WITH_CONDITIONS_URL = "{{ url_for('admin.api_define_new_pie_and_update_node') }}";
+
+    const SCREENSHOTS_SUBDIR_URL = "{{ url_for('static', filename=config.SCREENSHOTS_SUBDIR_IN_STATIC if config.SCREENSHOTS_SUBDIR_IN_STATIC else 'screenshots') }}/";
+    const ADMIN_SCREEN_ELEMENTS_URL_BASE = "{{ url_for('admin.admin_screen_elements', screen_id='SCREEN_ID_PLACEHOLDER') }}";
+
+    const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '{{ csrf_token() if csrf_token else "" }}';
+
+    // Mảng chứa các loại thuộc tính element và loại so sánh (có thể mở rộng)
+    const ELEMENT_ATTRIBUTES_FOR_PIE = [
+        { value: "text", label: "Nội dung Text" },
+        { value: "resource_id", label: "Resource ID" },
+        { value: "description", label: "Content Desc." }, // content-description
+        { value: "class_name", label: "Class Name" },
+        { value: "xpath", label: "XPath" } // Nâng cao
+    ];
+    const COMPARISON_TYPES_FOR_PIE = [
+        { value: "EQUALS", label: "Bằng với (Equals)" },
+        { value: "CONTAINS", label: "Chứa (Contains)" },
+        { value: "STARTS_WITH", label: "Bắt đầu với (Starts With)" },
+        { value: "ENDS_WITH", label: "Kết thúc với (Ends With)" },
+        { value: "REGEX", label: "Khớp Regex" },
+        { value: "EXISTS", label: "Tồn tại (Exists)" }, // Value không cần thiết
+        { value: "NOT_EXISTS", label: "Không tồn tại (Not Exists)" } // Value không cần thiết
+    ];
+    const DEFAULT_SIZES_FOR_OVERLAY = { // Giữ lại từ code gốc của bạn nếu cần fallback
+        'android.widget.Button': { width: 100, height: 40 },
+        'default': { width: 60, height: 30 }
+    };
+
+
+    // DOM Ready
+    document.addEventListener('DOMContentLoaded', function () {
+        const nodesTableBody = document.getElementById('nodesTableBody');
+        const filterForm = document.getElementById('nodeFilterForm');
+        const appNameFilterSelect = document.getElementById('app_name_filter_select_node');
+        const statusFilterSelect = document.getElementById('filter_status_select');
+        const paginationContainer = document.getElementById('nodeManagementPagination');
+
+        // --- Modal: #managePieConditionsModal ---
+        const managePieModalEl = document.getElementById('managePieConditionsModal');
+        const managePieModalInstance = managePieModalEl ? new bootstrap.Modal(managePieModalEl) : null;
+        const managePie_currentScreenIdDisplay = document.getElementById('managePie_currentScreenIdDisplay');
+        const managePie_currentAppNameDisplay = document.getElementById('managePie_currentAppNameDisplay');
+        const managePie_modalLabel = document.getElementById('managePieConditionsModalLabel');
+
+        const pieCondImageContainer = document.getElementById('pieConditionsImageContainer');
+        const pieCondScreenshot = document.getElementById('pieConditionsScreenshot');
+        const pieCondElementTextList = document.getElementById('pieConditionsElementTextList');
+        const pieCondSelectedConditionsList = document.getElementById('pieConditionsSelectedConditionsList');
+        const pieCond_addManualConditionBtn = document.getElementById('pieConditions_addManualConditionBtn');
+        const managePie_mainActionBtn = document.getElementById('managePieConditions_mainActionBtn');
+        const managePie_errorMessages = document.getElementById('managePieConditions_errorMessages');
+
+        let currentManagingNodeData = {}; // Lưu trữ thông tin node đang được quản lý PIE conditions
+        let currentSelectedPieConditions = []; // Mảng JS lưu các conditions đang được xây dựng/sửa
+
+
+        // --- Modal: #defineNewPieMetadataModal ---
+        const defineMetadataModalEl = document.getElementById('defineNewPieMetadataModal');
+        const defineMetadataModalInstance = defineMetadataModalEl ? new bootstrap.Modal(defineMetadataModalEl) : null;
+        const defineMetadataForm = document.getElementById('defineNewPieMetadataForm');
+        // Inputs trong form metadata
+        const metadata_unknownNodeNeo4jIdInput = document.getElementById('metadata_unknownNodeNeo4jId');
+        const metadata_currentUnknownScreenIdInput = document.getElementById('metadata_currentUnknownScreenId');
+        const metadata_selectedConditionsJsonInput = document.getElementById('metadata_selectedConditionsJson');
+        const metadata_currentUnknownScreenIdDisplay = document.getElementById('metadata_currentUnknownScreenIdDisplay');
+        const metadata_appNameInput = document.getElementById('metadata_appName');
+        const metadata_activityNameInput = document.getElementById('metadata_activityName');
+        const metadata_logicalNameInput = document.getElementById('metadata_logicalName');
+        const metadata_newDefinedScreenIdInput = document.getElementById('metadata_newDefinedScreenId');
+        const metadata_descriptionInput = document.getElementById('metadata_description');
+        const metadata_conditionsCountDisplay = document.getElementById('metadata_conditionsCountDisplay');
+        const defineMetadata_errorMessages = document.getElementById('defineMetadata_errorMessages');
+        const saveNewPieDefinitionBtn = document.getElementById('saveNewPieDefinitionBtn');
+
+
+        // Hàm vẽ overlay (sửa đổi từ hàm drawOverlaysOnModal gốc của bạn)
+        function drawInteractiveOverlays(imgElement, elementsData, nodeOriginalWidth, nodeOriginalHeight, containerElement) {
+            if (!containerElement) { console.error("drawInteractiveOverlays: containerElement is null!"); return; }
+            containerElement.querySelectorAll('.element-overlay-interactive').forEach(ov => ov.remove()); // Chỉ xóa overlay của modal này
+
+            const displayedImgWidth = imgElement.clientWidth;
+            const displayedImgHeight = imgElement.clientHeight;
+
+            if (!nodeOriginalWidth || !nodeOriginalHeight || nodeOriginalWidth <= 0 || nodeOriginalHeight <= 0 || displayedImgWidth === 0 || displayedImgHeight === 0) {
+                console.warn(`Kích thước không hợp lệ để vẽ overlay. Gốc: ${nodeOriginalWidth}x${nodeOriginalHeight}, Hiển thị: ${displayedImgWidth}x${displayedImgHeight}`);
+                // Có thể hiển thị thông báo lỗi trong containerElement
+                return;
+            }
+
+            const scaleX = displayedImgWidth / nodeOriginalWidth;
+            const scaleY = displayedImgHeight / nodeOriginalHeight;
+
+            if (!elementsData || !elementsData.length) {
+                // console.log("Không có element data để vẽ overlays.");
+                return;
+            }
+
+            elementsData.forEach((elData, index) => {
+                if (!elData || (!elData.element_id && !elData.bounds && !elData.resource_id && !elData.text_content)) return; // Cần có thông tin để định vị hoặc click
+
+                let el_orig_left, el_orig_top, el_orig_width, el_orig_height;
+                const bounds = elData.bounds;
+
+                if (bounds && typeof bounds === 'object' && bounds.left !== undefined && bounds.top !== undefined && bounds.right !== undefined && bounds.bottom !== undefined) {
+                    try {
+                        el_orig_left = parseInt(bounds.left, 10); el_orig_top = parseInt(bounds.top, 10);
+                        const el_orig_right = parseInt(bounds.right, 10); const el_orig_bottom = parseInt(bounds.bottom, 10);
+                        if (isNaN(el_orig_left) || isNaN(el_orig_top) || isNaN(el_orig_right) || isNaN(el_orig_bottom)) throw new Error("NaN in bounds");
+                        el_orig_width = el_orig_right - el_orig_left; el_orig_height = el_orig_bottom - el_orig_top;
+                        if (el_orig_width <= 0 || el_orig_height <= 0) { el_orig_width = undefined; } // Mark as invalid if non-positive
+                    } catch (e) { el_orig_width = undefined; }
+                }
+
+                // Fallback nếu không có bounds hợp lệ (ví dụ dùng coordinates và default size)
+                if (el_orig_width === undefined) {
+                    let coord_x_val = elData.coordinate_x; let coord_y_val = elData.coordinate_y;
+                    if (elData.coordinates && typeof elData.coordinates === 'object') { //Ưu tiên 'coordinates' object
+                        coord_x_val = elData.coordinates.x; coord_y_val = elData.coordinates.y;
+                    }
+                    if (coord_x_val !== undefined && coord_y_val !== undefined) {
+                        try {
+                            const coord_x = parseInt(coord_x_val, 10); const coord_y = parseInt(coord_y_val, 10);
+                            if (isNaN(coord_x) || isNaN(coord_y)) throw new Error("NaN in coordinates");
+                            const defaultSize = DEFAULT_SIZES_FOR_OVERLAY[elData.class_name || 'default'] || DEFAULT_SIZES_FOR_OVERLAY['default'];
+                            el_orig_width = defaultSize.width; el_orig_height = defaultSize.height;
+                            // Giả định coordinates là tâm điểm
+                            el_orig_left = coord_x - (el_orig_width / 2); el_orig_top = coord_y - (el_orig_height / 2);
+                        } catch (e) { console.warn("Lỗi fallback tính bounds:", elData, e); return; }
+                    } else { return; /* Bỏ qua nếu không thể xác định vị trí */ }
+                }
+
+                const x_on_image = el_orig_left * scaleX;
+                const y_on_image = el_orig_top * scaleY;
+                let width_on_image = el_orig_width * scaleX;
+                let height_on_image = el_orig_height * scaleY;
+
+                width_on_image = Math.max(width_on_image, 5); // Kích thước tối thiểu để click
+                height_on_image = Math.max(height_on_image, 5);
+
+                const overlay = document.createElement('div');
+                overlay.className = 'element-overlay-interactive';
+                overlay.dataset.elementIndex = index; // Lưu index để lấy lại data gốc
+                overlay.title = `Click để chọn/bỏ chọn Element này\nID: ${elData.resource_id || elData.element_id || 'N/A'}\nText: ${elData.text_content || '--'}\nClass: ${elData.class_name || 'N/A'}`;
+                overlay.style.left = `${x_on_image.toFixed(1)}px`;
+                overlay.style.top = `${y_on_image.toFixed(1)}px`;
+                overlay.style.width = `${width_on_image.toFixed(1)}px`;
+                overlay.style.height = `${height_on_image.toFixed(1)}px`;
+
+                // Kiểm tra xem element này có trong currentSelectedPieConditions không
+                const isSelected = currentSelectedPieConditions.some(cond =>
+                    (cond.element_resource_id === elData.resource_id && elData.resource_id) ||
+                    (cond.element_text === elData.text_content && elData.text_content && cond.attribute === 'text') // Cần chính xác hơn
+                );
+                if (isSelected) {
+                    overlay.classList.add('selected-for-pie');
+                }
+
+                overlay.addEventListener('click', function () {
+                    handleElementSelectionFromVisualizer(elData, this);
+                });
+                containerElement.appendChild(overlay);
+            });
+        }
+
+        // Hàm render danh sách text elements (Phần 2 của #managePieConditionsModal)
+        function renderElementTextList(elementsData) {
+            if (!pieCondElementTextList) return;
+            pieCondElementTextList.innerHTML = ''; // Clear
+            if (!elementsData || elementsData.length === 0) {
+                pieCondElementTextList.innerHTML = '<p class="text-muted small p-2">Không có elements nào được phát hiện trên ảnh này.</p>';
+                return;
+            }
+
+            elementsData.forEach((elData, index) => {
+                const listItem = document.createElement('a'); // Dùng <a> để dễ style như list-group-item-action
+                listItem.href = "#";
+                listItem.className = 'list-group-item list-group-item-action';
+                listItem.dataset.elementIndex = index;
+
+                let displayText = `<strong>${elData.resource_id ? 'ID: ' + elData.resource_id : (elData.element_id || 'Element')}</strong>`;
+                if (elData.text_content) {
+                    displayText += `<br><small class="text-muted">Text: ${elData.text_content.substring(0, 50)}${elData.text_content.length > 50 ? '...' : ''}</small>`;
+                }
+                if (elData.class_name) {
+                    displayText += `<br><small class="text-muted">Class: ${elData.class_name.replace('android.widget.', '')}</small>`;
+                }
+                listItem.innerHTML = displayText;
+
+                // Kiểm tra selected
+                const isSelected = currentSelectedPieConditions.some(cond =>
+                    (cond.element_resource_id === elData.resource_id && elData.resource_id) ||
+                    (cond.element_text === elData.text_content && elData.text_content && cond.attribute === 'text')
+                );
+                if (isSelected) {
+                    listItem.classList.add('selected-for-pie');
+                }
+
+                listItem.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    handleElementSelectionFromVisualizer(elData, this);
+                });
+                pieCondElementTextList.appendChild(listItem);
+            });
+        }
+
+        // Hàm render danh sách conditions đã chọn (Phần 3 của #managePieConditionsModal)
+        function renderSelectedPieConditions() {
+            if (!pieCondSelectedConditionsList) return;
+            pieCondSelectedConditionsList.innerHTML = ''; // Clear
+
+            if (currentSelectedPieConditions.length === 0) {
+                pieCondSelectedConditionsList.innerHTML = '<p class="text-muted small p-2 initial-prompt">Chưa có điều kiện nào được chọn. Click vào element trên ảnh hoặc trong danh sách bên trái để thêm.</p>';
+                return;
+            }
+
+            currentSelectedPieConditions.forEach((condition, index) => {
+                const conditionDiv = document.createElement('div');
+                conditionDiv.className = 'mb-2 p-2 border rounded bg-white shadow-sm condition-item-row';
+                // Lưu index để xóa
+                conditionDiv.dataset.conditionIndex = index;
+
+                let attributeOptionsHtml = ELEMENT_ATTRIBUTES_FOR_PIE.map(attr =>
+                    `<option value="${attr.value}" ${condition.attribute === attr.value ? 'selected' : ''}>${attr.label}</option>`
+                ).join('');
+
+                let comparisonOptionsHtml = COMPARISON_TYPES_FOR_PIE.map(comp =>
+                    `<option value="${comp.value}" ${condition.comparison === comp.value ? 'selected' : ''}>${comp.label}</option>`
+                ).join('');
+
+                conditionDiv.innerHTML = `
+                    <div class="row gx-2 gy-1 align-items-center">
+                        <div class="col-md-4">
+                            <label class="form-label form-label-sm visually-hidden">Thuộc tính</label>
+                            <select class="form-select form-select-sm condition-attribute" data-index="${index}">
+                                ${attributeOptionsHtml}
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label form-label-sm visually-hidden">So sánh</label>
+                            <select class="form-select form-select-sm condition-comparison" data-index="${index}">
+                                ${comparisonOptionsHtml}
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label form-label-sm visually-hidden">Giá trị</label>
+                            <input type="text" class="form-control form-control-sm condition-value" data-index="${index}" 
+                                   value="${condition.value || ''}" 
+                                   placeholder="Giá trị" 
+                                   ${condition.comparison === 'EXISTS' || condition.comparison === 'NOT_EXISTS' ? 'disabled' : ''}>
+                        </div>
+                        <div class="col-md-1 text-end">
+                            <button type="button" class="btn btn-sm btn-outline-danger remove-condition-btn" data-index="${index}" title="Xóa điều kiện này">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                    ${condition.element_resource_id ? `<div class="text-muted xsmall mt-1">Từ Element ID: ${condition.element_resource_id}</div>` : ''}
+                    ${condition.element_text && condition.attribute === 'text' ? `<div class="text-muted xsmall mt-1">Từ Element Text: "${condition.element_text}"</div>` : ''}
+                `;
+                pieCondSelectedConditionsList.appendChild(conditionDiv);
+            });
+
+            // Gắn event listeners cho các select/input/button vừa tạo trong Phần 3
+            attachListenersToSelectedConditions();
+            updateVisualizerSelections(); // Cập nhật lại highlight trên visualizer
+        }
+
+        function attachListenersToSelectedConditions() {
+            document.querySelectorAll('#pieConditionsSelectedConditionsList .condition-attribute').forEach(select => {
+                select.addEventListener('change', function () {
+                    const index = parseInt(this.dataset.index);
+                    currentSelectedPieConditions[index].attribute = this.value;
+                    // Có thể cần logic ẩn/hiện input value dựa trên attribute mới
+                });
+            });
+            document.querySelectorAll('#pieConditionsSelectedConditionsList .condition-comparison').forEach(select => {
+                select.addEventListener('change', function () {
+                    const index = parseInt(this.dataset.index);
+                    currentSelectedPieConditions[index].comparison = this.value;
+                    const valueInput = this.closest('.condition-item-row').querySelector('.condition-value');
+                    if (this.value === 'EXISTS' || this.value === 'NOT_EXISTS') {
+                        valueInput.disabled = true;
+                        valueInput.value = ''; // Xóa giá trị cũ
+                        currentSelectedPieConditions[index].value = ''; // Cập nhật trong data
+                    } else {
+                        valueInput.disabled = false;
+                    }
+                });
+            });
+            document.querySelectorAll('#pieConditionsSelectedConditionsList .condition-value').forEach(input => {
+                input.addEventListener('input', function () { // Dùng input để bắt thay đổi ngay
+                    const index = parseInt(this.dataset.index);
+                    currentSelectedPieConditions[index].value = this.value.trim();
+                });
+            });
+            document.querySelectorAll('#pieConditionsSelectedConditionsList .remove-condition-btn').forEach(button => {
+                button.addEventListener('click', function () {
+                    const index = parseInt(this.dataset.index);
+                    currentSelectedPieConditions.splice(index, 1); // Xóa khỏi mảng
+                    renderSelectedPieConditions(); // Vẽ lại Phần 3
+                });
+            });
+        }
+
+        // Hàm xử lý khi một element được chọn từ Phần 1 (ảnh) hoặc Phần 2 (list text)
+        function handleElementSelectionFromVisualizer(elementData, clickedDomElement) {
+            if (!elementData) return;
+            // console.log("Element selected from visualizer:", elementData);
+
+            // Kiểm tra xem element này đã có trong currentSelectedPieConditions chưa (dựa trên resource_id hoặc text)
+            const existingConditionIndex = currentSelectedPieConditions.findIndex(cond =>
+                (cond.element_resource_id && cond.element_resource_id === elementData.resource_id) ||
+                (cond.attribute === 'text' && cond.element_text && cond.element_text === elementData.text_content && cond.element_class_name === elementData.class_name)
+            );
+
+            if (existingConditionIndex > -1) { // Nếu đã tồn tại -> bỏ chọn (xóa khỏi conditions)
+                currentSelectedPieConditions.splice(existingConditionIndex, 1);
+                if (clickedDomElement) clickedDomElement.classList.remove('selected-for-pie'); // Bỏ class selected trên visualizer
+            } else { // Nếu chưa tồn tại -> thêm mới
+                let newCondition = {
+                    // Lưu trữ thông tin gốc của element để tham khảo, không nhất thiết phải dùng hết
+                    element_resource_id: elementData.resource_id || null,
+                    element_text: elementData.text_content || null,
+                    element_class_name: elementData.class_name || null,
+                    // Các trường PIE chính
+                    attribute: '',
+                    comparison: 'EQUALS',
+                    value: ''
+                };
+
+                // Ưu tiên dùng resource_id nếu có
+                if (elementData.resource_id) {
+                    newCondition.attribute = 'resource_id';
+                    newCondition.value = elementData.resource_id;
+                } else if (elementData.text_content) { // Sau đó đến text
+                    newCondition.attribute = 'text';
+                    newCondition.value = elementData.text_content;
+                } else if (elementData.class_name) { // Cuối cùng là class_name
+                    newCondition.attribute = 'class_name';
+                    newCondition.value = elementData.class_name;
+                } else {
+                    // Không có thuộc tính nào phù hợp để tự động tạo condition
+                    alert("Element này không có Resource ID, Text hoặc Class Name đủ để tạo điều kiện tự động. Vui lòng thêm điều kiện thủ công nếu cần.");
+                    return;
+                }
+                currentSelectedPieConditions.push(newCondition);
+                if (clickedDomElement) clickedDomElement.classList.add('selected-for-pie'); // Thêm class selected trên visualizer
+            }
+            renderSelectedPieConditions(); // Vẽ lại Phần 3
+        }
+
+        // Cập nhật highlight trên visualizer (Phần 1 & 2) dựa trên currentSelectedPieConditions
+        function updateVisualizerSelections() {
+            const allVisualElements = document.querySelectorAll('#pieConditionsImageContainer .element-overlay-interactive, #pieConditionsElementTextList .list-group-item');
+            allVisualElements.forEach(visEl => {
+                const elIndex = parseInt(visEl.dataset.elementIndex);
+                if (isNaN(elIndex) || !currentManagingNodeData.rawElements || !currentManagingNodeData.rawElements[elIndex]) {
+                    visEl.classList.remove('selected-for-pie');
+                    return;
+                }
+                const rawElData = currentManagingNodeData.rawElements[elIndex];
+                const isSelected = currentSelectedPieConditions.some(cond =>
+                    (cond.element_resource_id && cond.element_resource_id === rawElData.resource_id) ||
+                    (cond.attribute === 'text' && cond.element_text && cond.element_text === rawElData.text_content && cond.element_class_name === rawElData.class_name)
+                );
+                if (isSelected) {
+                    visEl.classList.add('selected-for-pie');
+                } else {
+                    visEl.classList.remove('selected-for-pie');
+                }
+            });
+        }
+
+
+        // Hàm mở modal #managePieConditionsModal
+        async function openManagePieConditionsModal(nodeData) {
+            if (!managePieModalInstance) { console.error("Modal #managePieConditionsModal chưa được khởi tạo."); return; }
+
+            currentManagingNodeData = nodeData; // Lưu thông tin node đang xử lý
+            currentSelectedPieConditions = []; // Reset danh sách conditions hiện tại
+            if (managePie_errorMessages) managePie_errorMessages.textContent = '';
+
+
+            // Cập nhật tiêu đề và thông tin cơ bản của modal
+            if (managePie_currentScreenIdDisplay) managePie_currentScreenIdDisplay.textContent = nodeData.currentScreenId;
+            if (managePie_currentAppNameDisplay) managePie_currentAppNameDisplay.textContent = nodeData.appName;
+
+            // Reset Phần 1, 2, 3
+            if (pieCondScreenshot) pieCondScreenshot.src = '';
+            if (pieCondImageContainer) pieCondImageContainer.querySelectorAll('.element-overlay-interactive').forEach(ov => ov.remove());
+            if (pieCondElementTextList) pieCondElementTextList.innerHTML = '<p class="text-muted small p-2">Đang tải...</p>';
+            if (pieCondSelectedConditionsList) pieCondSelectedConditionsList.innerHTML = '<p class="text-muted small p-2 initial-prompt">...</p>';
+
+            // Tải ảnh
+            if (nodeData.screenshotFilename && pieCondScreenshot) {
+                // Tạo URL đầy đủ cho ảnh từ SCREENSHOTS_SUBDIR_URL và tên file
+                pieCondScreenshot.src = `${SCREENSHOTS_SUBDIR_URL}${nodeData.appName}/${nodeData.screenshotFilename}`;
+                pieCondScreenshot.onload = async () => { // Đợi ảnh tải xong để có clientWidth/Height
+                    // Tải elements từ API
+                    try {
+                        const elementsUrl = API_SCREEN_ELEMENTS_BASE_URL.replace('SCREEN_ID_PLACEHOLDER', encodeURIComponent(nodeData.currentScreenId));
+                        const elementsResponse = await fetch(elementsUrl);
+                        if (!elementsResponse.ok) throw new Error(`Lỗi HTTP ${elementsResponse.status} khi lấy elements.`);
+                        const elementsJson = await elementsResponse.json();
+
+                        if (elementsJson.success && elementsJson.elements) {
+                            currentManagingNodeData.rawElements = elementsJson.elements; // Lưu raw elements data
+                            drawInteractiveOverlays(pieCondScreenshot, elementsJson.elements, nodeData.width, nodeData.height, pieCondImageContainer);
+                            renderElementTextList(elementsJson.elements);
+                        } else {
+                            throw new Error(elementsJson.error || "Không lấy được elements.");
+                        }
+                    } catch (error) {
+                        console.error("Lỗi tải elements cho modal:", error);
+                        if (pieCondElementTextList) pieCondElementTextList.innerHTML = `<p class="text-danger small p-2">Lỗi tải elements: ${error.message}</p>`;
+                    }
+                };
+                pieCondScreenshot.onerror = () => {
+                    console.error("Lỗi tải ảnh cho modal:", pieCondScreenshot.src);
+                    if (pieCondImageContainer) pieCondImageContainer.innerHTML = `<p class="text-danger p-2">Lỗi tải ảnh: ${nodeData.screenshotFilename}</p>`;
+                }
+            } else {
+                if (pieCondImageContainer) pieCondImageContainer.innerHTML = '<p class="text-muted p-2">Node không có ảnh chụp màn hình.</p>';
+                if (pieCondElementTextList) pieCondElementTextList.innerHTML = '<p class="text-muted small p-2">Không có ảnh, không thể hiển thị elements.</p>';
+            }
+
+
+            // Xử lý nút và tiêu đề dựa trên status của Node
+            if (nodeData.nodeStatus === 'defined') {
+                if (managePie_modalLabel) managePie_modalLabel.textContent = `Sửa Điều kiện PIE cho: ${nodeData.pieLogicalName || nodeData.currentScreenId}`;
+                if (managePie_mainActionBtn) {
+                    managePie_mainActionBtn.textContent = 'Lưu Conditions PIE';
+                    managePie_mainActionBtn.className = 'btn btn-sm btn-primary'; // Reset class
+                }
+                // Tải conditions hiện tại của PIE này
+                try {
+                    const conditionsUrl = `${API_GET_PIE_CONDITIONS_URL}?app_name=${encodeURIComponent(nodeData.appName)}&defined_screen_id=${encodeURIComponent(nodeData.currentScreenId)}`;
+                    const conditionsResponse = await fetch(conditionsUrl);
+                    if (!conditionsResponse.ok) throw new Error(`Lỗi HTTP ${conditionsResponse.status} khi lấy conditions.`);
+                    const conditionsJson = await conditionsResponse.json();
+
+                    if (conditionsJson.success && conditionsJson.conditions) {
+                        currentSelectedPieConditions = conditionsJson.conditions.map(c => ({ ...c })); // Clone để tránh mutate
+                    } else {
+                        currentSelectedPieConditions = []; // Nếu không có hoặc lỗi thì là list rỗng
+                        console.warn("Không tải được conditions hiện tại:", conditionsJson.message);
+                    }
+                } catch (error) {
+                    console.error("Lỗi tải conditions hiện tại:", error);
+                    currentSelectedPieConditions = [];
+                    if (managePie_errorMessages) managePie_errorMessages.textContent = 'Lỗi tải conditions hiện tại. Bạn có thể tạo mới.';
+                }
+            } else { // nodeStatus === 'unknown' (hoặc provisional_unknown)
+                if (managePie_modalLabel) managePie_modalLabel.textContent = `Chọn Điều kiện cho PIE Mới (Node: ${nodeData.currentScreenId})`;
+                if (managePie_mainActionBtn) {
+                    managePie_mainActionBtn.textContent = 'Tiếp tục Định nghĩa PIE';
+                    managePie_mainActionBtn.className = 'btn btn-sm btn-success'; // Đổi màu nút
+                }
+                currentSelectedPieConditions = []; // Bắt đầu với danh sách rỗng
+            }
+
+            renderSelectedPieConditions(); // Render Phần 3
+            managePieModalInstance.show();
+        }
+
+        // Nút "Thêm điều kiện thủ công" trong #managePieConditionsModal
+        if (pieCond_addManualConditionBtn) {
+            pieCond_addManualConditionBtn.addEventListener('click', function () {
+                currentSelectedPieConditions.push({ attribute: 'text', comparison: 'EQUALS', value: '' }); // Thêm condition rỗng
+                renderSelectedPieConditions();
+            });
+        }
+
+        // Xử lý nút hành động chính của modal #managePieConditionsModal
+        if (managePie_mainActionBtn) {
+            managePie_mainActionBtn.addEventListener('click', async function () {
+                this.disabled = true;
+                this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Đang xử lý...';
+                if (managePie_errorMessages) managePie_errorMessages.textContent = '';
+
+                if (currentManagingNodeData.nodeStatus === 'defined') {
+                    // Gọi API Update Conditions
+                    const definedPieIdToUpdate = currentManagingNodeData.currentScreenId;
+                    // API_UPDATE_PIE_CONDITIONS_BASE_URL là /admin/api/pie_definition
+                    const updateUrl = `${API_UPDATE_PIE_CONDITIONS_BASE_URL}/${encodeURIComponent(definedPieIdToUpdate)}/update_conditions`;
+
+                    try {
+                        const response = await fetch(updateUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+                            body: JSON.stringify({
+                                app_name: currentManagingNodeData.appName,
+                                new_conditions_list: currentSelectedPieConditions
+                            })
+                        });
+                        const result = await response.json();
+                        if (!response.ok) throw new Error(result.message || `Lỗi HTTP ${response.status}`);
+
+                        if (result.success) {
+                            alert("Cập nhật điều kiện PIE thành công!");
+                            managePieModalInstance.hide();
+                            fetchAndRenderNodes(); // Tải lại bảng
+                        } else {
+                            throw new Error(result.message || "Cập nhật thất bại từ server.");
+                        }
+                    } catch (error) {
+                        console.error("Lỗi khi update PIE conditions:", error);
+                        if (managePie_errorMessages) managePie_errorMessages.textContent = error.message;
+                    }
+
+                } else { // Node 'unknown' -> mở modal metadata
+                    if (currentSelectedPieConditions.length === 0) {
+                        if (managePie_errorMessages) managePie_errorMessages.textContent = 'Vui lòng chọn ít nhất một điều kiện nhận diện.';
+                        this.disabled = false; this.textContent = 'Tiếp tục Định nghĩa PIE';
+                        return;
+                    }
+                    managePieModalInstance.hide();
+                    openDefineNewPieMetadataModal(currentManagingNodeData, currentSelectedPieConditions);
+                }
+                // Reset button state (sau khi try-catch hoặc trong finally nếu có)
+                // Đã được xử lý ở trên cho trường hợp unknown, cần thêm cho defined
+                if (currentManagingNodeData.nodeStatus === 'defined') {
+                    this.disabled = false; this.textContent = 'Lưu Conditions PIE';
+                }
+            });
+        }
+
+        // Hàm mở modal #defineNewPieMetadataModal
+        function openDefineNewPieMetadataModal(nodeDataSource, conditionsToSave) {
+            if (!defineMetadataModalInstance) { console.error("Modal #defineNewPieMetadataModal chưa được khởi tạo."); return; }
+            if (defineMetadata_errorMessages) defineMetadata_errorMessages.textContent = '';
+
+            // Điền thông tin vào form
+            if (metadata_unknownNodeNeo4jIdInput) metadata_unknownNodeNeo4jIdInput.value = nodeDataSource.nodeNeo4jId;
+            if (metadata_currentUnknownScreenIdInput) metadata_currentUnknownScreenIdInput.value = nodeDataSource.currentScreenId;
+            if (metadata_currentUnknownScreenIdDisplay) metadata_currentUnknownScreenIdDisplay.textContent = nodeDataSource.currentScreenId;
+
+            if (metadata_appNameInput) metadata_appNameInput.value = nodeDataSource.appName;
+            if (metadata_activityNameInput) metadata_activityNameInput.value = nodeDataSource.activityName || '';
+
+            if (metadata_logicalNameInput) metadata_logicalNameInput.value = ''; // Reset
+            if (metadata_newDefinedScreenIdInput) metadata_newDefinedScreenIdInput.value = ''; // Reset
+            if (metadata_descriptionInput) metadata_descriptionInput.value = ''; // Reset
+
+            if (metadata_selectedConditionsJsonInput) metadata_selectedConditionsJsonInput.value = JSON.stringify(conditionsToSave);
+            if (metadata_conditionsCountDisplay) metadata_conditionsCountDisplay.textContent = conditionsToSave.length;
+
+            defineMetadataModalInstance.show();
+        }
+
+        // Xử lý submit form #defineNewPieMetadataForm
+        if (defineMetadataForm) {
+            defineMetadataForm.addEventListener('submit', async function (event) {
+                event.preventDefault();
+                if (defineMetadata_errorMessages) defineMetadata_errorMessages.textContent = '';
+                if (saveNewPieDefinitionBtn) {
+                    saveNewPieDefinitionBtn.disabled = true;
+                    saveNewPieDefinitionBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Đang lưu...';
+                }
+
+                const payload = {
+                    unknown_node_neo4j_id: metadata_unknownNodeNeo4jIdInput.value,
+                    current_unknown_screen_id: metadata_currentUnknownScreenIdInput.value,
+                    app_name: metadata_appNameInput.value,
+                    activity_name: metadata_activityNameInput.value || null,
+                    logical_name: metadata_logicalNameInput.value.trim(),
+                    new_defined_screen_id: metadata_newDefinedScreenIdInput.value.trim(),
+                    selected_conditions: JSON.parse(metadata_selectedConditionsJsonInput.value || '[]'),
+                    description: metadata_descriptionInput.value.trim() || null
+                };
+
+                if (!payload.logical_name || !payload.new_defined_screen_id) {
+                    if (defineMetadata_errorMessages) defineMetadata_errorMessages.textContent = 'Tên Logic và Defined Screen ID là bắt buộc.';
+                    if (saveNewPieDefinitionBtn) { saveNewPieDefinitionBtn.disabled = false; saveNewPieDefinitionBtn.textContent = 'Lưu Định nghĩa PIE'; }
+                    return;
+                }
+                if (payload.selected_conditions.length === 0) {
+                    if (defineMetadata_errorMessages) defineMetadata_errorMessages.textContent = 'Cần có ít nhất một điều kiện nhận diện.';
+                    if (saveNewPieDefinitionBtn) { saveNewPieDefinitionBtn.disabled = false; saveNewPieDefinitionBtn.textContent = 'Lưu Định nghĩa PIE'; }
+                    return;
+                }
+
+                try {
+                    const response = await fetch(API_DEFINE_NEW_PIE_WITH_CONDITIONS_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+                        body: JSON.stringify(payload)
+                    });
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.message || `Lỗi HTTP ${response.status}`);
+
+                    if (result.success) {
+                        alert("Định nghĩa PIE mới thành công!");
+                        defineMetadataModalInstance.hide();
+                        fetchAndRenderNodes(); // Tải lại bảng
+                    } else {
+                        throw new Error(result.message || "Lưu PIE thất bại từ server.");
+                    }
+                } catch (error) {
+                    console.error("Lỗi khi lưu PIE definition mới:", error);
+                    if (defineMetadata_errorMessages) defineMetadata_errorMessages.textContent = error.message;
+                } finally {
+                    if (saveNewPieDefinitionBtn) { saveNewPieDefinitionBtn.disabled = false; saveNewPieDefinitionBtn.textContent = 'Lưu Định nghĩa PIE'; }
+                }
+            });
+        }
+
+        // Gắn sự kiện cho các trigger trên bảng (sau khi bảng được render)
+        function attachTableTriggers() {
+            // Click vào ảnh thumbnail
+            document.querySelectorAll('.manage-pie-trigger').forEach(img => {
+                // Xóa listener cũ nếu có (an toàn hơn khi re-render)
+                const newImg = img.cloneNode(true);
+                img.parentNode.replaceChild(newImg, img);
+                newImg.addEventListener('click', function () {
+                    const row = this.closest('tr'); // Thẻ <tr> cha
+                    const nodeData = {
+                        nodeNeo4jId: row.dataset.nodeNeo4jId,
+                        currentScreenId: row.dataset.currentScreenId,
+                        appName: row.dataset.appName,
+                        nodeStatus: row.dataset.nodeStatus,
+                        screenshotFilename: row.dataset.screenshotFilename,
+                        activityName: row.dataset.activityName,
+                        pieLogicalName: row.dataset.pieLogicalName,
+                        width: parseInt(row.dataset.width) || null, // Lấy width/height
+                        height: parseInt(row.dataset.height) || null
+                    };
+                    openManagePieConditionsModal(nodeData);
+                });
+            });
+
+            // Click nút "Định nghĩa PIE Mới"
+            document.querySelectorAll('.define-new-pie-metadata-trigger').forEach(button => {
+                const newButton = button.cloneNode(true);
+                button.parentNode.replaceChild(newButton, button);
+                newButton.addEventListener('click', function () {
+                    const row = this.closest('tr');
+                    const nodeDataForPieDef = {
+                        nodeNeo4jId: row.dataset.nodeNeo4jId,
+                        currentScreenId: row.dataset.currentScreenId,
+                        appName: row.dataset.appName,
+                        nodeStatus: 'unknown', // Vì nút này chỉ cho node unknown
+                        screenshotFilename: row.dataset.screenshotFilename,
+                        activityName: row.dataset.activityName,
+                        width: parseInt(row.dataset.width) || null,
+                        height: parseInt(row.dataset.height) || null
+                        // pieLogicalName sẽ không có ở đây
+                    };
+                    // Theo luồng đã thống nhất: mở modal chọn conditions trước
+                    openManagePieConditionsModal(nodeDataForPieDef);
+                });
+            });
+
+            // Nút Xóa Node (đã có ở hàm fetchAndRenderNodes -> attachActionListenersToTable)
+            // Dropdown Phân loại Node (đã có ở hàm fetchAndRenderNodes -> attachActionListenersToTable)
+            // Tooltips (cũng đã có)
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+            tooltipTriggerList.map(function (tooltipTriggerEl) { return new bootstrap.Tooltip(tooltipTriggerEl) });
+        }
+
+
+        // Hàm render bảng và phân trang (được gọi bởi fetchAndRenderNodes)
+        // (renderNodeRow, renderNodePagination giữ nguyên như trước, chỉ cần đảm bảo chúng gọi attachTableTriggers sau khi render xong tbody)
+        // Thay vì gọi attachActionListenersToTable, hàm fetchAndRenderNodes sẽ gọi attachTableTriggers
+
+        function renderNodeRow(node) {
+            // ... (Nội dung hàm renderNodeRow giữ nguyên như đã cung cấp trước đó, chỉ cần đảm bảo nó tạo đúng các data-* attributes trên thẻ <tr>)
+            // Ví dụ, đảm bảo thẻ tr có đầy đủ:
+            // data-node-neo4j-id, data-current-screen-id, data-app-name, data-node-status, 
+            // data-screenshot-filename, data-activity-name, data-pie-logical-name, data-width, data-height
+
+            const row = document.createElement('tr');
+            row.dataset.nodeNeo4jId = node.id || ''; // node.id là từ Neo4j
+            row.dataset.currentScreenId = node.screen_id || '';
+            row.dataset.appName = node.app_name || '';
+            row.dataset.nodeStatus = node.status || 'unknown';
+            row.dataset.screenshotFilename = node.screenshot_path || '';
+            row.dataset.activityName = node.activity_name || '';
+            row.dataset.pieLogicalName = node.logical_pie_name || '';
+            row.dataset.width = node.width || '';
+            row.dataset.height = node.height || '';
+
+
+            // 1. Checkbox
+            const cellCheckbox = `<td><input type="checkbox" class="node-checkbox" value="${node.screen_id || ''}"></td>`;
+
+            // 2. Screen ID (link to elements page)
+            const screenElementsUrl = ADMIN_SCREEN_ELEMENTS_URL_BASE.replace('SCREEN_ID_PLACEHOLDER', encodeURIComponent(node.screen_id || ''));
+            const cellScreenId = `<td><a href="${screenElementsUrl}" target="_blank" title="Xem elements của: ${node.screen_id}"><code class="small">${(node.screen_id || 'N/A').substring(0, 20)}</code></a></td>`;
+
+            // 3. App Name
+            const cellAppName = `<td><code class="small">${node.app_name || 'N/A'}</code></td>`;
+
+            // 4. Activity
+            const cellActivity = `<td><code class="small" title="${node.activity_name || ''}">${(node.activity_name || 'N/A').substring(0, 20)}</code></td>`;
+
+            // 5. Ảnh Thumbnail (manage-pie-trigger)
+            let cellImage = '<td><span class="text-muted small manage-pie-trigger" style="cursor:pointer;">N/A</span></td>';
+            if (node.screenshot_full_url) { // API đã trả về URL đầy đủ
+                cellImage = `<td><img src="${node.screenshot_full_url}" alt="ss_${node.screen_id}" class="node-thumbnail manage-pie-trigger"></td>`;
+            }
+
+            // 6. Tên Logic PIE
+            let cellPieName = '<td><em class="text-muted small">Chưa có PIE</em></td>';
+            if (node.logical_pie_name && node.logical_pie_name !== "PIE Def không tìm thấy" && node.logical_pie_name !== "Lỗi lấy PIE Def") {
+                cellPieName = `<td><span title="${node.logical_pie_name}">${(node.logical_pie_name).substring(0, 25)}</span></td>`;
+            } else if (node.logical_pie_name) {
+                cellPieName = `<td><em class="text-danger small" title="${node.logical_pie_name}">${(node.logical_pie_name).substring(0, 25)}</em></td>`;
+            }
+
+            // 7. Status Badge
+            let statusClass = 'bg-secondary';
+            if (node.status === 'defined') statusClass = 'bg-success';
+            else if (node.status === 'provisional_unknown') statusClass = 'bg-warning text-dark';
+            else if (node.status === 'merged_to_defined') statusClass = 'bg-info text-dark';
+            const cellStatus = `<td><span class="badge ${statusClass}">${node.status || 'N/A'}</span></td>`;
+
+            // 8. Phân loại Node (Dropdown) - Giữ nguyên logic tạo dropdown từ file gốc của bạn
+            const classifications = [
+                { value: "", label: "-- Chưa --" }, { value: "login_screen", label: "Login" },
+                { value: "profile_screen", label: "Profile" }, { value: "feed_screen", label: "Feed/Home" },
+                { value: "settings_screen", label: "Settings" }, { value: "popup_dialog", label: "Popup" },
+                { value: "item_list", label: "Item List" }, { value: "item_detail", label: "Item Detail" },
+                { value: "other", label: "Khác" }
+            ];
+            const currentClassification = node.node_classification === null || node.node_classification === undefined ? "" : node.node_classification;
+            let classificationOptionsHtml = classifications.map(c =>
+                `<option value="${c.value}" ${currentClassification === c.value ? 'selected' : ''}>${c.label}</option>`
+            ).join('');
+            const cellClassification = `<td><select class="form-select form-select-sm node-classification-select" data-screen-id="${node.screen_id || ''}" data-app-name="${node.app_name || ''}">${classificationOptionsHtml}</select><span class="classification-status small ms-1"></span></td>`;
+
+            // 9. Element Count
+            const elemCount = node.actual_element_count_rel !== undefined ? node.actual_element_count_rel : (node.defined_element_count !== undefined ? node.defined_element_count : 0);
+            const cellElemCount = `<td class="text-center">${elemCount}</td>`;
+
+            // 10. Transitions Count
+            const cellTransCount = `<td class="text-center">${node.incoming_transitions_count || 0} / ${node.outgoing_transitions_count || 0}</td>`;
+
+            // 11. Last Seen
+            const lastSeenDate = node.last_seen ? new Date(node.last_seen).toLocaleDateString('vi-VN') : 'N/A';
+            const cellLastSeen = `<td class="small text-nowrap">${lastSeenDate}</td>`;
+
+            // 12. Hành động
+            let actionButtonsHtml = `<div class="action-button-row mb-1">
+                                        <a href="${screenElementsUrl}" target="_blank" class="btn btn-xs btn-outline-info view-elements-btn me-1" title="Xem chi tiết Elements" data-bs-toggle="tooltip"><i class="fas fa-search-plus"></i> Elements</a>
+                                        <button class="btn btn-xs btn-outline-danger delete-node-btn" title="Xóa Node" data-bs-toggle="tooltip"><i class="fas fa-trash-alt"></i> Xóa</button>
+                                     </div>`;
+            if (node.status === 'unknown' || node.status === 'provisional_unknown') {
+                actionButtonsHtml += `<div class="action-button-row">
+                                        <button class="btn btn-xs btn-outline-success define-new-pie-metadata-trigger" title="Định nghĩa Metadata cho PIE mới" data-bs-toggle="tooltip"><i class="fas fa-plus-circle"></i> Tạo PIE Mới</button>
+                                     </div>`;
+            }
+            const cellActions = `<td class="action-buttons text-nowrap">${actionButtonsHtml}</td>`;
+
+            row.innerHTML = cellCheckbox + cellScreenId + cellAppName + cellActivity + cellImage + cellPieName + cellStatus + cellClassification + cellElemCount + cellTransCount + cellLastSeen + cellActions;
+            return row;
+        }
+
+
+        // Hàm fetchAndRenderNodes (cập nhật để gọi attachTableTriggers)
+        function fetchAndRenderNodes(page = 1, appName = null, statusFilter = null) {
+            const currentAppName = appName !== null ? appName : (appNameFilterSelect ? appNameFilterSelect.value : '');
+            const currentStatus = statusFilter !== null ? statusFilter : (statusFilterSelect ? statusFilterSelect.value : 'unknown');
+            const apiUrl = buildApiUrl(page, currentAppName, currentStatus);
+
+            if (!nodesTableBody) { console.error("nodesTableBody not found!"); return; }
+            nodesTableBody.innerHTML = `<tr><td colspan="12" class="text-center py-3"><i class="fas fa-spinner fa-spin me-2"></i>Đang tải dữ liệu Nodes...</td></tr>`;
+            if (paginationContainer) paginationContainer.innerHTML = '';
+
+            fetch(apiUrl)
+                .then(response => {
+                    if (!response.ok) { /* ... (xử lý lỗi như cũ) ... */
+                        return response.text().then(text => {
+                            try { const err = JSON.parse(text); throw new Error(err.error || `Lỗi HTTP ${response.status}`); }
+                            catch (e) { console.error("Server returned non-JSON error:", text.substring(0, 500)); throw new Error(`Lỗi máy chủ (${response.status}).`); }
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    nodesTableBody.innerHTML = ''; // Xóa nội dung cũ
+                    if (data.nodes && data.nodes.length > 0) {
+                        data.nodes.forEach(node => {
+                            nodesTableBody.appendChild(renderNodeRow(node));
+                        });
+                    } else {
+                        nodesTableBody.innerHTML = `<tr><td colspan="12" class="text-center text-muted fst-italic py-3">Không tìm thấy Node nào khớp.</td></tr>`;
+                    }
+                    if (data.pagination) {
+                        renderNodePagination(data.pagination, { appName: currentAppName, status: currentStatus });
+                    }
+                    attachTableTriggers(); // QUAN TRỌNG: Gắn lại listeners sau khi render
+                })
+                .catch(error => { /* ... (xử lý lỗi như cũ) ... */
+                    console.error("Lỗi khi tải Node:", error);
+                    nodesTableBody.innerHTML = `<tr><td colspan="12" class="text-center text-danger py-3">Lỗi tải dữ liệu: ${error.message}</td></tr>`;
+                });
+        }
+
+        // Sự kiện cho form filter và load dữ liệu ban đầu
+        if (filterForm) {
+            filterForm.addEventListener('submit', function (event) {
+                event.preventDefault();
+                fetchAndRenderNodes(1); // Luôn về trang 1 khi lọc mới
+            });
+        }
+
+        // Load dữ liệu lần đầu
+        const currentUrlParams = new URLSearchParams(window.location.search);
+        const initialPage = parseInt(currentUrlParams.get('page') || '1', 10);
+        const initialAppName = currentUrlParams.get('app_name_filter') || (appNameFilterSelect ? appNameFilterSelect.value : '');
+        const initialStatus = currentUrlParams.get('filter_status') || (statusFilterSelect ? statusFilterSelect.value : 'unknown'); // Mặc định là unknown
+
+        // Nếu tbody được render từ server có nội dung, chỉ cần attach listener
+        // Nếu tbody trống (ví dụ, filter từ URL không có kết quả server-side), thì fetchAndRenderNodes
+        if (nodesTableBody && nodesTableBody.children.length > 0 &&
+            !(nodesTableBody.firstElementChild && nodesTableBody.firstElementChild.children.length === 1 &&
+                nodesTableBody.firstElementChild.firstElementChild.textContent.includes("Không tìm thấy Node nào khớp"))) {
+            attachTableTriggers(); // Gắn listeners cho các hàng đã render từ server
+            // Gắn listener cho pagination hiện tại (được render bởi server)
+            document.querySelectorAll('#nodeManagementPagination .page-link').forEach(link => { // Bỏ class .node-page-link vì có thể chưa có khi server render
+                link.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    if (this.closest('.page-item.disabled')) return;
+                    const pageNum = parseInt(this.dataset.page, 10);
+                    const appName = appNameFilterSelect ? appNameFilterSelect.value : '';
+                    const status = statusFilterSelect ? statusFilterSelect.value : 'unknown';
+                    fetchAndRenderNodes(pageNum, appName, status);
+                });
+            });
+            var serverRenderedTooltipTriggers = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+            serverRenderedTooltipTriggers.map(function (tooltipTriggerEl) { return new bootstrap.Tooltip(tooltipTriggerEl) });
+
+        } else {
+            fetchAndRenderNodes(initialPage, initialAppName, initialStatus);
+        }
+
+        // --- Xóa các hàm xử lý sự kiện cũ không còn dùng hoặc đã được tích hợp vào attachTableTriggers ---
+        // handleDeleteNode, handleNodeClassificationChange, handleDefinePieForUnknownAction
+        // Sự kiện cho imagePreviewModal (modal xem ảnh gốc) nếu vẫn giữ lại
+        const originalImagePreviewModalEl = document.getElementById('originalImagePreviewModal');
+        if (originalImagePreviewModalEl) {
+            // Giữ lại logic của modal xem ảnh gốc nếu bạn vẫn muốn nó hoạt động riêng biệt
+            // với nút/trigger khác (ví dụ: nút "Xem Elements" có thể vẫn mở modal này)
+            // Hoặc nếu bạn đã loại bỏ hoàn toàn modal này thì xóa phần JS liên quan.
+            // Hiện tại, ảnh thumbnail đã được gắn với #managePieConditionsModal.
+            // Nút "Xem Elements" đang link tới trang admin_screen_elements.html.
+        }
+
+
+        // Xóa các biến và hàm không còn dùng đến từ code gốc của bạn trong file này:
+        // definePieModalEl, definePieForm, và các biến con của nó (definePie_...)
+        // bsDefinePieModal
+        // createPieConditionRowInDefineModal (logic tương tự sẽ nằm trong #managePieConditionsModal)
+        // PIE_IDENTIFIER_TYPES_GLOBAL, PIE_PRESENCE_OPTIONS_GLOBAL (sẽ được định nghĩa lại trong scope của #managePieConditionsModal nếu cần)
+        // Sự kiện submit của #definePieForm cũ
+        // Các hàm xử lý cho merge node (mergeToPieModalEl, etc.) có thể giữ lại nếu chức năng merge vẫn hoạt động độc lập.
+        // Nếu không, chúng sẽ được tích hợp hoặc loại bỏ sau.
+
+    }); // End DOMContentLoaded
+</script>
+{% endblock %}

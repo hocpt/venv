@@ -1,0 +1,644 @@
+{% extends "admin_base.html" %}
+
+{% block title %}{{ selected_app_name or title or "Trình xem Bản đồ Ứng dụng" }}{% endblock %}
+
+{% block head_extra %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.23.0/cytoscape.min.js"
+    integrity="sha512-gF+H48HjY3w5hXGpqpP/5mX/uR5y+oFjBZJ3lB7jCmwVvYZ+83S+j/tP+TkbY1/qf4YqJdF+bQsL9+bI6Wc9AQ=="
+    crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<style>
+    /* --- CSS Bố cục & Đồ thị --- */
+    .row {
+        min-height: 65vh;
+    }
+
+    .col-lg-8,
+    .col-lg-4 {
+        display: flex;
+        flex-direction: column;
+    }
+
+    #cy-parent-card {
+        flex-grow: 1;
+        display: flex;
+        flex-direction: column;
+    }
+
+    #cy-parent-card .card-body.graph-display-area {
+        flex-grow: 1;
+        padding: 0 !important;
+        display: flex;
+        position: relative;
+        overflow: hidden;
+        min-height: 500px;
+    }
+
+    #cy {
+        width: 100%;
+        height: 100%;
+        display: block;
+        border: none;
+        background-color: #fdfdff;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 1;
+    }
+
+    .loading-indicator {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font-size: 1.5em;
+        color: #888;
+        z-index: 10;
+        display: none;
+        background-color: rgba(255, 255, 255, 0.8);
+        padding: 15px 25px;
+        border-radius: 5px;
+    }
+
+    #selection-details {
+        font-size: 0.9em;
+        max-height: 80vh;
+        overflow-y: auto;
+    }
+
+    #panel-text-content,
+    /* Đã cập nhật */
+    #panel-actions-area {
+        /* Đã cập nhật */
+        padding-bottom: 0.5rem;
+    }
+
+    #selection-details h5 {
+        font-size: 1.1em;
+        margin-bottom: 0.75rem;
+        margin-top: 0;
+    }
+
+    #selection-details h6 {
+        font-size: 1em;
+        margin-top: 1rem;
+        margin-bottom: 0.5rem;
+    }
+
+    #selection-details .list-group-item {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.85em;
+        border: none;
+        background-color: transparent;
+    }
+
+    #selection-details .list-group-item strong {
+        min-width: 120px;
+        /* Đã điều chỉnh từ phiên bản đang hoạt động */
+        display: inline-block;
+    }
+
+    #selection-details code {
+        font-size: 90%;
+        color: #d63384;
+        background-color: #f8f9fa;
+        padding: 0.1rem 0.3rem;
+        border-radius: 0.2rem;
+        word-break: break-all;
+    }
+
+    #selection-details pre code {
+        white-space: pre-wrap;
+        word-break: break-all;
+    }
+
+    #panel-screenshot-area {
+        /* Đã cập nhật */
+        margin-top: 10px;
+        border-top: 1px solid #eee;
+        padding-top: 10px;
+    }
+
+    #panel-screenshot-container {
+        position: relative;
+        max-width: 100%;
+        background-color: #f0f0f0;
+        min-height: 100px;
+        /* Để thấy thông báo loading/error */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid #ccc;
+        overflow: hidden;
+        /* Thêm để tránh nội dung con tràn ra nếu cần */
+    }
+
+    #panel-screenshot-image {
+        display: none;
+        /* Sẽ được đổi thành 'block' bởi JS */
+        max-width: 100%;
+        /* Đảm bảo ảnh không rộng hơn vùng chứa */
+        max-height: 50vh;
+        /* Giới hạn chiều cao của ảnh, ví dụ 50% chiều cao viewport, hoặc một giá trị cố định như 400px */
+        height: auto;
+        /* Giữ tỷ lệ khung hình */
+        object-fit: contain;
+        /* Đảm bảo toàn bộ ảnh được hiển thị bên trong, có thể có letterbox */
+        vertical-align: middle;
+        border: 1px solid #999;
+    }
+
+    .element-overlay {
+        position: absolute;
+        border: 1px solid rgba(0, 123, 255, 0.7);
+        background-color: rgba(0, 123, 255, 0.15);
+        cursor: default;
+        z-index: 5;
+        box-sizing: border-box;
+        pointer-events: none;
+    }
+
+    .element-overlay-button {
+        border: 2px dashed #dc3545 !important;
+        background-color: rgba(220, 53, 69, 0.2) !important;
+        z-index: 6 !important;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <h1 class="mt-4">{{ selected_app_name or title or "Trình xem Bản đồ Ứng dụng" }}</h1>
+    <ol class="breadcrumb mb-4">
+        <li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Bảng điều khiển</a></li>
+        <li class="breadcrumb-item active">{{ selected_app_name or title or "Trình xem Bản đồ Ứng dụng" }}</li>
+    </ol>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header">Chọn ứng dụng</div>
+        <div class="card-body">
+            <form method="GET" id="appSelectForm" action="{{ url_for('admin.admin_mapping_viewer') }}">
+                <div class="input-group input-group-sm">
+                    <select class="form-select" id="app_name_select" name="app_name" aria-label="Chọn ứng dụng">
+                        <option value="">-- Chọn một ứng dụng --</option>
+                        {% for name in available_apps %}
+                        <option value="{{ name }}" {{ 'selected' if name==selected_app_name else '' }}>{{ name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <button class="btn btn-primary" type="submit" id="loadGraphButton">Tải Bản đồ</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% if selected_app_name %}
+    <div class="row">
+        <div class="col-lg-8 mb-4 d-flex">
+            <div class="card shadow h-100 w-100" id="cy-parent-card">
+                <div class="card-header py-3 d-flex justify-content-between align-items-center">
+                    <h6 class="m-0 font-weight-bold text-primary">Bản đồ: {{ selected_app_name }}</h6>
+                    <button id="refresh-graph-btn" class="btn btn-sm btn-outline-secondary" title="Làm mới Đồ thị">
+                        <i class="fas fa-sync-alt fa-fw"></i> Làm mới
+                    </button>
+                </div>
+                <div class="card-body graph-display-area">
+                    <div id="loading" class="loading-indicator" style="display: none;">Đang tải đồ thị...</div>
+                    <div id="cy"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4 mb-4 d-flex">
+            <div class="card shadow h-100 w-100">
+                <div class="card-header py-3">
+                    <h6 class="m-0 font-weight-bold text-info"><i class="fas fa-info-circle me-1"></i> Chi tiết</h6>
+                </div>
+                <div class="card-body" id="selection-details">
+                    <div id="panel-text-content">
+                        <p class="text-muted fst-italic">Nhấp vào một node (màn hình) hoặc cạnh (chuyển tiếp) để xem chi
+                            tiết.</p>
+                    </div>
+                    <div id="panel-screenshot-area" style="display: none;">
+                        <h6 class="mt-3">Ảnh chụp & Elements:</h6>
+                        <div id="panel-screenshot-container">
+                            <img id="panel-screenshot-image" src="" alt="Ảnh chụp màn hình của node">
+                        </div>
+                        <small class="text-muted fst-italic">Overlay chỉ mang tính tham khảo vị trí.</small>
+                    </div>
+                    <div id="panel-actions-area" class="mt-3"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="alert alert-secondary small" role="alert">
+        <i class="fas fa-mouse-pointer me-1"></i> <strong>Mẹo:</strong> Nhấp node để xem chi tiết, ảnh và elements. Nhấp
+        cạnh để xem chi tiết chuyển tiếp.
+    </div>
+    {% else %}
+    <div class="alert alert-info" role="alert">Vui lòng chọn một ứng dụng để xem bản đồ.</div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{% if selected_app_name %}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const appNameFromFlask = "{{ selected_app_name }}";
+        console.log("[MappingViewer] Khởi tạo script cho app: '" + appNameFromFlask + "'");
+
+        const graphContainer = document.getElementById('cy');
+        const loadingIndicator = document.getElementById('loading');
+        // Tham chiếu DOM element đã cập nhật để khớp với cấu trúc HTML mới
+        const panelTextContentDiv = document.getElementById('panel-text-content');
+        const panelActionsAreaDiv = document.getElementById('panel-actions-area');
+        const panelScreenshotAreaDiv = document.getElementById('panel-screenshot-area');
+        const panelScreenshotContainer = document.getElementById('panel-screenshot-container');
+        const panelScreenshotImage = document.getElementById('panel-screenshot-image');
+        const refreshButton = document.getElementById('refresh-graph-btn');
+        let cyInstance = null;
+
+        function escapeHtml(unsafe) {
+            if (unsafe === null || unsafe === undefined) return '';
+            const str = typeof unsafe !== 'string' ? String(unsafe) : unsafe;
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+
+        const defaultSizes = { // Từ phiên bản đang hoạt động
+            'android.widget.Button': { width: 100, height: 40 },
+            'android.widget.ImageButton': { width: 50, height: 50 },
+            'android.widget.EditText': { width: 200, height: 40 },
+            'android.widget.ImageView': { width: 50, height: 50 },
+            'android.widget.TextView': { width: 150, height: 30 },
+            'default': { width: 60, height: 30 }
+        };
+
+        // Hàm drawMapScreenOverlays từ phiên bản ĐANG HOẠT ĐỘNG
+        function drawMapScreenOverlays(imgElement, elementsData, nodeOriginalWidth, nodeOriginalHeight) {
+            console.log(`[Map Overlay] BẮT ĐẦU drawMapScreenOverlays. Ảnh clientW/H: ${imgElement.clientWidth}x${imgElement.clientHeight}. Gốc (truyền vào): ${nodeOriginalWidth}x${nodeOriginalHeight}. Elements: ${elementsData ? elementsData.length : 'K/CÓ'}`);
+
+            panelScreenshotContainer.querySelectorAll('.element-overlay, p.text-danger, p.text-muted, p.text-warning').forEach(el => el.remove());
+
+            const displayedImgWidth = imgElement.clientWidth;
+            const displayedImgHeight = imgElement.clientHeight;
+
+            if (nodeOriginalWidth === null || nodeOriginalHeight === null || nodeOriginalWidth <= 0 || nodeOriginalHeight <= 0 || displayedImgWidth === 0 || displayedImgHeight === 0) {
+                console.warn(`[Map Overlay] LỖI VẼ: Kích thước không hợp lệ. Gốc: ${nodeOriginalWidth}x${nodeOriginalHeight}, Hiển thị: ${displayedImgWidth}x${displayedImgHeight} cho màn hình: ${imgElement.dataset.screenId}`);
+                const sizeErrorMsg = document.createElement('p');
+                sizeErrorMsg.className = 'text-danger small fst-italic mt-1';
+                sizeErrorMsg.textContent = `(Lỗi: Kích thước không hợp lệ để vẽ overlay. Gốc: ${nodeOriginalWidth}x${nodeOriginalHeight}, Hiển thị: ${displayedImgWidth}x${displayedImgHeight})`;
+                if (panelScreenshotContainer && !panelScreenshotContainer.querySelector('.text-danger')) panelScreenshotContainer.appendChild(sizeErrorMsg);
+                return;
+            }
+
+            const overallScaleX = displayedImgWidth / nodeOriginalWidth;
+            const overallScaleY = displayedImgHeight / nodeOriginalHeight;
+            console.log(`[Map Overlay] Tỷ lệ cho ${imgElement.dataset.screenId}: X=${overallScaleX.toFixed(4)}, Y=${overallScaleY.toFixed(4)}`);
+
+            if (!elementsData || !elementsData.length) {
+                console.info(`[Map Overlay] Màn hình ${imgElement.dataset.screenId} không có elements từ API.`);
+                const noElementsMsg = document.createElement('p');
+                noElementsMsg.className = 'text-muted small fst-italic mt-1';
+                noElementsMsg.textContent = '(Không có elements nào được ghi nhận cho màn hình này.)';
+                if (panelScreenshotContainer && !panelScreenshotContainer.querySelector('.text-muted')) panelScreenshotContainer.appendChild(noElementsMsg);
+                return;
+            }
+
+            let drawnOverlaysCount = 0;
+            elementsData.forEach(elData => {
+                if (!elData || !elData.element_id) { console.warn("[Map Overlay] Bỏ qua element do thiếu data hoặc element_id:", elData); return; }
+                let el_orig_left, el_orig_top, el_orig_width, el_orig_height;
+
+                if (elData.bounds_left !== undefined && elData.bounds_top !== undefined &&
+                    elData.bounds_right !== undefined && elData.bounds_bottom !== undefined) {
+                    el_orig_left = parseFloat(elData.bounds_left); el_orig_top = parseFloat(elData.bounds_top);
+                    el_orig_width = parseFloat(elData.bounds_right) - el_orig_left; el_orig_height = parseFloat(elData.bounds_bottom) - el_orig_top;
+                    if (isNaN(el_orig_left) || isNaN(el_orig_top) || isNaN(el_orig_width) || isNaN(el_orig_height) || el_orig_width <= 0 || el_orig_height <= 0) { // Thêm kiểm tra width/height <=0
+                        console.warn(`[Map Overlay] BỎ QUA Element ${elData.element_id} do giá trị bounds_... không hợp lệ hoặc kích thước <=0.`);
+                        // Dự phòng sang coordinate_x/y nếu bounds không ổn nhưng tọa độ tồn tại
+                        if (elData.coordinate_x !== undefined && elData.coordinate_y !== undefined) {
+                            let coord_x = parseFloat(elData.coordinate_x); let coord_y = parseFloat(elData.coordinate_y);
+                            if (isNaN(coord_x) || isNaN(coord_y)) { console.warn(`[Map Overlay] BỎ QUA Element ${elData.element_id} (dự phòng): Giá trị coordinate_x/y không hợp lệ.`); return; }
+                            const defaultSize = defaultSizes[elData.element_type || 'default'] || defaultSizes['default'];
+                            el_orig_width = defaultSize.width; el_orig_height = defaultSize.height;
+                            el_orig_left = coord_x - (el_orig_width / 2); el_orig_top = coord_y - (el_orig_height / 2);
+                        } else {
+                            return; // Không có tọa độ dự phòng, bỏ qua
+                        }
+                    }
+                } else if (elData.coordinate_x !== undefined && elData.coordinate_y !== undefined) {
+                    let coord_x = parseFloat(elData.coordinate_x); let coord_y = parseFloat(elData.coordinate_y);
+                    if (isNaN(coord_x) || isNaN(coord_y)) { console.warn(`[Map Overlay] BỎ QUA Element ${elData.element_id}: Giá trị coordinate_x/y không hợp lệ.`); return; }
+                    const defaultSize = defaultSizes[elData.element_type || 'default'] || defaultSizes['default'];
+                    el_orig_width = defaultSize.width; el_orig_height = defaultSize.height;
+                    el_orig_left = coord_x - (el_orig_width / 2); el_orig_top = coord_y - (el_orig_height / 2);
+                } else { console.warn(`[Map Overlay] BỎ QUA Element ${elData.element_id}: Thiếu thông tin tọa độ.`); return; }
+
+                if (el_orig_width <= 0 || el_orig_height <= 0) { // Kiểm tra cuối cùng cho kích thước hợp lệ
+                    console.warn(`[Map Overlay] BỎ QUA Element ${elData.element_id} do kích thước cuối cùng <=0.`);
+                    return;
+                }
+
+                let x = el_orig_left * overallScaleX; let y = el_orig_top * overallScaleY;
+                let w = el_orig_width * overallScaleX; let h = el_orig_height * overallScaleY;
+                w = Math.max(w, 5); h = Math.max(h, 5); // Đảm bảo kích thước tối thiểu
+
+                const overlay = document.createElement('div');
+                overlay.className = 'element-overlay';
+                overlay.title = `ID: ${elData.element_id}\nType: ${elData.element_type || 'N/A'}\nText: ${elData.text_content || '--'}`;
+                overlay.style.cssText = `left:${x}px; top:${y}px; width:${w}px; height:${h}px;`;
+                const elementType = elData.element_type || '';
+                if (elementType.toLowerCase().includes('button') || elementType.toLowerCase().includes('imagebutton')) {
+                    overlay.classList.add('element-overlay-button');
+                }
+                panelScreenshotContainer.appendChild(overlay);
+                drawnOverlaysCount++;
+            });
+            console.log(`[Map Overlay] Đã vẽ ${drawnOverlaysCount} overlays cho màn hình ${imgElement.dataset.screenId}.`);
+        }
+
+
+        // Hàm fetchAndRenderGraph dựa trên phiên bản ĐANG HOẠT ĐỘNG
+        function fetchAndRenderGraph(currentAppToLoad) {
+            if (!graphContainer || !loadingIndicator || !panelTextContentDiv || !panelScreenshotAreaDiv || !panelScreenshotImage || !panelScreenshotContainer || !panelActionsAreaDiv) {
+                console.error("Lỗi DOM: Một hoặc nhiều phần tử HTML cần thiết không được tìm thấy.");
+                return;
+            }
+            if (typeof cytoscape === 'undefined') { loadingIndicator.textContent = 'Lỗi: Cytoscape.js chưa tải.'; loadingIndicator.style.display = 'block'; return; }
+
+            console.log(`[MapViewer] Đang khởi tạo/làm mới Cytoscape cho ứng dụng: ${currentAppToLoad}`);
+            loadingIndicator.style.display = 'block';
+            panelTextContentDiv.innerHTML = '<p class="text-muted fst-italic">Đang tải chi tiết...</p>';
+            panelActionsAreaDiv.innerHTML = '';
+            panelScreenshotAreaDiv.style.display = 'none';
+
+            if (cyInstance) { cyInstance.destroy(); cyInstance = null; }
+            graphContainer.innerHTML = '';
+
+            const apiUrl = `/admin/api/mapping_data?app_name=${encodeURIComponent(currentAppToLoad)}`;
+            console.log(`[MapViewer] Đang gọi API đồ thị: ${apiUrl}`);
+
+            fetch(apiUrl)
+                .then(response => {
+                    if (!response.ok) { return response.json().then(errData => { throw new Error(errData.error || `Phản hồi mạng không ổn (${response.status})`); }).catch(() => { throw new Error(`Phản hồi mạng không ổn (${response.status})`); }); }
+                    return response.json();
+                })
+                .then(graphData => {
+                    loadingIndicator.style.display = 'none';
+                    console.log("[MapViewer] Dữ liệu đồ thị nhận được:", graphData);
+
+                    if (!graphData || !graphData.nodes) { // Kiểm tra đơn giản hóa
+                        graphContainer.innerHTML = `<p class="text-center text-danger mt-5">Lỗi: Dữ liệu đồ thị không hợp lệ.</p>`;
+                        panelTextContentDiv.innerHTML = '<p class="text-danger">Không thể tải dữ liệu đồ thị.</p>';
+                        return;
+                    }
+                    if (!graphData.nodes.length && (!graphData.edges || !graphData.edges.length)) {
+                        graphContainer.innerHTML = '<p class="text-center text-muted mt-5">Chưa có dữ liệu bản đồ cho ứng dụng này.</p>';
+                        panelTextContentDiv.innerHTML = '<p class="text-info">Không có gì để hiển thị.</p>';
+                        return;
+                    }
+
+                    cyInstance = cytoscape({
+                        container: graphContainer,
+                        elements: graphData,
+                        style: [ // Style từ phiên bản đang hoạt động, có thể điều chỉnh
+                            { selector: 'node', style: { 'background-color': '#66a3ff', 'label': 'data(label)', 'width': 'data(width, 30px)', 'height': 'data(height, 30px)', 'font-size': '8px', 'color': '#333', 'text-outline-width': 1, 'text-outline-color': '#fff', 'text-valign': 'center', 'text-halign': 'center', 'border-width': 1, 'border-color': '#444' } },
+                            { selector: 'node[status="provisional"]', style: { 'background-color': '#66a3ff' } },
+                            { selector: 'node[status="confirmed"]', style: { 'background-color': '#4CAF50' } },
+                            { selector: 'node[status="error"]', style: { 'background-color': '#f44336' } },
+                            { selector: 'node[status="needs_review"]', style: { 'background-color': '#ffeb3b' } }, // Thêm từ hpt9
+                            { selector: 'node:selected', style: { 'border-width': 3, 'border-color': '#ff6600', 'background-color': '#ffa500' } },
+                            { selector: 'edge', style: { 'width': 1.5, 'line-color': '#ccc', 'target-arrow-color': '#ccc', 'target-arrow-shape': 'triangle', 'curve-style': 'bezier' } },
+                            { selector: 'edge[action_type]', style: { 'label': 'data(action_type)', 'font-size': '7px', 'color': '#555', 'text-outline-width': 1, 'text-outline-color': '#fff', 'arrow-scale': 0.8 } }, // Sử dụng action_type cho nhãn
+                            { selector: 'edge[status="provisional"]', style: { 'line-color': '#aaaaaa', 'target-arrow-color': '#aaaaaa', 'line-style': 'dashed' } }, // Thêm từ hpt9
+                            { selector: 'edge[status="confirmed"]', style: { 'line-color': '#4CAF50', 'target-arrow-color': '#4CAF50', 'line-style': 'solid' } },
+                            { selector: 'edge[status="failed"]', style: { 'line-color': '#f44336', 'target-arrow-color': '#f44336', 'line-style': 'dotted', 'width': 1 } }, // Thêm từ hpt9
+                            { selector: 'edge:selected', style: { 'line-color': '#ff6600', 'target-arrow-color': '#ff6600', 'width': 3 } }
+                        ],
+                        layout: { name: 'cose', idealEdgeLength: 100, nodeRepulsion: node => 400000, edgeElasticity: edge => 100, numIter: 1000, fit: true, padding: 30, animate: true, animationDuration: 500, randomize: false },
+                        wheelSensitivity: 0.2, minZoom: 0.1, maxZoom: 5
+                    });
+
+                    cyInstance.on('tap', 'node', function (evt) {
+                        var node = evt.target;
+                        const nodeData = node.data();
+                        console.log('[MapViewer] Node Đã Nhấp:', node.id(), 'Data:', JSON.parse(JSON.stringify(nodeData)));
+
+                        let textDetailsHtml = `<h5>Chi tiết Node (Màn hình)</h5>
+                                <ul class="list-group list-group-flush">
+                                  <li class="list-group-item"><strong>ID:</strong> <code>${escapeHtml(nodeData.id)}</code></li>
+                                  <li class="list-group-item"><strong>Nhãn:</strong> ${escapeHtml(nodeData.label || nodeData.id)}</li>
+                                  <li class="list-group-item"><strong>Activity:</strong> ${escapeHtml(nodeData.activity || 'N/A')}</li>
+                                  <li class="list-group-item"><strong>Trạng thái:</strong> <span class="badge bg-info">${escapeHtml(nodeData.status || 'N/A')}</span></li>
+                                  <li class="list-group-item"><strong>Số Element (ước tính):</strong> ${nodeData.element_count !== undefined ? nodeData.element_count : 'N/A'}</li>
+                                  <li class="list-group-item"><strong>Kích thước gốc (W x H):</strong> ${escapeHtml(nodeData.original_width || '?')} x ${escapeHtml(nodeData.original_height || '?')}</li>
+                                </ul>`;
+                        panelTextContentDiv.innerHTML = textDetailsHtml;
+                        panelActionsAreaDiv.innerHTML = ''; // Xóa các hành động trước đó
+
+                        if (nodeData.screenshot_url &&
+                            typeof nodeData.original_width === 'number' && nodeData.original_width > 0 &&
+                            typeof nodeData.original_height === 'number' && nodeData.original_height > 0) {
+
+                            panelScreenshotAreaDiv.style.display = 'block';
+                            panelScreenshotContainer.innerHTML = ''; // Xóa nội dung trước đó (như thông báo lỗi)
+
+                            panelScreenshotImage.onload = null; panelScreenshotImage.onerror = null; // Xóa các trình xử lý trước đó
+                            panelScreenshotImage.src = ""; // Đặt lại src
+                            panelScreenshotImage.alt = `Ảnh chụp màn hình cho ${nodeData.id}`;
+                            panelScreenshotImage.style.display = 'block'; // Hiển thị để lấy clientWidth/Height
+                            panelScreenshotImage.dataset.screenId = nodeData.id; // Lưu screenId để vẽ overlay
+                            panelScreenshotContainer.appendChild(panelScreenshotImage); // Thêm vào DOM trước khi đặt src
+
+                            const loadingMsg = document.createElement('p');
+                            loadingMsg.className = 'text-muted small fst-italic mt-1';
+                            loadingMsg.textContent = 'Đang tải ảnh...';
+                            panelScreenshotContainer.appendChild(loadingMsg);
+
+                            const onImageLoadSuccess = () => {
+                                console.log(`[MapViewer] Ảnh ${nodeData.id} đã tải. Natural W/H: ${panelScreenshotImage.naturalWidth}x${panelScreenshotImage.naturalHeight}. Client W/H: ${panelScreenshotImage.clientWidth}x${panelScreenshotImage.clientHeight}`);
+                                if (loadingMsg) loadingMsg.textContent = 'Đang tải elements...';
+
+                                let retryCount = 0;
+                                const MAX_RETRIES = 20; const RETRY_INTERVAL = 100;
+
+                                function checkSizeAndFetchElements() {
+                                    if (!panelScreenshotContainer.contains(panelScreenshotImage)) { console.warn("[MapViewer] Thẻ img không còn trong container. Dừng."); if (loadingMsg) loadingMsg.remove(); return; }
+
+                                    if (panelScreenshotImage.clientWidth > 0 && panelScreenshotImage.clientHeight > 0) {
+                                        console.log(`[MapViewer] Kích thước client của ảnh ${nodeData.id} hợp lệ: ${panelScreenshotImage.clientWidth}x${panelScreenshotImage.clientHeight}. Đang tìm nạp elements...`);
+                                        if (loadingMsg) loadingMsg.remove();
+                                        fetch(`/admin/api/screen_elements_for_mapping/${encodeURIComponent(nodeData.id)}`)
+                                            .then(response => {
+                                                if (!response.ok) return response.json().then(err => { throw new Error(err.error || `Lỗi HTTP ${response.status}`) });
+                                                return response.json();
+                                            })
+                                            .then(data => {
+                                                if (data.success && data.elements) {
+                                                    if (data.elements.length > 0) { console.log("[MapViewer] Dữ liệu element đầu tiên:", JSON.stringify(data.elements[0], null, 2)); }
+                                                    drawMapScreenOverlays(panelScreenshotImage, data.elements, nodeData.original_width, nodeData.original_height);
+                                                } else {
+                                                    const errorMsgP = document.createElement('p'); errorMsgP.className = 'text-danger small fst-italic mt-1';
+                                                    errorMsgP.textContent = `(Lỗi tải elements: ${data.error || 'Không rõ'})`;
+                                                    if (panelScreenshotContainer) panelScreenshotContainer.appendChild(errorMsgP); // Nối vào container
+                                                }
+                                            })
+                                            .catch(error => {
+                                                console.error("[MapViewer] Lỗi tìm nạp elements:", error);
+                                                const errorMsgP = document.createElement('p'); errorMsgP.className = 'text-danger small fst-italic mt-1';
+                                                errorMsgP.textContent = `(Lỗi tìm nạp elements: ${error.message})`;
+                                                if (panelScreenshotContainer) panelScreenshotContainer.appendChild(errorMsgP); // Nối vào container
+                                            });
+                                    } else if (retryCount < MAX_RETRIES) {
+                                        retryCount++;
+                                        console.warn(`[MapViewer] Ảnh ${nodeData.id} clientWidth/Height vẫn là 0. Thử lại (${retryCount}/${MAX_RETRIES})...`);
+                                        if (loadingMsg) loadingMsg.textContent = `Đang chờ render ảnh (${retryCount})...`;
+                                        setTimeout(checkSizeAndFetchElements, RETRY_INTERVAL);
+                                    } else {
+                                        console.error(`[MapViewer] Vẫn không lấy được kích thước client của ảnh ${nodeData.id} sau ${MAX_RETRIES} lần thử.`);
+                                        if (loadingMsg) loadingMsg.textContent = '(Lỗi: Không xác định được kích thước ảnh.)';
+                                    }
+                                }
+                                checkSizeAndFetchElements(); // Gọi lần đầu
+                            };
+                            const onImageLoadError = () => {
+                                if (loadingMsg) loadingMsg.remove();
+                                console.error("[MapViewer] Lỗi tải ảnh cho node " + nodeData.id);
+                                panelScreenshotImage.alt = `Lỗi tải ảnh cho ${nodeData.id}`;
+                                const errorMsgP = document.createElement('p'); errorMsgP.className = 'text-danger small fst-italic mt-1'; errorMsgP.textContent = '(Lỗi tải ảnh)';
+                                if (panelScreenshotContainer) panelScreenshotContainer.appendChild(errorMsgP); // Nối vào container
+                            };
+                            panelScreenshotImage.onload = onImageLoadSuccess;
+                            panelScreenshotImage.onerror = onImageLoadError;
+                            panelScreenshotImage.src = nodeData.screenshot_url; // Đặt src sau trình xử lý và nối DOM
+                            // Xử lý ảnh đã cache có thể không kích hoạt 'load' lại
+                            if (panelScreenshotImage.complete && panelScreenshotImage.naturalWidth > 0 && panelScreenshotImage.src === nodeData.screenshot_url) {
+                                console.log("[MapViewer] Ảnh đã complete (cache). Gọi onImageLoadSuccess trực tiếp.");
+                                onImageLoadSuccess();
+                            }
+                        } else { // Không có ảnh chụp màn hình hoặc kích thước không hợp lệ
+                            if (panelScreenshotAreaDiv) panelScreenshotAreaDiv.style.display = 'none';
+                            let reason = [];
+                            if (!nodeData.screenshot_url) reason.push("không có ảnh chụp");
+                            if (typeof nodeData.original_width !== 'number' || typeof nodeData.original_height !== 'number' || nodeData.original_width <= 0 || nodeData.original_height <= 0) {
+                                reason.push("thiếu hoặc không hợp lệ kích thước gốc");
+                            }
+                            const reasonP = document.createElement('p');
+                            reasonP.className = 'text-muted mt-2 text-center small fst-italic';
+                            reasonP.textContent = `(${reason.length > 0 ? reason.join(' và ') : 'Không rõ lý do'} không thể hiển thị elements)`;
+                            if (panelTextContentDiv) panelTextContentDiv.appendChild(reasonP);
+                        }
+
+                        const screenIdForLink = node.id();
+                        if (screenIdForLink) {
+                            const elementPageUrl = "{{ url_for('admin.admin_screen_elements', screen_id='PLACEHOLDER') }}".replace('PLACEHOLDER', encodeURIComponent(screenIdForLink));
+                            // Sử dụng cùng class cho nút như trong phiên bản hpt9 để nhất quán
+                            if (panelActionsAreaDiv) panelActionsAreaDiv.innerHTML = `<div class="mt-3"><a href="${elementPageUrl}" class="btn btn-sm btn-outline-primary" target="_blank"><i class="fas fa-search me-1"></i> Xem/Phân loại Elements (Trang riêng)</a></div>`;
+                        }
+                    });
+
+                    cyInstance.on('tap', 'edge', function (evt) {
+                        if (panelScreenshotAreaDiv) panelScreenshotAreaDiv.style.display = 'none'; // Ẩn khu vực ảnh chụp màn hình
+                        if (panelActionsAreaDiv) panelActionsAreaDiv.innerHTML = ''; // Xóa hành động
+                        var edge = evt.target; const edgeData = edge.data();
+                        console.log('[MapViewer] Cạnh Đã Nhấp:', edge.id(), 'Data:', JSON.parse(JSON.stringify(edgeData)));
+                        let edgeDetailsHtml = `<h5>Chi tiết Cạnh (Transition)</h5><ul class="list-group list-group-flush">`;
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>ID (Cytoscape):</strong> <code>${escapeHtml(edge.id())}</code></li>`;
+                        if (edgeData.neo4j_edge_id) edgeDetailsHtml += `<li class="list-group-item"><strong>ID (Neo4j):</strong> <code>${escapeHtml(edgeData.neo4j_edge_id)}</code></li>`;
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Nguồn:</strong> <code>${escapeHtml(edgeData.source)}</code></li>`;
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Đích:</strong> <code>${escapeHtml(edgeData.target)}</code></li>`;
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Loại H.Động:</strong> ${escapeHtml(edgeData.action_type || 'N/A')}</li>`;
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Macro Code:</strong> <code>${escapeHtml(edgeData.macro_code || 'N/A')}</code></li>`;
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Element ID (tương tác):</strong> <code>${escapeHtml(edgeData.element_id || 'N/A')}</code></li>`;
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Loại ID (element):</strong> ${escapeHtml(edgeData.identifier_type || 'N/A')}</li>`; // Từ phiên bản hpt9
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Element Text:</strong> ${escapeHtml(edgeData.element_text || '--')}</li>`; // Từ phiên bản hpt9
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Trạng thái Cạnh:</strong> <span class="badge bg-secondary">${escapeHtml(edgeData.status || 'N/A')}</span></li>`;
+                        // Thêm từ hiển thị cạnh của hpt9
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Lần thử:</strong> ${edgeData.attempt_count !== undefined ? edgeData.attempt_count : 'N/A'}</li>`;
+                        edgeDetailsHtml += `<li class="list-group-item"><strong>Thành công:</strong> ${edgeData.success_count !== undefined ? edgeData.success_count : 'N/A'}</li>`;
+
+                        if (edgeData.params_json) {
+                            try {
+                                const paramsObj = JSON.parse(edgeData.params_json);
+                                const formattedParams = JSON.stringify(paramsObj, null, 2);
+                                edgeDetailsHtml += `<li class="list-group-item"><strong>Params (JSON):</strong> <pre><code style="white-space: pre-wrap; word-break: break-all;">${escapeHtml(formattedParams)}</code></pre></li>`;
+                            } catch (e) {
+                                edgeDetailsHtml += `<li class="list-group-item"><strong>Params (Raw):</strong> <pre><code>${escapeHtml(edgeData.params_json)}</code></pre></li>`;
+                            }
+                        } else {
+                            edgeDetailsHtml += `<li class="list-group-item"><strong>Params:</strong> N/A</li>`;
+                        }
+                        edgeDetailsHtml += `</ul>`;
+                        if (panelTextContentDiv) panelTextContentDiv.innerHTML = edgeDetailsHtml;
+                    });
+
+                    cyInstance.on('tap', function (event) { // Nhấp vào nền
+                        if (event.target === cyInstance) {
+                            if (panelTextContentDiv) panelTextContentDiv.innerHTML = '<p class="text-muted fst-italic">Nhấp vào một node hoặc cạnh để xem chi tiết.</p>';
+                            if (panelActionsAreaDiv) panelActionsAreaDiv.innerHTML = '';
+                            if (panelScreenshotAreaDiv) panelScreenshotAreaDiv.style.display = 'none';
+                        }
+                    });
+
+                    cyInstance.ready(function () { cyInstance.fit(null, 50); console.log("[MapViewer] Layout Cytoscape đã sẵn sàng."); });
+                    cyInstance.resize();
+
+                })
+                .catch(error => {
+                    console.error("[MapViewer] Lỗi khi lấy hoặc vẽ đồ thị:", error);
+                    if (loadingIndicator) loadingIndicator.style.display = 'none';
+                    if (graphContainer) graphContainer.innerHTML = `<div class="alert alert-danger m-5" role="alert"><strong>Lỗi tải đồ thị:</strong> ${escapeHtml(error.message || 'Lỗi không xác định')}</div>`;
+                    if (panelTextContentDiv) panelTextContentDiv.innerHTML = '<p class="text-danger">Tải đồ thị thất bại.</p>';
+                });
+        } // --- Kết thúc fetchAndRenderGraph ---
+
+        // --- Logic Dropdown Chọn App (từ hpt9, điều chỉnh nhẹ từ phiên bản đang hoạt động) ---
+        const appSelectForm = document.getElementById('appSelectForm'); // Gán lại biến form ở đây
+        const appNameSelect = document.getElementById('app_name_select');
+        const loadGraphButton = document.getElementById('loadGraphButton');
+        if (appNameSelect && loadGraphButton) {
+            appNameSelect.addEventListener('change', function () {
+                // Không cần làm gì ở đây nếu nút "Tải bản đồ" sẽ xử lý việc điều hướng
+                // Chỉ cần đảm bảo giá trị của dropdown là mới nhất khi nút được nhấp
+            });
+
+            loadGraphButton.addEventListener('click', function () {
+                const selectedApp = appNameSelect.value;
+                if (selectedApp) {
+                    let navigationUrl = "{{ url_for('admin.admin_mapping_viewer', app_name='PLACEHOLDER') }}".replace('PLACEHOLDER', encodeURIComponent(selectedApp));
+                    window.location.href = navigationUrl;
+                } else {
+                    // Nếu không có ứng dụng nào được chọn, có thể điều hướng đến trang mapping cơ sở
+                    // hoặc hiển thị một cảnh báo
+                    window.location.href = "{{ url_for('admin.admin_mapping_viewer') }}";
+                    // alert("Vui lòng chọn một ứng dụng.");
+                }
+            });
+        }
+
+
+        // --- Tải Đồ thị Ban đầu & Nút Làm mới ---
+        if (appNameFromFlask) {
+            fetchAndRenderGraph(appNameFromFlask);
+        } else {
+            // Nếu không có app nào được chọn ban đầu, đảm bảo bảng điều khiển hiển thị thông báo phù hợp
+            if (panelTextContentDiv) panelTextContentDiv.innerHTML = '<p class="text-info fst-italic">Vui lòng chọn một ứng dụng từ danh sách thả xuống ở trên để xem bản đồ của nó.</p>';
+            if (loadingIndicator) loadingIndicator.style.display = 'none';
+        }
+
+        if (refreshButton) {
+            refreshButton.addEventListener('click', function () {
+                const currentActiveApp = appNameSelect ? (appNameSelect.value || appNameFromFlask) : appNameFromFlask;
+                if (currentActiveApp) {
+                    console.log('[MapViewer] Nút Làm mới được nhấp cho app:', currentActiveApp);
+                    fetchAndRenderGraph(currentActiveApp);
+                } else {
+                    alert("Vui lòng chọn một ứng dụng trước khi làm mới.");
+                }
+            });
+        }
+    });
+</script>
+{% endif %}
+{% endblock %}

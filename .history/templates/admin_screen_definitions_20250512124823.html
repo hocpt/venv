@@ -1,0 +1,430 @@
+{% extends "admin_base.html" %}
+
+{% block title %}{{ title or "Quản lý Định nghĩa Màn hình (PIE)" }}{% endblock %}
+
+{% block head_extra %}
+<style>
+    .pie-condition-group {
+        border: 1px solid #ddd;
+        padding: 10px;
+        margin-bottom: 10px;
+        border-radius: 4px;
+        background-color: #f9f9f9;
+    }
+
+    .pie-condition-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 5px;
+    }
+
+    .pie-condition-row select,
+    .pie-condition-row input {
+        flex-grow: 1;
+    }
+
+    .remove-pie-btn {
+        flex-grow: 0;
+    }
+
+    #identifyingElementsContainer .form-text {
+        font-size: 0.8em;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4">
+    <h1 class="mt-4">{{ title }}</h1>
+    <ol class="breadcrumb mb-4">
+        <li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Bảng điều khiển</a></li>
+        <li class="breadcrumb-item"><a href="{{ url_for('admin.admin_mapping_viewer') }}">Bản đồ App</a></li>
+        <li class="breadcrumb-item active">{{ title }}</li>
+    </ol>
+
+    {% include '_flash_messages.html' %}
+
+    <div class="card shadow mb-4">
+        <div class="card-header py-3 d-flex flex-row align-items-center justify-content-between">
+            <h6 class="m-0 font-weight-bold text-primary">Danh sách Định nghĩa Màn hình</h6>
+            <button type="button" class="btn btn-sm btn-primary" id="addDefinitionBtn">
+                <i class="fas fa-plus me-1"></i> Thêm Định nghĩa Mới
+            </button>
+        </div>
+        <div class="card-body">
+            <form method="GET" id="filterForm" class="mb-3">
+                <div class="row gx-2 gy-2 align-items-end">
+                    <div class="col-md-4">
+                        <label for="app_name_filter_select" class="form-label form-label-sm">Lọc theo App Name:</label>
+                        <select class="form-select form-select-sm" id="app_name_filter_select" name="app_name_filter">
+                            <option value="">-- Tất cả Apps --</option>
+                            {% for app_name_opt in distinct_app_names %}
+                            <option value="{{ app_name_opt }}" {% if app_name_opt==selected_app_filter %}selected{%
+                                endif %}>
+                                {{ app_name_opt }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <button type="submit" class="btn btn-sm btn-info w-100">Lọc</button>
+                    </div>
+                </div>
+            </form>
+
+            <div class="table-responsive">
+                <table class="table table-sm table-striped table-bordered" id="definitionsTable">
+                    <thead class="table-light">
+                        <tr>
+                            <th scope="col">ID</th>
+                            <th scope="col">App Name</th>
+                            <th scope="col">Activity Name</th>
+                            <th scope="col">Tên Logic</th>
+                            <th scope="col">Defined Screen ID</th>
+                            <th scope="col">Số PIEs</th>
+                            <th scope="col">Mô tả</th>
+                            <th scope="col">Hành động</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if definitions %}
+                        {% for definition in definitions %}
+                        <tr data-id="{{ definition.definition_id }}">
+                            <td>{{ definition.definition_id }}</td>
+                            <td><code class="small">{{ definition.app_name }}</code></td>
+                            <td><code class="small">{{ definition.activity_name | default('N/A') }}</code></td>
+                            <td>{{ definition.logical_screen_name }}</td>
+                            <td><code class="small">{{ definition.defined_screen_id }}</code></td>
+                            <td class="text-center">{{ definition.identifying_elements_json | length }}</td>
+                            <td>{{ definition.description | truncate(50) | default('') }}</td>
+                            <td>
+                                <button class="btn btn-xs btn-outline-secondary edit-btn" title="Sửa">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-xs btn-outline-danger delete-btn" title="Xóa">
+                                    <i class="fas fa-trash-alt"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        {% else %}
+                        <tr>
+                            <td colspan="8" class="text-center text-muted fst-italic py-3">
+                                {% if selected_app_filter %}
+                                Không tìm thấy định nghĩa nào cho app '{{ selected_app_filter }}'.
+                                {% else %}
+                                Vui lòng chọn một App Name để xem các định nghĩa hoặc thêm mới.
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+            {# TODO: Thêm phân trang nếu cần #}
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="definitionModal" tabindex="-1" aria-labelledby="definitionModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form id="definitionForm">
+                <input type="hidden" id="definitionId" name="definition_id">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="definitionModalLabel">Thêm/Sửa Định nghĩa Màn hình</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="appName" class="form-label">App Name (Package Name) <span
+                                class="text-danger">*</span></label>
+                        <input type="text" class="form-control form-control-sm" id="appName" name="app_name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="activityName" class="form-label">Activity Name (Tùy chọn)</label>
+                        <input type="text" class="form-control form-control-sm" id="activityName" name="activity_name"
+                            placeholder="Ví dụ: .MainActivity, .SettingsActivity (để trống nếu áp dụng chung cho app)">
+                    </div>
+                    <div class="mb-3">
+                        <label for="logicalScreenName" class="form-label">Tên Logic Màn hình <span
+                                class="text-danger">*</span></label>
+                        <input type="text" class="form-control form-control-sm" id="logicalScreenName"
+                            name="logical_screen_name" required
+                            placeholder="Ví dụ: tiktok_login_main, facebook_user_profile">
+                        <div class="form-text">Tên gợi nhớ, duy nhất để phân biệt các định nghĩa.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="definedScreenId" class="form-label">Defined Screen ID <span
+                                class="text-danger">*</span></label>
+                        <input type="text" class="form-control form-control-sm" id="definedScreenId"
+                            name="defined_screen_id" required placeholder="Ví dụ: tiktok_login_v1, fb_profile_v2">
+                        <div class="form-text">Screen ID "chuẩn" bạn muốn hệ thống sử dụng khi các PIE khớp. Phải duy
+                            nhất.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Mô tả</label>
+                        <textarea class="form-control form-control-sm" id="description" name="description"
+                            rows="2"></textarea>
+                    </div>
+
+                    <hr>
+                    <h6>Primary Identifying Elements (PIE) <span class="text-danger">*</span></h6>
+                    <div id="identifyingElementsContainer">
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-success mt-2" id="addPieConditionBtn">
+                        <i class="fas fa-plus me-1"></i> Thêm Điều kiện PIE
+                    </button>
+                    <div class="form-text mt-1">
+                        Một màn hình được coi là "khớp" nếu TẤT CẢ các điều kiện PIE "Required" đều được thỏa mãn trên
+                        UI hiện tại.
+                    </div>
+
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Đóng</button>
+                    <button type="submit" class="btn btn-sm btn-primary" id="saveDefinitionBtn">Lưu Định nghĩa</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const definitionModal = new bootstrap.Modal(document.getElementById('definitionModal'));
+        const definitionForm = document.getElementById('definitionForm');
+        const definitionIdInput = document.getElementById('definitionId');
+        const addDefinitionBtn = document.getElementById('addDefinitionBtn');
+        const identifyingElementsContainer = document.getElementById('identifyingElementsContainer');
+        const addPieConditionBtn = document.getElementById('addPieConditionBtn');
+        const definitionsTableBody = document.querySelector('#definitionsTable tbody');
+
+        const PIE_IDENTIFIER_TYPES = [
+            { value: "resource-id", label: "Resource ID", needsValue: true, needsText: false, needsClass: false },
+            { value: "text", label: "Chỉ Text", needsValue: false, needsText: true, needsClass: false },
+            { value: "text_and_class", label: "Text & Class Name", needsValue: false, needsText: true, needsClass: true }
+            // Thêm các loại khác nếu cần
+        ];
+        const PIE_PRESENCE_OPTIONS = [
+            { value: "required", label: "Bắt buộc (Required)" },
+            { value: "optional", label: "Tùy chọn (Optional)" }
+        ];
+
+        function createPieConditionRow(condition = {}) {
+            const groupDiv = document.createElement('div');
+            groupDiv.className = 'pie-condition-group';
+
+            const rowDiv = document.createElement('div');
+            rowDiv.className = 'pie-condition-row';
+
+            // Select Identifier Type
+            const typeSelect = document.createElement('select');
+            typeSelect.className = 'form-select form-select-sm pie-identifier-type';
+            PIE_IDENTIFIER_TYPES.forEach(opt => {
+                const optionEl = document.createElement('option');
+                optionEl.value = opt.value;
+                optionEl.textContent = opt.label;
+                if (condition.identifier_type === opt.value) optionEl.selected = true;
+                typeSelect.appendChild(optionEl);
+            });
+
+            // Input cho Value (resource-id)
+            const valueInput = document.createElement('input');
+            valueInput.type = 'text';
+            valueInput.className = 'form-control form-control-sm pie-value';
+            valueInput.placeholder = 'Giá trị Resource ID';
+            valueInput.value = condition.value || '';
+
+            // Input cho Text Value
+            const textValueInput = document.createElement('input');
+            textValueInput.type = 'text';
+            textValueInput.className = 'form-control form-control-sm pie-text-value';
+            textValueInput.placeholder = 'Nội dung Text';
+            textValueInput.value = condition.text_value || '';
+
+            // Input cho Class Value
+            const classValueInput = document.createElement('input');
+            classValueInput.type = 'text';
+            classValueInput.className = 'form-control form-control-sm pie-class-value';
+            classValueInput.placeholder = 'Tên Class (vd: android.widget.Button)';
+            classValueInput.value = condition.class_value || '';
+
+            // Select Presence
+            const presenceSelect = document.createElement('select');
+            presenceSelect.className = 'form-select form-select-sm pie-presence';
+            PIE_PRESENCE_OPTIONS.forEach(opt => {
+                const optionEl = document.createElement('option');
+                optionEl.value = opt.value;
+                optionEl.textContent = opt.label;
+                if (condition.presence === opt.value) optionEl.selected = true;
+                presenceSelect.appendChild(optionEl);
+            });
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'btn btn-xs btn-outline-danger remove-pie-btn';
+            removeBtn.innerHTML = '<i class="fas fa-times"></i>';
+            removeBtn.title = "Xóa điều kiện này";
+            removeBtn.onclick = function () { groupDiv.remove(); };
+
+            rowDiv.appendChild(typeSelect);
+            rowDiv.appendChild(valueInput);
+            rowDiv.appendChild(textValueInput);
+            rowDiv.appendChild(classValueInput);
+            rowDiv.appendChild(presenceSelect);
+            rowDiv.appendChild(removeBtn);
+            groupDiv.appendChild(rowDiv);
+
+            function togglePieInputs() {
+                const selectedTypeInfo = PIE_IDENTIFIER_TYPES.find(t => t.value === typeSelect.value);
+                valueInput.style.display = selectedTypeInfo.needsValue ? '' : 'none';
+                valueInput.required = selectedTypeInfo.needsValue;
+                textValueInput.style.display = selectedTypeInfo.needsText ? '' : 'none';
+                textValueInput.required = selectedTypeInfo.needsText;
+                classValueInput.style.display = selectedTypeInfo.needsClass ? '' : 'none';
+                classValueInput.required = selectedTypeInfo.needsClass;
+            }
+            typeSelect.onchange = togglePieInputs;
+            togglePieInputs(); // Gọi lần đầu để setup đúng
+
+            identifyingElementsContainer.appendChild(groupDiv);
+        }
+
+        addPieConditionBtn.addEventListener('click', function () {
+            createPieConditionRow();
+        });
+
+        addDefinitionBtn.addEventListener('click', function () {
+            definitionForm.reset();
+            definitionIdInput.value = '';
+            document.getElementById('definitionModalLabel').textContent = 'Thêm Định nghĩa Màn hình Mới';
+            identifyingElementsContainer.innerHTML = ''; // Xóa các PIE cũ
+            createPieConditionRow(); // Thêm một PIE rỗng ban đầu
+            definitionModal.show();
+        });
+
+        definitionForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+            const definitionId = definitionIdInput.value;
+            const method = definitionId ? 'PUT' : 'POST';
+            const url = definitionId ? `/api/mapping/screen-definitions/${definitionId}` : '/api/mapping/screen-definitions';
+
+            const formData = new FormData(definitionForm);
+            const data = {
+                app_name: formData.get('app_name'),
+                activity_name: formData.get('activity_name') || null,
+                logical_screen_name: formData.get('logical_screen_name'),
+                defined_screen_id: formData.get('defined_screen_id'),
+                description: formData.get('description') || null,
+                identifying_elements_json: []
+            };
+
+            identifyingElementsContainer.querySelectorAll('.pie-condition-group').forEach(group => {
+                const type = group.querySelector('.pie-identifier-type').value;
+                const presence = group.querySelector('.pie-presence').value;
+                const typeInfo = PIE_IDENTIFIER_TYPES.find(t => t.value === type);
+                let pie = { identifier_type: type, presence: presence };
+
+                if (typeInfo.needsValue) pie.value = group.querySelector('.pie-value').value;
+                if (typeInfo.needsText) pie.text_value = group.querySelector('.pie-text-value').value;
+                if (typeInfo.needsClass) pie.class_value = group.querySelector('.pie-class-value').value;
+
+                // Validate cơ bản trước khi thêm
+                let validPie = true;
+                if (typeInfo.needsValue && !pie.value) validPie = false;
+                if (typeInfo.needsText && !pie.text_value) validPie = false;
+                if (typeInfo.needsClass && !pie.class_value) validPie = false;
+
+                if (validPie) data.identifying_elements_json.push(pie);
+                else console.warn("Bỏ qua PIE không hợp lệ: ", pie, "cho type", type);
+            });
+
+            if (data.identifying_elements_json.length === 0) {
+                alert("Cần ít nhất một điều kiện PIE hợp lệ.");
+                return;
+            }
+
+            fetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() if csrf_token else "" }}' },
+                body: JSON.stringify(data)
+            })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.success) {
+                        definitionModal.hide();
+                        // alert(result.message);
+                        // Thay vì alert, reload trang để cập nhật danh sách (hoặc làm mới bảng bằng JS)
+                        window.location.reload();
+                    } else {
+                        alert('Lỗi: ' + (result.error || 'Không thể lưu định nghĩa.'));
+                    }
+                })
+                .catch(error => {
+                    console.error('Lỗi Fetch:', error);
+                    alert('Lỗi kết nối máy chủ.');
+                });
+        });
+
+        definitionsTableBody.addEventListener('click', function (event) {
+            const target = event.target;
+            const editButton = target.closest('.edit-btn');
+            const deleteButton = target.closest('.delete-btn');
+            const row = target.closest('tr');
+            if (!row) return;
+            const defId = row.dataset.id;
+
+            if (editButton && defId) {
+                fetch(`/api/mapping/screen-definitions/${defId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.error) {
+                            alert('Lỗi tải chi tiết: ' + data.error); return;
+                        }
+                        definitionForm.reset();
+                        definitionIdInput.value = data.definition_id;
+                        document.getElementById('definitionModalLabel').textContent = 'Sửa Định nghĩa Màn hình';
+                        document.getElementById('appName').value = data.app_name || '';
+                        document.getElementById('activityName').value = data.activity_name || '';
+                        document.getElementById('logicalScreenName').value = data.logical_screen_name || '';
+                        document.getElementById('definedScreenId').value = data.defined_screen_id || '';
+                        document.getElementById('description').value = data.description || '';
+
+                        identifyingElementsContainer.innerHTML = '';
+                        if (data.identifying_elements_json && Array.isArray(data.identifying_elements_json)) {
+                            data.identifying_elements_json.forEach(pie => createPieConditionRow(pie));
+                        }
+                        if (identifyingElementsContainer.children.length === 0) createPieConditionRow(); // Thêm một cái rỗng nếu không có
+
+                        definitionModal.show();
+                    })
+                    .catch(err => { console.error("Lỗi fetch chi tiết def:", err); alert("Lỗi tải chi tiết."); });
+
+            } else if (deleteButton && defId) {
+                if (confirm(`Bạn có chắc chắn muốn xóa định nghĩa ID ${defId} này không?`)) {
+                    fetch(`/api/mapping/screen-definitions/${defId}`, {
+                        method: 'DELETE',
+                        headers: { 'X-CSRFToken': '{{ csrf_token() if csrf_token else "" }}' }
+                    })
+                        .then(response => response.json())
+                        .then(result => {
+                            if (result.success) {
+                                // alert(result.message);
+                                window.location.reload(); // Reload để cập nhật
+                            } else {
+                                alert('Lỗi xóa: ' + (result.error || 'Thao tác thất bại.'));
+                            }
+                        })
+                        .catch(err => { console.error("Lỗi fetch xóa def:", err); alert("Lỗi kết nối khi xóa."); });
+                }
+            }
+        });
+
+    });
+</script>
+{% endblock %}

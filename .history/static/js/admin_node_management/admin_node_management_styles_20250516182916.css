@@ -1,0 +1,257 @@
+/* static/js/admin_node_management/admin_node_management_styles.css */
+
+/* Styles chung cho trang Node Management */
+.node-thumbnail {
+    max-width: 70px;
+    max-height: 100px;
+    cursor: pointer;
+    border: 1px solid #e0e0e0;
+    object-fit: contain;
+    background-color: #f8f9fa;
+    vertical-align: middle;
+    border-radius: 0.2rem;
+}
+
+.node-thumbnail-na {
+    cursor: pointer;
+    display: inline-block;
+    width: 70px;
+    height: 100px;
+    border: 1px dashed #ccc;
+    text-align: center;
+    line-height: 100px;
+    vertical-align: middle;
+    font-size: 0.75rem;
+    color: #6c757d;
+    background-color: #f8f9fa;
+    border-radius: 0.2rem;
+}
+
+.action-buttons .btn,
+.action-button-row .btn {
+    margin-right: 4px;
+    margin-bottom: 4px;
+    font-size: 0.7rem;
+    padding: 0.15rem 0.35rem;
+}
+
+.table th,
+.table td {
+    vertical-align: middle !important;
+    font-size: 0.85rem;
+}
+
+#nodesTable thead th {
+    font-size: 0.75rem;
+    white-space: nowrap;
+    background-color: #f8f9fa;
+}
+
+.table-sm th,
+.table-sm td {
+    padding: 0.4rem;
+}
+
+/* --- Styles cho Modal #managePieConditionsModal --- */
+#managePieConditionsModal .modal-dialog {
+    /* modal-xl và modal-fullscreen-lg-down đã được set trong HTML */
+    /* Có thể tăng max-width hơn nữa nếu cần, ví dụ cho màn hình rất lớn */
+    /* max-width: 95%; */
+}
+
+#managePieConditionsModal .modal-body {
+    /* Cho phép modal body có thể cuộn nếu nội dung quá dài */
+    /* Bootstrap xử lý khá tốt với fullscreen-*-down, nhưng có thể cần điều chỉnh */
+    /* max-height: calc(100vh - 120px); */
+    /* 120px là khoảng cho header và footer */
+    /* overflow-y: auto; */
+    padding: 1rem;
+}
+
+#managePieConditionsModal .modal-header,
+#managePieConditionsModal .modal-footer {
+    padding: 0.75rem 1rem;
+}
+
+/* Layout 2 cột trong modal */
+#managePieConditionsModal .image-column {
+    /* Có thể thêm border-right: 1px solid #dee2e6; nếu muốn phân tách rõ ràng */
+}
+
+#managePieConditionsModal .elements-conditions-column {
+    display: flex;
+    flex-direction: column;
+    /* Chiều cao tối đa cho cột này, để nó không làm modal quá dài và có thể scroll nội bộ */
+    max-height: 75vh;
+    /* Hoặc một giá trị phù hợp với max-height của imageContainer */
+}
+
+
+#pieConditionsImageContainer {
+    position: relative;
+    border: 1px solid #dee2e6;
+    background-color: #f0f0f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 250px;
+    /* Chiều cao tối thiểu để có không gian ban đầu */
+    max-height: 70vh;
+    /* Giới hạn chiều cao của vùng chứa ảnh */
+    overflow: hidden;
+    border-radius: 0.25rem;
+    margin-bottom: 0.5rem;
+}
+
+#pieConditionsScreenshot {
+    display: none;
+    /* Ban đầu ẩn, JS sẽ đổi thành 'block' khi src được gán và ảnh tải xong */
+    max-width: 100%;
+    max-height: 100%;
+    /* Ảnh sẽ co lại để vừa với #pieConditionsImageContainer */
+    object-fit: scale-down;
+    image-rendering: crisp-edges;
+    /* Giữ độ nét cho ảnh pixelated nếu có */
+}
+
+.element-overlay-interactive {
+    position: absolute;
+    border: 2px solid rgba(220, 53, 69, 0.7);
+    /* Màu đỏ Bootstrap (danger) */
+    background-color: rgba(220, 53, 69, 0.15);
+    box-sizing: border-box;
+    cursor: pointer;
+    z-index: 10;
+    /* Đảm bảo nổi trên ảnh */
+}
+
+.element-overlay-interactive:hover {
+    background-color: rgba(220, 53, 69, 0.3);
+}
+
+.element-overlay-interactive.selected-for-pie {
+    border-color: rgba(25, 135, 84, 0.9);
+    /* Màu xanh Bootstrap (success) */
+    background-color: rgba(25, 135, 84, 0.25);
+}
+
+/* Wrapper cho danh sách elements và conditions */
+#pieConditionsElementTextListWrapper {
+    margin-bottom: 1rem;
+    flex-shrink: 1;
+    /* Cho phép co lại nếu không đủ không gian */
+    min-height: 150px;
+    display: flex;
+    flex-direction: column;
+    /* Chiều cao tối đa để có thể scroll độc lập với phần conditions */
+    max-height: calc((75vh - 40px) / 2 - 0.5rem);
+    /* Chia sẻ không gian với list conditions */
+    overflow-y: auto;
+    /* Thêm scroll cho wrapper này */
+}
+
+#pieConditionsSelectedConditionsListWrapper {
+    flex-shrink: 1;
+    min-height: 150px;
+    display: flex;
+    flex-direction: column;
+    max-height: calc((75vh - 40px) / 2 - 0.5rem);
+    overflow-y: auto;
+    /* Thêm scroll cho wrapper này */
+}
+
+
+#pieConditionsElementTextList,
+#pieConditionsSelectedConditionsList {
+    /* flex-grow: 1; Bỏ flex-grow ở đây, để wrapper quản lý scroll */
+    /* overflow-y: auto; Bỏ scroll ở đây */
+    font-size: 0.8rem;
+    border: 1px solid #ced4da;
+    border-radius: 0.25rem;
+    padding: 0.5rem;
+    background-color: #fff;
+}
+
+#pieConditionsElementTextList .list-group-item {
+    padding: 0.3rem 0.5rem;
+    border: none;
+    border-bottom: 1px solid #f0f0f0;
+    border-radius: 0 !important;
+}
+
+#pieConditionsElementTextList .list-group-item:last-child {
+    border-bottom: none;
+}
+
+#pieConditionsSelectedConditionsList .condition-item-row {
+    font-size: 0.8rem;
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+}
+
+#pieConditionsSelectedConditionsList .condition-item-row:not(:last-child) {
+    margin-bottom: 0.5rem;
+}
+
+#pieConditionsElementTextList .list-group-item:hover {
+    background-color: #e9ecef;
+    cursor: pointer;
+}
+
+#pieConditionsElementTextList .list-group-item.selected-for-pie {
+    background-color: #d1e7dd;
+    color: #0a3622;
+    font-weight: 500;
+}
+
+.condition-item-row .form-select,
+.condition-item-row .form-control {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+}
+
+.xsmall {
+    font-size: 0.7rem;
+}
+
+.initial-prompt {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 80px;
+    color: #6c757d;
+    font-style: italic;
+}
+
+#managePieConditions_errorMessages,
+#defineMetadata_errorMessages {
+    font-size: 0.8rem;
+}
+
+/* CSS cho modal xem ảnh gốc (nếu còn dùng) */
+#originalImagePreviewModal #modalScreenshotContainerOriginal {
+    position: relative;
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    min-height: 300px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+#originalImagePreviewModal #modalScreenshotImageOriginal {
+    max-width: 100%;
+    max-height: 75vh;
+    display: none;
+    object-fit: scale-down;
+}
+
+.element-overlay-displayonly {
+    position: absolute;
+    border: 1px solid rgba(0, 123, 255, 0.6);
+    background-color: rgba(0, 123, 255, 0.1);
+    box-sizing: border-box;
+    pointer-events: none;
+}

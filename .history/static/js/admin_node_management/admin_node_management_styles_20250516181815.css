@@ -1,0 +1,179 @@
+/* static/js/admin_node_management/admin_node_management_styles.css */
+
+/* Styles cho bảng Node Management */
+.node-thumbnail {
+    max-width: 70px;
+    /* Giảm kích thước thumbnail một chút để bảng gọn hơn */
+    max-height: 100px;
+    cursor: pointer;
+    border: 1px solid #ddd;
+    object-fit: contain;
+    /* Đảm bảo thấy toàn bộ ảnh, không bị cắt */
+    background-color: #f8f9fa;
+    /* Nền nhẹ cho ảnh N/A */
+    vertical-align: middle;
+}
+
+.action-buttons .btn {
+    margin-right: 3px;
+    margin-bottom: 3px;
+    font-size: 0.75rem;
+    /* Kích thước chữ nhỏ hơn cho nút */
+    padding: 0.2rem 0.4rem;
+    /* Padding nhỏ hơn */
+}
+
+.table th,
+.table td {
+    vertical-align: middle !important;
+    /* Quan trọng để căn giữa theo chiều dọc */
+    font-size: 0.875rem;
+    /* Giảm kích thước font chung của bảng */
+}
+
+#nodesTable thead th {
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+
+/* Styles cho Modal #managePieConditionsModal */
+#managePieConditionsModal .modal-dialog {
+    /* modal-xl và modal-fullscreen-lg-down đã được set trong HTML */
+}
+
+#managePieConditionsModal .modal-body {
+    /* Cho phép modal body có thể cuộn nếu nội dung quá dài */
+    /* max-height: calc(100vh - 120px); */
+    /* Điều chỉnh nếu cần, hoặc để Bootstrap tự xử lý */
+    /* overflow-y: auto; */
+}
+
+#pieConditionsImageContainer {
+    position: relative;
+    border: 1px solid #ccc;
+    background-color: #e9ecef;
+    /* Màu nền khác một chút */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 300px;
+    max-height: 70vh;
+    /* Giới hạn chiều cao của vùng chứa ảnh */
+    overflow: hidden;
+    border-radius: 0.25rem;
+}
+
+#pieConditionsScreenshot {
+    display: none;
+    /* Ban đầu ẩn, JS sẽ đổi thành 'block' */
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: scale-down;
+    image-rendering: crisp-edges;
+    /* Thử nghiệm nếu ảnh pixel bị mờ */
+    /* image-rendering: pixelated; */
+}
+
+.element-overlay-interactive {
+    position: absolute;
+    border: 2px solid rgba(220, 53, 69, 0.7);
+    /* Màu đỏ Bootstrap (danger) */
+    background-color: rgba(220, 53, 69, 0.15);
+    box-sizing: border-box;
+    cursor: pointer;
+    z-index: 10;
+}
+
+.element-overlay-interactive:hover {
+    background-color: rgba(220, 53, 69, 0.3);
+}
+
+.element-overlay-interactive.selected-for-pie {
+    border-color: rgba(25, 135, 84, 0.9);
+    /* Màu xanh Bootstrap (success) */
+    background-color: rgba(25, 135, 84, 0.25);
+}
+
+/* Wrapper cho danh sách elements và conditions */
+#pieConditionsElementTextListWrapper,
+#pieConditionsSelectedConditionsListWrapper {
+    display: flex;
+    flex-direction: column;
+    /* Chiều cao sẽ được tính toán để khớp với vùng ảnh nếu có thể, hoặc đặt max-height */
+    /* Ví dụ: nếu vùng ảnh có max-height: 70vh, thì các list này cũng có thể có max-height tương tự */
+    max-height: calc(70vh - 40px);
+    /* Trừ đi khoảng cho heading của list */
+}
+
+#pieConditionsElementTextList,
+#pieConditionsSelectedConditionsList {
+    flex-grow: 1;
+    overflow-y: auto;
+    font-size: 0.8rem;
+    /* Chữ nhỏ hơn một chút */
+    border: 1px solid #ced4da;
+    border-radius: 0.25rem;
+    padding: 0.3rem;
+}
+
+#pieConditionsElementTextList .list-group-item {
+    /* Nếu bạn dùng list-group */
+    padding: 0.3rem 0.5rem;
+    /* Giảm padding */
+    border: none;
+    /* Bỏ border của list-group-item nếu đã có border ở container */
+    border-bottom: 1px solid #eee;
+    /* Thêm border dưới nhẹ nhàng */
+}
+
+#pieConditionsElementTextList .list-group-item:last-child {
+    border-bottom: none;
+}
+
+#pieConditionsSelectedConditionsList .condition-item-row {
+    font-size: 0.8rem;
+    background-color: #fff;
+    /* Nền trắng cho mỗi item */
+}
+
+#pieConditionsElementTextList .list-group-item:hover {
+    background-color: #f8f9fa;
+    cursor: pointer;
+}
+
+#pieConditionsElementTextList .list-group-item.selected-for-pie {
+    background-color: #d1e7dd;
+    /* Bootstrap success-bg-subtle */
+    color: #0a3622;
+    /* Bootstrap success-text-emphasis */
+    font-weight: 500;
+}
+
+.condition-item-row .form-select,
+.condition-item-row .form-control {
+    font-size: 0.75rem;
+    /* Chữ trong input/select nhỏ hơn nữa */
+    padding: 0.25rem 0.5rem;
+}
+
+.xsmall {
+    font-size: 0.7rem;
+}
+
+.initial-prompt {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100px;
+    /* Cho nó có chút không gian */
+    color: #6c757d;
+    /* text-muted */
+}
+
+/* Thông báo lỗi trong modal */
+#managePieConditions_errorMessages,
+#defineMetadata_errorMessages {
+    font-size: 0.8rem;
+}

@@ -1,0 +1,83 @@
+Luồng Xử Lý Khi Client Gọi /phone/explore_step (Liên quan đến Ảnh):
+
+Client (MacroDroid) Gửi Dữ Liệu:
+
+Client thực hiện một hành động trên thiết bị và thu thập raw_ui_state.
+Client cũng chụp một ảnh màn hình và lưu nó tạm thời trên thiết bị.
+Client gửi một request (thường là POST hoặc PUT) đến API /phone/explore_step trên server Flask.
+Payload của request này bao gồm:
+raw_ui_state (dưới dạng JSON hoặc form data).
+screenshot_filename: Tên file ảnh mà client đã tạo (ví dụ: uuid_cua_anh.png). Client không gửi file ảnh thực tế trong request này. Client chỉ gửi tên file của ảnh mà nó đã chụp.
+Các thông tin khác như device_id, account_id, previous_action.
+Server Flask - app/phone/controller.py - Hàm handle_explore_step:
+
+Hàm này nhận các dữ liệu từ client, bao gồm screenshot_filename.
+Nó KHÔNG trực tiếp nhận file ảnh trong request này.
+Xử lý screenshot_filename:
+Hàm handle_explore_step sẽ lấy giá trị screenshot_filename này.
+Quan trọng: Server mong đợi rằng client sẽ upload file ảnh thực tế lên một API endpoint khác chuyên dụng cho việc upload file (ví dụ: /api/upload/screenshot mà README_MAPPING.txt có đề cập, hoặc một endpoint tương tự). Việc upload file ảnh thường được thực hiện như một request riêng biệt (thường là POST với multipart/form-data).
+screenshot_filename nhận được trong /phone/explore_step sẽ được dùng để liên kết thông tin UI state với file ảnh đã được upload (hoặc sắp được upload).
+Lưu thông tin vào Neo4j (thông qua graph_db.merge_screen):
+handle_explore_step sẽ gọi graph_db.merge_screen.
+Tham số screenshot_path truyền vào merge_screen chính là screenshot_filename mà client đã gửi.
+Node :Screen trong Neo4j sẽ lưu trữ screenshot_filename này vào thuộc tính s.screenshot_path. Thuộc tính này chỉ là tên file, không phải đường dẫn đầy đủ hay URL.
+Client (MacroDroid) Upload File Ảnh Thực Tế (Một Request Riêng Biệt):
+
+Sau khi (hoặc song song với việc) gọi /phone/explore_step, client sẽ thực hiện một request khác (thường là POST) đến một API endpoint chuyên để upload file, ví dụ: /api/upload/screenshot hoặc /phone/upload_screenshot.
+Payload của request upload này sẽ chứa file ảnh thực tế (dưới dạng multipart/form-data). Nó cũng có thể gửi kèm app_name và filename (chính là screenshot_filename đã gửi ở /phone/explore_step) để server biết cách lưu file.
+Server Flask - API Endpoint Upload Ảnh (Ví dụ: /api/upload/screenshot):
+Route này sẽ nhận file ảnh từ request.
+Nó sẽ sử dụng current_app.config['UPLOAD_FOLDER'] (mà chúng ta đã thống nhất là C:\Users\hocpt\venv\app\static\screenshots\).
+Nó sẽ lưu file ảnh vào thư mục UPLOAD_FOLDER với tên file là filename mà client gửi kèm (hoặc server tự tạo tên file và trả về cho client).
+Theo thông tin mới nhất của bạn, file được lưu trực tiếp vào UPLOAD_FOLDER mà không có thư mục con app_name nữa.
+Ví dụ: C:\Users\hocpt\venv\app\static\screenshots\uuid_cua_anh.png
+Hàm này có thể trả về trạng thái thành công/thất bại cho client.
+Tóm lại, hàm chịu trách nhiệm chính cho việc "lưu ảnh" vào hệ thống file của server là API endpoint chuyên dụng cho việc upload file (ví dụ: /api/upload/screenshot), KHÔNG phải là hàm handle_explore_step.
+
+Hàm handle_explore_step chỉ nhận tên file ảnh (screenshot_filename) và lưu tên đó vào Neo4j để liên kết với Node :Screen tương ứng.
+
+Để luồng này hoạt động chính xác:
+
+Client:
+Phải gọi /phone/explore_step với screenshot_filename.
+Phải gọi một API endpoint khác (ví dụ: /api/upload/screenshot) để upload file ảnh thực tế, gửi kèm tên file đó.
+Server:
+API /phone/explore_step: Lưu screenshot_filename vào thuộc tính screenshot_path của Node :Screen trong Neo4j.
+API Upload Ảnh (ví dụ: /api/upload/screenshot):
+Nhận file ảnh và filename (và có thể cả app_name nếu bạn muốn dùng nó để kiểm tra hoặc log, nhưng không dùng để tạo thư mục con nữa).
+Lưu file ảnh vào current_app.config['UPLOAD_FOLDER'] (là app/static/screenshots/) với tên là filename.
+Route phục vụ ảnh (@app.route('/app_screenshots/<path:filename>') trong app/__init__.py):
+Sử dụng current_app.config['SCREENSHOT_STORAGE_PATH'] (cũng trỏ đến app/static/screenshots/) để tìm và phục vụ file khi trình duyệt yêu cầu.
+Sơ đồ luồng (rút gọn):
+
+Client (MacroDroid)                                 Server (Flask)
+-------------------                                 -----------------
+1. Chụp ảnh (ví dụ: image123.png)
+2. Gửi POST /phone/explore_step
+   { raw_ui_state: ..., screenshot_filename: "image123.png" }
+                                                --> Controller.handle_explore_step:
+                                                    - Xử lý UI state
+                                                    - Xác định screen_id
+                                                    - Gọi graph_db.merge_screen(..., screenshot_path="image123.png", ...)
+                                                      (Lưu "image123.png" vào Neo4j)
+                                                <-- Trả về confirmedCurrentScreenId, nextAction
+
+3. Gửi POST /api/upload/screenshot  (Hoặc tên API upload của bạn)
+   Content-Type: multipart/form-data
+   Form Data:
+     file: [NỘI DUNG FILE image123.png]
+     filename: "image123.png"
+     # app_name: "com.example.app" (tùy chọn nếu API upload cần)
+                                                --> API Upload Ảnh:
+                                                    - Nhận file và filename
+                                                    - Lưu file vào UPLOAD_FOLDER (app/static/screenshots/image123.png)
+                                                <-- Trả về success/failure
+Khi admin xem ảnh trên UI:
+
+Admin UI (Browser)                                Server (Flask)
+------------------                                -----------------
+1. Yêu cầu GET /app_screenshots/image123.png  (URL tạo bởi url_for)
+                                                --> Route trong app/__init__.py (@app.route('/app_screenshots/...')):
+                                                    - Dùng send_from_directory(SCREENSHOT_STORAGE_PATH, "image123.png")
+                                                <-- Trả về nội dung file ảnh
+Việc tách riêng API xử lý UI state và API upload file ảnh là một thực hành tốt, giúp cho request /phone/explore_step nhẹ nhàng hơn và xử lý file upload riêng biệt.

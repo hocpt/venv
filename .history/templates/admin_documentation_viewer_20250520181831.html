@@ -1,0 +1,316 @@
+{% extends "admin_base.html" %}
+
+{% block title %}{{ title or "Tài liệu Dự án" }}{% endblock %}
+
+{% block head_extra %}
+{{ super() }}
+{# Link đến file CSS cho Pygments (bạn cần tạo file này) #}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pygments_style.css') }}">
+<style>
+    .doc-layout-container {
+        display: flex;
+        flex-wrap: nowrap;
+        /* Ngăn sidebar xuống hàng trên màn hình nhỏ (nếu không muốn) */
+        gap: 20px;
+        /* Khoảng cách giữa sidebar và content */
+        padding-top: 1rem;
+    }
+
+    .doc-sidebar {
+        flex: 0 0 280px;
+        /* Độ rộng cố định cho sidebar */
+        max-width: 280px;
+        /* Đảm bảo không vượt quá */
+        height: calc(100vh - 120px);
+        /* Chiều cao gần full, trừ header và footer nhỏ */
+        overflow-y: auto;
+        padding-right: 15px;
+        border-right: 1px solid #dee2e6;
+        font-size: 0.9rem;
+    }
+
+    .doc-sidebar ul {
+        list-style-type: none;
+        padding-left: 0;
+        margin-bottom: 0.5rem;
+    }
+
+    .doc-sidebar ul ul {
+        /* Cấp con */
+        padding-left: 15px;
+        /* Thụt lề ít hơn một chút */
+    }
+
+    .doc-sidebar li {
+        margin-bottom: 0.1rem;
+    }
+
+    .doc-sidebar li a {
+        display: block;
+        padding: 0.3rem 0.6rem;
+        text-decoration: none;
+        color: #0d6efd;
+        border-radius: 0.25rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .doc-sidebar li a:hover {
+        background-color: #e9ecef;
+        color: #0056b3;
+    }
+
+    .doc-sidebar li a.active {
+        background-color: #0d6efd;
+        color: white;
+        font-weight: 500;
+    }
+
+    .doc-sidebar li a.active:hover {
+        background-color: #0b5ed7;
+    }
+
+
+    .doc-sidebar .dir-name {
+        font-weight: 600;
+        margin-top: 0.75rem;
+        margin-bottom: 0.25rem;
+        padding: 0.25rem 0.5rem;
+        color: #343a40;
+        font-size: 0.95rem;
+        /* border-bottom: 1px solid #eee; */
+    }
+
+    .doc-sidebar .dir-name:first-child {
+        margin-top: 0;
+    }
+
+
+    .doc-content {
+        flex-grow: 1;
+        /* max-width: calc(100% - 300px); */
+        /* Để nó tự co giãn */
+        padding-left: 15px;
+        /* Thêm padding trái cho content */
+        overflow-x: hidden;
+        /* Tránh scroll ngang không cần thiết ở content chính */
+    }
+
+    /* CSS cho Table of Contents (nếu dùng extension 'toc') */
+    .toc {
+        border: 1px solid #e0e0e0;
+        background-color: #f9f9f9;
+        padding: 15px;
+        margin-bottom: 25px;
+        border-radius: 5px;
+        float: right;
+        /* Cho TOC nổi bên phải */
+        margin-left: 20px;
+        width: auto;
+        /* Tự động điều chỉnh độ rộng */
+        min-width: 200px;
+        max-width: 300px;
+        /* Giới hạn độ rộng tối đa */
+        font-size: 0.85em;
+    }
+
+    .toc ul {
+        list-style-type: none;
+        padding-left: 0;
+        margin-bottom: 0;
+    }
+
+    .toc ul ul {
+        padding-left: 15px;
+    }
+
+    .toc>ul>li>a {
+        font-weight: bold;
+    }
+
+    /* Clear float cho nội dung sau TOC */
+    .doc-content h1:first-of-type,
+    .doc-content h2:first-of-type {
+        clear: both;
+        /* Để heading đầu tiên không bị TOC đè lên */
+    }
+
+
+    /* Style cho code blocks (Pygments sẽ thêm class .codehilite) */
+    .doc-content .codehilite pre,
+    /* Nếu Pygments dùng .codehilite > pre */
+    .doc-content pre code.codehilite,
+    /* Hoặc nếu Pygments dùng code.codehilite */
+    .doc-content pre {
+        /* Fallback chung cho pre */
+        background-color: #f1f3f5 !important;
+        /* Màu nền sáng hơn một chút */
+        border: 1px solid #ced4da;
+        padding: 1rem;
+        border-radius: 0.3rem;
+        overflow-x: auto;
+        font-size: 0.875em;
+        /* Kích thước font cho code */
+        line-height: 1.45;
+    }
+
+    /* Đảm bảo code bên trong pre không có background riêng nếu Pygments không ghi đè */
+    .doc-content .codehilite pre code,
+    .doc-content pre code {
+        background-color: transparent !important;
+        padding: 0;
+        border: none;
+        color: inherit;
+        /* Để Pygments kiểm soát màu chữ */
+    }
+
+    .doc-content table {
+        width: 100%;
+        margin-bottom: 1.5rem;
+        color: #212529;
+        border: 1px solid #dee2e6;
+        border-collapse: collapse;
+        /* Gộp border */
+    }
+
+    .doc-content th,
+    .doc-content td {
+        padding: 0.75rem;
+        vertical-align: top;
+        border: 1px solid #dee2e6;
+        /* Border cho tất cả các cell */
+    }
+
+    .doc-content thead th {
+        vertical-align: bottom;
+        border-bottom-width: 2px;
+        /* Border đậm hơn cho header */
+        background-color: #f8f9fa;
+    }
+
+    .doc-content tbody tr:nth-of-type(odd) {
+        background-color: rgba(0, 0, 0, .03);
+        /* Thêm màu nền xen kẽ cho hàng */
+    }
+
+    .doc-content img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 0.25rem;
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+        border: 1px solid #ddd;
+        padding: 3px;
+        background-color: #fff;
+    }
+
+    /* Căn chỉnh các heading */
+    .doc-content h1,
+    .doc-content h2,
+    .doc-content h3,
+    .doc-content h4,
+    .doc-content h5,
+    .doc-content h6 {
+        margin-top: 1.5rem;
+        margin-bottom: 0.75rem;
+        font-weight: 600;
+    }
+
+    .doc-content h1 {
+        font-size: 2rem;
+    }
+
+    .doc-content h2 {
+        font-size: 1.75rem;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 0.3rem;
+    }
+
+    .doc-content h3 {
+        font-size: 1.5rem;
+    }
+
+    .doc-content h4 {
+        font-size: 1.25rem;
+    }
+
+    /* Responsive cho sidebar trên màn hình nhỏ */
+    @media (max-width: 991.98px) {
+
+        /* Dưới lg breakpoint của Bootstrap */
+        .doc-layout-container {
+            flex-direction: column;
+        }
+
+        .doc-sidebar {
+            flex: 0 0 auto;
+            /* Không co giãn, chiều cao tự động */
+            max-height: 40vh;
+            /* Giới hạn chiều cao khi ở trên */
+            border-right: none;
+            border-bottom: 1px solid #dee2e6;
+            margin-bottom: 1rem;
+            padding-right: 0;
+        }
+
+        .doc-content {
+            max-width: 100%;
+            padding-left: 0;
+        }
+
+        .toc {
+            /* TOC không float nữa trên màn hình nhỏ */
+            float: none;
+            width: 100%;
+            margin-left: 0;
+            margin-bottom: 1.5rem;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-4 admin-mapping-viewer-page"> {# Giữ class cha nếu cần #}
+    <h1 class="mt-4 mb-3">{{ title }}</h1>
+    {% include '_flash_messages.html' ignore missing %}
+
+    <div class="doc-layout-container">
+        <nav class="doc-sidebar">
+            {# Hàm đệ quy để render sidebar #}
+            {% macro render_sidebar_items(items, current_path_macro, base_url_macro) %}
+            <ul>
+                {% for item in items %}
+                <li>
+                    {% if item.type == 'dir' %}
+                    <div class="dir-name">{{ item.name }}</div>
+                    {% if item.children %}
+                    {{ render_sidebar_items(item.children, current_path_macro, base_url_macro) }}
+                    {% endif %}
+                    {% elif item.type == 'file' %}
+                    {# Tạo URL đúng bằng cách nối base_url và item.path #}
+                    <a href="{{ base_url_macro }}{{ item.path }}"
+                        class="{{ 'active' if item.path == current_path_macro else '' }}">
+                        {{ item.name }}
+                    </a>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+            {% endmacro %}
+            {# Gọi macro với base_url là URL của route project_documentation #}
+            {{ render_sidebar_items(sidebar_structure, current_filepath, url_for('admin.project_documentation_viewer',
+            filepath='')) }}
+        </nav>
+        <article class="doc-content"> {# Đổi div thành article cho ngữ nghĩa #}
+            {% if error_message %}
+            <div class="alert alert-danger">{{ error_message }}</div>
+            {% elif content_html %}
+            {{ content_html | safe }}
+            {% else %}
+            <p class="text-muted">Không có nội dung để hiển thị. Vui lòng chọn một mục từ sidebar.</p>
+            {% endif %}
+        </article>
+    </div>
+</div>
+{% endblock %}
