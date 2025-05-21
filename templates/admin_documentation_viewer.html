@@ -4,8 +4,13 @@
 
 {% block head_extra %}
 {{ super() }}
-/*
-<link rel="stylesheet" href="{{ url_for('static', filename='css/pygments_style.css') }}">*/
+{# Link đến file CSS cho Pygments.
+Đảm bảo file này tồn tại ở đúng đường dẫn mà Flask sẽ phục vụ.
+Với cấu hình static_folder='../static' trong app/__init__.py,
+thì đường dẫn thực tế của file này nên là 'venv/static/css/pygments_style.css'
+Nếu file của bạn đang ở 'venv/app/static/css/pygments_style.css', bạn cần
+hoặc di chuyển file, hoặc sửa static_folder trong app/__init__.py thành 'static' #}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pygments_style.css') }}">
 <style>
     :root {
         --doc-sidebar-width: 280px;
@@ -18,7 +23,6 @@
         --doc-sidebar-link-active-color: white;
         --doc-content-text-color: #212529;
         --doc-code-bg: #f1f3f5;
-        /* Slightly lighter than default for better contrast with pygments */
         --doc-code-border-color: #ced4da;
         --doc-table-border-color: #dee2e6;
         --doc-h-border-color: #eee;
@@ -33,25 +37,20 @@
         display: flex;
         flex-wrap: nowrap;
         gap: 25px;
-        /* Increased gap for better separation */
     }
 
     .doc-sidebar {
         flex: 0 0 var(--doc-sidebar-width);
         max-width: var(--doc-sidebar-width);
         height: calc(100vh - 100px);
-        /* Adjust based on your admin_base header/footer height */
         overflow-y: auto;
         position: sticky;
-        /* Sticky sidebar for better navigation on long pages */
         top: 70px;
-        /* Adjust based on your admin_base header height */
         padding-top: 0.5rem;
         padding-right: 15px;
         border-right: 1px solid var(--doc-sidebar-border-color);
         background-color: var(--doc-sidebar-bg);
         font-size: 0.875rem;
-        /* Slightly smaller font for sidebar */
     }
 
     .doc-sidebar ul {
@@ -62,7 +61,6 @@
 
     .doc-sidebar ul ul {
         padding-left: 18px;
-        /* Indentation for sub-levels */
     }
 
     .doc-sidebar li {
@@ -70,7 +68,6 @@
     }
 
     .doc-sidebar a {
-        /* Applied to both dir-name and file links for consistency */
         display: block;
         padding: 0.35rem 0.75rem;
         text-decoration: none;
@@ -95,7 +92,6 @@
 
     .doc-sidebar a.active:hover {
         background-color: #0a58ca;
-        /* Darker shade for active hover */
     }
 
     .doc-sidebar .dir-name {
@@ -103,21 +99,15 @@
         margin-top: 0.8rem;
         margin-bottom: 0.3rem;
         padding: 0.35rem 0.75rem;
-        /* Consistent padding */
         color: #495057;
-        /* Slightly muted color for directory names */
         font-size: 0.9rem;
-        /* cursor: default; */
-        /* If directory names are not clickable */
     }
 
     .doc-sidebar .dir-name.is-parent-of-active>a,
     .doc-sidebar .dir-name>a.active {
-        /* Style for dir if it's an active link (e.g. dir/README.md) */
         background-color: var(--doc-sidebar-link-active-bg);
         color: var(--doc-sidebar-link-active-color);
     }
-
 
     .doc-sidebar .dir-name:first-child {
         margin-top: 0;
@@ -126,11 +116,9 @@
     .doc-content {
         flex-grow: 1;
         min-width: 0;
-        /* Important for flex items to prevent overflow */
         padding-left: 15px;
     }
 
-    /* Table of Contents (TOC) Styling */
     .toc {
         border: 1px solid #e0e0e0;
         background-color: #f9f9f9;
@@ -141,7 +129,6 @@
         line-height: 1.6;
     }
 
-    /* Make TOC sticky on larger screens if desired */
     @media (min-width: 992px) {
         .toc {
             float: right;
@@ -149,31 +136,16 @@
             width: auto;
             min-width: 200px;
             max-width: 300px;
-            /* Or a percentage like 25% */
             position: sticky;
             top: 80px;
-            /* Adjust based on header */
             max-height: calc(100vh - 120px);
-            /* Limit height and make scrollable if too long */
             overflow-y: auto;
         }
 
         .doc-content>*:first-child {
-            /* Ensure content clears floated TOC */
             margin-top: 0 !important;
-            /* Override other margin-top for first element */
-        }
-
-        .doc-content h1:first-of-type,
-        .doc-content h2:first-of-type,
-        .doc-content div:first-child>h1,
-        /* Handle cases where TOC itself might be the first child */
-        .doc-content div:first-child>h2 {
-            /* clear: both; */
-            /* Can sometimes cause issues, rely on float and margin */
         }
     }
-
 
     .toc ul {
         list-style-type: none;
@@ -199,8 +171,6 @@
         color: #0056b3;
     }
 
-
-    /* Content Styling */
     .doc-content h1,
     .doc-content h2,
     .doc-content h3,
@@ -277,12 +247,9 @@
         margin-bottom: 0;
     }
 
-    /* Code Blocks */
     .doc-content .codehilite,
-    /* For fenced_code with 'codehilite' extension */
     .doc-content pre {
         background-color: var(--doc-code-bg) !important;
-        /* Ensure Pygments style doesn't override this if it's too dark */
         border: 1px solid var(--doc-code-border-color);
         padding: 1rem;
         border-radius: 0.3rem;
@@ -292,21 +259,17 @@
         margin-bottom: 1.25rem;
     }
 
-    /* If Pygments wraps code in <pre><code> */
     .doc-content .codehilite pre,
     .doc-content pre code {
         background-color: transparent !important;
-        /* Let outer pre handle background */
         padding: 0;
         border: none;
         font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     }
 
-    /* Inline code */
     .doc-content code {
         font-size: 0.875em;
         color: #d6336c;
-        /* Example color for inline code */
         background-color: rgba(214, 51, 108, 0.07);
         padding: 0.2em 0.4em;
         border-radius: 3px;
@@ -314,14 +277,11 @@
     }
 
     .doc-content pre code {
-        /* Reset for code inside pre */
         color: inherit;
         background-color: transparent;
         padding: 0;
     }
 
-
-    /* Tables */
     .doc-content table {
         width: 100%;
         margin-bottom: 1.5rem;
@@ -333,7 +293,6 @@
     .doc-content th,
     .doc-content td {
         padding: 0.65rem 0.85rem;
-        /* Slightly adjusted padding */
         vertical-align: top;
         border: 1px solid var(--doc-table-border-color);
     }
@@ -342,20 +301,17 @@
         vertical-align: bottom;
         border-bottom-width: 2px;
         background-color: #f1f3f5;
-        /* Lighter header bg */
         font-weight: 600;
     }
 
     .doc-content tbody tr:nth-of-type(odd) {
         background-color: rgba(0, 0, 0, 0.025);
-        /* Subtler striping */
     }
 
     .doc-content tbody tr:hover {
         background-color: rgba(0, 0, 0, 0.05);
     }
 
-    /* Images */
     .doc-content img {
         max-width: 100%;
         height: auto;
@@ -366,10 +322,8 @@
         padding: 4px;
         background-color: #fff;
         display: block;
-        /* To allow margin auto for centering if needed */
     }
 
-    /* Alert-like styles for notes/warnings if using Markdown extensions like 'attr_list' */
     .doc-content .alert {
         padding: 1rem;
         margin-bottom: 1rem;
@@ -395,11 +349,7 @@
         border-color: #f1aeb5;
     }
 
-
-    /* Responsive Adjustments */
     @media (max-width: 991.98px) {
-
-        /* Bootstrap lg breakpoint */
         .doc-layout-container {
             flex-direction: column;
         }
@@ -407,13 +357,11 @@
         .doc-sidebar {
             flex: 0 0 auto;
             max-height: 45vh;
-            /* Increased max-height for sidebar when on top */
             border-right: none;
             border-bottom: 1px solid var(--doc-sidebar-border-color);
             margin-bottom: 1.5rem;
             padding-right: 0;
             position: static;
-            /* Remove sticky on small screens */
         }
 
         .doc-content {
@@ -421,7 +369,6 @@
         }
 
         .toc {
-            /* TOC full width on small screens */
             float: none;
             width: 100%;
             margin-left: 0;
@@ -431,7 +378,6 @@
         }
     }
 
-    /* Scroll to top button */
     #scrollTopBtn {
         display: none;
         position: fixed;
@@ -448,6 +394,7 @@
         font-size: 18px;
         box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
         transition: background-color 0.3s, opacity 0.3s;
+        opacity: 0;
     }
 
     #scrollTopBtn:hover {
@@ -457,10 +404,10 @@
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid px-md-4 doc-page-container"> {# Use px-md-4 for better padding on medium+ screens #}
+<div class="container-fluid px-md-4 doc-page-container">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h1 class="mt-0 mb-0 page-main-title">{{ title }}</h1>
-        {# Placeholder for a future search bar if needed
+        {#
         <form class="d-flex" role="search" id="docSearchForm" style="max-width: 300px;">
             <input class="form-control form-control-sm me-2" type="search" placeholder="Tìm kiếm tài liệu..."
                 aria-label="Search" id="docSearchInput">
@@ -475,35 +422,35 @@
         <nav class="doc-sidebar" aria-label="Mục lục tài liệu">
             {# Jinja2 macro to render sidebar items recursively #}
             {% macro render_sidebar_items(items, current_path_macro, base_url_macro, level=0) %}
-            <ul class="list-unstyled ps-{{ level * 2 }}">
+            <ul class="list-unstyled ps-{{ level * 1 }} "> {# Adjusted padding for deeper levels if needed, ps-0 for
+                root #}
                 {% for item in items %}
                 <li class="{{ 'mb-1' if item.type == 'dir' else '' }}">
                     {% if item.type == 'dir' %}
-                    {# Try to make directory name a link to its README.md if it exists #}
                     {% set dir_readme_path = item.path + '/README.md' %}
-                    {% set has_readme = false %}
-                    {% for child in item.children if child.name == 'Readme' and child.type == 'file' %}
-                    {% set has_readme = true %}
-                    {% endfor %}
+                    {# Check if this directory has a README.md among its direct children #}
+                    {% set has_readme = item.children and ('README.md' in (item.children | map(attribute='path') | list
+                    | map('basename') | list) or 'Readme.md' in (item.children | map(attribute='path') | list |
+                    map('basename') | list) ) %}
 
                     <div
-                        class="dir-name {{ 'is-parent-of-active' if current_path_macro.startswith(item.path + '/') or (has_readme and dir_readme_path == current_path_macro) else '' }}">
+                        class="dir-name ps-{{level * 1}} {{ 'is-parent-of-active' if current_path_macro.startswith(item.path + '/') or (has_readme and (item.path + '/README.md') == current_path_macro) else '' }}">
                         {% if has_readme %}
-                        <a href="{{ base_url_macro }}{{ dir_readme_path }}"
-                            class="{{ 'active' if dir_readme_path == current_path_macro else '' }}">
-                            <i class="fas fa-folder me-2"></i>{{ item.name }}
+                        <a href="{{ base_url_macro }}{{ item.path | replace('\\', '/') }}/README.md"
+                            class="{{ 'active' if (item.path + '/README.md') == current_path_macro else '' }}">
+                            <i class="fas fa-folder me-1"></i>{{ item.name }}
                         </a>
                         {% else %}
-                        <span class="ps-1"><i class="fas fa-folder me-2"></i>{{ item.name }}</span>
+                        <span class="ps-1"><i class="fas fa-folder me-1"></i>{{ item.name }}</span>
                         {% endif %}
                     </div>
                     {% if item.children %}
                     {{ render_sidebar_items(item.children, current_path_macro, base_url_macro, level + 1) }}
                     {% endif %}
                     {% elif item.type == 'file' %}
-                    <a href="{{ base_url_macro }}{{ item.path }}"
-                        class="file-link {{ 'active' if item.path == current_path_macro else '' }}">
-                        <i class="far fa-file-alt me-2"></i>{{ item.name }}
+                    <a href="{{ base_url_macro }}{{ item.path | replace('\\', '/') }}"
+                        class="file-link ps-{{level * 1}} {{ 'active' if item.path == current_path_macro else '' }}">
+                        <i class="far fa-file-alt me-1"></i>{{ item.name }}
                     </a>
                     {% endif %}
                 </li>
@@ -540,58 +487,50 @@
 {% block scripts_extra %}
 {{ super() }}
 <script>
-    // Scroll to top button functionality
     const scrollTopBtn = document.getElementById("scrollTopBtn");
-    const mainDocContent = document.getElementById("mainDocContent") || window; // Scroll window or specific content area
+    const mainDocContent = document.getElementById("mainDocContent"); // Scroll this specific content area
+    const docSidebar = document.querySelector(".doc-sidebar");
 
-    function scrollFunction() {
-        // Determine scroll position based on whether mainDocContent is window or an element
-        let scrollTopValue = (mainDocContent === window) ? (document.body.scrollTop || document.documentElement.scrollTop) : mainDocContent.scrollTop;
-
-        if (scrollTopValue > 100) { // Show button after scrolling 100px
-            scrollTopBtn.style.display = "block";
-            setTimeout(() => scrollTopBtn.style.opacity = "1", 10);
+    function scrollHandler() {
+        let scrollTopValue = mainDocContent.scrollTop;
+        if (scrollTopValue > 100) {
+            if (scrollTopBtn.style.display !== "block") scrollTopBtn.style.display = "block";
+            requestAnimationFrame(() => scrollTopBtn.style.opacity = "1");
         } else {
             scrollTopBtn.style.opacity = "0";
-            setTimeout(() => scrollTopBtn.style.display = "none", 300); // Hide after fade out
+            // Only set display to none after transition (if you have CSS transition for opacity)
+            // For simplicity, just hiding it. Add transition in CSS for opacity if needed.
+            if (scrollTopBtn.style.opacity === "0") scrollTopBtn.style.display = "none";
         }
     }
 
     function scrollToTop() {
-        if (mainDocContent === window) {
-            document.body.scrollTop = 0; // For Safari
-            document.documentElement.scrollTop = 0; // For Chrome, Firefox, IE and Opera
-        } else {
-            mainDocContent.scrollTop = 0;
-        }
+        mainDocContent.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    // Attach scroll event listener
-    // If mainDocContent is a specific scrollable div, use that. Otherwise, use window.
-    let scrollableElement = (mainDocContent && mainDocContent !== window) ? mainDocContent : window;
-    scrollableElement.addEventListener("scroll", scrollFunction, { passive: true });
+    if (mainDocContent) {
+        mainDocContent.addEventListener("scroll", scrollHandler, { passive: true });
+    }
 
 
-    // Optional: Smooth scroll to hash links (e.g., from TOC)
     document.querySelectorAll('.doc-content a[href^="#"]').forEach(anchor => {
         anchor.addEventListener('click', function (e) {
             const href = this.getAttribute('href');
-            if (href.length > 1) { // Ensure it's not just "#"
-                const targetId = href.substring(1);
-                const targetElement = document.getElementById(targetId);
-                if (targetElement) {
-                    e.preventDefault();
-                    targetElement.scrollIntoView({
-                        behavior: 'smooth'
-                    });
-                    // Optionally update URL hash without page jump after smooth scroll
-                    // setTimeout(() => { window.location.hash = href; }, 500); // Adjust delay if needed
+            if (href.length > 1) {
+                try {
+                    const targetId = decodeURIComponent(href.substring(1));
+                    const targetElement = document.getElementById(targetId);
+                    if (targetElement) {
+                        e.preventDefault();
+                        targetElement.scrollIntoView({ behavior: 'smooth' });
+                    }
+                } catch (error) {
+                    console.warn("Could not process anchor link: ", href, error);
                 }
             }
         });
     });
 
-    // Optional: Add a simple client-side search placeholder (actual search needs backend)
     const searchForm = document.getElementById('docSearchForm');
     if (searchForm) {
         searchForm.addEventListener('submit', function (e) {
@@ -599,19 +538,25 @@
             const query = document.getElementById('docSearchInput').value;
             if (query) {
                 alert('Chức năng tìm kiếm phía client chưa được triển khai. Tìm kiếm cho: ' + query);
-                // Here you would typically redirect to a search results page
-                // or make an AJAX call to a backend search endpoint.
             }
         });
     }
 
-    // Ensure active sidebar link is visible
     document.addEventListener('DOMContentLoaded', function () {
         const activeLink = document.querySelector('.doc-sidebar a.active');
-        if (activeLink) {
-            activeLink.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'nearest' });
-        }
-    });
+        if (activeLink && docSidebar) {
+            // Scroll the sidebar to make the active link visible
+            const sidebarRect = docSidebar.getBoundingClientRect();
+            const activeLinkRect = activeLink.getBoundingClientRect();
 
+            if (activeLinkRect.bottom > sidebarRect.bottom) {
+                docSidebar.scrollTop += (activeLinkRect.bottom - sidebarRect.bottom) + 20; // +20 for some padding
+            } else if (activeLinkRect.top < sidebarRect.top) {
+                docSidebar.scrollTop -= (sidebarRect.top - activeLinkRect.top) + 20; // +20 for some padding
+            }
+        }
+        // Call scrollHandler once on load in case the page is already scrolled (e.g. from refresh)
+        if (mainDocContent) scrollHandler();
+    });
 </script>
 {% endblock %}{% endraw %}

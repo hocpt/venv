@@ -23,8 +23,7 @@ def create_app(config_class=config.Config):
     app = Flask(
         __name__,
         static_folder='../static',
-        #url_prefix='/admin', # Đường dẫn tương đối từ 'app' ra thư mục gốc rồi vào 'static'
-        template_folder='../templates' # Đường dẫn tương đối từ 'app' ra thư mục gốc rồi vào 'templates'
+        template_folder='../templates' 
     )
     
     try:
