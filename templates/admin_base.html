@@ -10,6 +10,8 @@
     <title>{% block title %}Admin Dashboard{% endblock %} - HPT Automation</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     {# --- CSS --- #}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/pygments_style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin_documentation_styles.css') }}">
     <link rel="stylesheet"
         href="{{ url_for('static', filename='js/admin_node_management/admin_node_management_styles.css') }}">
 
