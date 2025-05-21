@@ -16,6 +16,7 @@ from collections import Counter
 from app import graph_db # Module tương tác Neo4j
 from app import ai_service
 from PIL import Image
+from flask import abort
 from flask import send_from_directory, current_app 
 import markdown # <<< THÊM IMPORT NÀY
 from markupsafe import escape
@@ -8620,59 +8621,51 @@ def get_docs_sidebar_structure(docs_root_path, current_dir_path=''):
         current_dir_path: Đường dẫn tương đối của thư mục hiện tại so với docs_root_path.
     Returns:
         List các dict, mỗi dict đại diện cho một file hoặc thư mục.
-        Ví dụ: [{'name': 'Tên Hiển Thị', 'path': 'relative/path/to/file.md', 'type': 'file', 'children': None},
-                 {'name': 'Tên Thư Mục', 'path': 'relative/path/to/dir', 'type': 'dir', 'children': [...]}]
     """
     items = []
-    # Đường dẫn tuyệt đối đến thư mục hiện tại đang duyệt
     absolute_current_path = os.path.join(docs_root_path, current_dir_path)
 
     if not os.path.isdir(absolute_current_path):
         return []
 
     for entry_name in sorted(os.listdir(absolute_current_path)):
-        if entry_name.startswith('.') or entry_name.startswith('_'):
-            continue # Bỏ qua file/thư mục ẩn hoặc có tiền tố gạch dưới
+        if entry_name.startswith('.') or entry_name.startswith('_') or entry_name.lower() == 'images': # Bỏ qua thư mục images
+            continue
 
         entry_path_absolute = os.path.join(absolute_current_path, entry_name)
-        # Đường dẫn tương đối để dùng trong URL và hiển thị
         entry_path_relative = os.path.join(current_dir_path, entry_name).replace(os.sep, '/')
 
         display_name = entry_name
-        # Bỏ phần mở rộng .md cho tên hiển thị file
         if os.path.isfile(entry_path_absolute) and entry_name.endswith('.md'):
             display_name = os.path.splitext(entry_name)[0]
         
-        # Loại bỏ số thứ tự và gạch dưới ở đầu tên hiển thị
         if len(display_name) > 2 and display_name[2] == '_' and display_name[:2].isdigit():
             display_name = display_name[3:]
         display_name = display_name.replace('_', ' ').title()
 
-
         if os.path.isdir(entry_path_absolute):
             items.append({
                 'name': display_name,
-                'path': entry_path_relative, # Path này là của thư mục
+                'path': entry_path_relative,
                 'type': 'dir',
-                'children': get_docs_sidebar_structure(docs_root_path, entry_path_relative) # Đệ quy
+                'children': get_docs_sidebar_structure(docs_root_path, entry_path_relative)
             })
         elif entry_name.endswith('.md'):
             items.append({
                 'name': display_name,
-                'path': entry_path_relative, # Path này là của file .md
+                'path': entry_path_relative,
                 'type': 'file',
                 'children': None
             })
     
-    # Sắp xếp: README.md hoặc 00_*.md lên đầu, sau đó theo số thứ tự, rồi đến tên
     def sort_key(item):
         item_name_lower = item['name'].lower()
-        base_name_for_sort = os.path.basename(item['path']) # Dùng path để lấy số thứ tự gốc
+        base_name_for_sort = os.path.basename(item['path']) 
 
-        if item_name_lower == 'readme': return "000"
+        if item_name_lower == 'Readme': return "000" # Đảm bảo README.md lên đầu
         if len(base_name_for_sort) > 2 and base_name_for_sort[2] == '_' and base_name_for_sort[:2].isdigit():
             return base_name_for_sort[:2] 
-        return item['name'] # Sắp xếp theo tên hiển thị đã xử lý
+        return item['name']
 
     items.sort(key=sort_key)
     return items
@@ -8680,102 +8673,133 @@ def get_docs_sidebar_structure(docs_root_path, current_dir_path=''):
 
 @admin_bp.route('/documentation/', defaults={'filepath': 'README.md'})
 @admin_bp.route('/documentation/<path:filepath>')
-# @admin_required # Nếu bạn có decorator này, hãy đảm bảo nó được import và hoạt động đúng
+# @admin_required # Nếu bạn có decorator này
 def project_documentation_viewer(filepath):
     logger = current_app.logger
-    # Đường dẫn đến thư mục docs/ của bạn
-    # Giả sử thư mục docs/ nằm cùng cấp với thư mục app/ (nơi chứa admin_routes.py)
-    # current_app.root_path thường là thư mục gốc của ứng dụng (ví dụ: hpt11/)
-    docs_base_dir = os.path.join(current_app.root_path, 'docs')
-    
-    # Chuẩn hóa filepath để tránh lỗi path traversal
-    # và đảm bảo nó nằm trong docs_base_dir
-    # Ví dụ: filepath có thể là "01_ARCHITECTURE/SYSTEM_ARCHITECTURE.md"
-    # os.path.join sẽ xử lý đúng dấu / hoặc \ tùy hệ điều hành
-    # os.path.normpath sẽ chuẩn hóa đường dẫn (ví dụ: loại bỏ ../)
-    
-    # Tạo đường dẫn tuyệt đối an toàn
-    # Chúng ta không muốn người dùng có thể truyền vào ../../some_other_file
-    safe_filepath = os.path.normpath(filepath).lstrip('.').lstrip('/') # Loại bỏ các ký tự nguy hiểm ở đầu
-    requested_path_absolute = os.path.join(docs_base_dir, safe_filepath)
 
+    # --- Sửa lỗi đường dẫn `docs_base_dir` ---
+    # current_app.root_path thường là thư mục chứa package 'app' (ví dụ: C:\Users\hocpt\venv\app)
+    # Chúng ta cần đi lên một cấp để ra thư mục gốc của dự án (ví dụ: C:\Users\hocpt\venv)
+    # rồi mới vào thư mục 'docs'.
+    
+    # Lấy đường dẫn tuyệt đối đến thư mục 'app' (nơi file admin_routes.py này đang nằm)
+    current_script_dir = os.path.dirname(os.path.abspath(__file__)) # Đường dẫn đến thư mục app/
+    project_root_dir = os.path.dirname(current_script_dir) # Đường dẫn đến thư mục cha của app/ (venv/)
+    docs_base_dir = os.path.join(project_root_dir, 'docs') # Bây giờ là venv/docs/
+
+    logger.info(f"Documentation - current_app.root_path: '{current_app.root_path}'")
+    logger.info(f"Documentation - current_script_dir: '{current_script_dir}'")
+    logger.info(f"Documentation - project_root_dir: '{project_root_dir}'")
+    logger.info(f"Documentation - Corrected docs_base_dir: '{docs_base_dir}'")
+    logger.info(f"Documentation - Requested filepath: '{filepath}'")
+
+    # Chuẩn hóa filepath để tránh lỗi path traversal và đảm bảo nó nằm trong docs_base_dir
+    # Loại bỏ các ký tự nguy hiểm ở đầu và đảm bảo đường dẫn là tương đối
+    # Dấu / được sử dụng trong URL, cần chuẩn hóa cho hệ điều hành
+    normalized_filepath_os_specific = os.path.normpath(filepath)
+    
+    # Ngăn chặn việc đi lên thư mục cha từ filepath
+    # Bằng cách đảm bảo không có '..' sau khi chuẩn hóa và tách thành các phần
+    path_parts = normalized_filepath_os_specific.split(os.sep)
+    if '..' in path_parts or '.' in path_parts : # Cấm cả '.' (thư mục hiện tại) để tránh nhầm lẫn
+        logger.warning(f"Documentation: Invalid characters ('.' or '..') in path components for filepath '{filepath}'. Path parts: {path_parts}")
+        abort(404) # Sử dụng abort của Flask
+
+    # Tạo đường dẫn tuyệt đối an toàn đến file được yêu cầu
+    # os.path.join sẽ tự động xử lý dấu / hoặc \
+    requested_path_absolute = os.path.join(docs_base_dir, normalized_filepath_os_specific)
+    
     # Kiểm tra kỹ hơn để đảm bảo requested_path_absolute thực sự nằm trong docs_base_dir
-    # Chuyển cả hai về realpath để xử lý symlinks và chuẩn hóa
     real_docs_base_dir = os.path.realpath(docs_base_dir)
     real_requested_path = os.path.realpath(requested_path_absolute)
 
+    logger.info(f"Documentation - Real docs_base_dir: '{real_docs_base_dir}'")
+    logger.info(f"Documentation - Real requested_path: '{real_requested_path}'")
+
     if not real_requested_path.startswith(real_docs_base_dir):
-        logger.warning(f"Documentation: Path traversal attempt or invalid path. Base: '{real_docs_base_dir}', Requested Filepath: '{filepath}', Resolved: '{real_requested_path}'")
-        os.abort(404)
+        logger.warning(f"Documentation: Path traversal attempt or invalid path after realpath. Base: '{real_docs_base_dir}', Requested Filepath: '{filepath}', Resolved: '{real_requested_path}'")
+        abort(404) # Sử dụng abort của Flask
 
     content_html = None
     error_message = None
-    page_title = "Tài liệu Dự án" # Tiêu đề mặc định
+    page_title = "Tài liệu Dự án" 
 
     # Tạo cấu trúc sidebar (có thể cache lại nếu cần cho hiệu suất)
-    sidebar_structure = get_docs_sidebar_structure(docs_base_dir) # Gọi hàm mới
+    try:
+        sidebar_structure = get_docs_sidebar_structure(real_docs_base_dir)
+    except Exception as e_sidebar:
+        logger.error(f"Documentation: Error generating sidebar structure from '{real_docs_base_dir}': {e_sidebar}", exc_info=True)
+        sidebar_structure = [] # Trả về rỗng nếu có lỗi
+        # Có thể hiển thị lỗi này cho admin nếu muốn, nhưng thường thì sidebar lỗi không nên làm hỏng cả trang
+        flash("Lỗi khi tạo sidebar điều hướng tài liệu.", "warning")
+
 
     if os.path.isfile(real_requested_path) and real_requested_path.endswith('.md'):
         try:
             with open(real_requested_path, 'r', encoding='utf-8') as f:
                 md_content = f.read()
             
-            # Cấu hình các extension cho Markdown
-            # fenced_code: Cho các khối mã ```sql ... ```
-            # tables: Cho bảng Markdown
-            # toc: Tự động tạo mục lục (Table of Contents) từ các heading (ví dụ: [TOC])
-            # codehilite: (Cần Pygments) Để tô màu cú pháp. 
-            #     graceful_failure=True để không gây lỗi nếu Pygments không được cài hoặc ngôn ngữ không được hỗ trợ.
-            # nl2br: Chuyển đổi newline thành <br> (hữu ích cho các đoạn văn bản thuần)
             md_extensions = [
                 'fenced_code', 
                 'tables', 
                 'toc', 
-                'codehilite', # (css_class='codehilite') # Thêm class CSS nếu muốn
+                'codehilite',
                 'nl2br',
-                'extra' # Kích hoạt nhiều extension hữu ích khác như abbr, attr_list, def_list, footnotes, smarty
+                'extra',
+                'sane_lists', # Cải thiện xử lý danh sách
+                'footnotes',
+                'attr_list', # Cho phép thêm attribute vào element (ví dụ: class cho div)
+                'md_in_html' # Cho phép Markdown bên trong các thẻ HTML
             ]
-            # Cấu hình cho codehilite (nếu bạn muốn Pygments thêm class vào thẻ pre)
-            # extension_configs = {
-            #     'codehilite': {'css_class': 'codehilite-styles'} 
-            # }
-            content_html = markdown.markdown(md_content, extensions=md_extensions) #, extension_configs=extension_configs)
+            extension_configs = {
+                'codehilite': {
+                    'css_class': 'codehilite', # Class CSS gốc cho khối code
+                    'guess_lang': False, # Tắt tự động đoán ngôn ngữ nếu không chắc chắn
+                    'noclasses': False # Sử dụng class thay vì style inline
+                },
+                'toc': {
+                    'permalink': '¶', # Ký tự cho permalink bên cạnh heading trong TOC
+                    'slugify': lambda value, separator: value.lower().replace(' ', separator) # Cách tạo slug
+                }
+            }
+            content_html = markdown.markdown(md_content, extensions=md_extensions, extension_configs=extension_configs)
             
-            # Lấy tên file làm tiêu đề trang
             page_title_base = os.path.splitext(os.path.basename(real_requested_path))[0]
             if len(page_title_base) > 2 and page_title_base[2] == '_' and page_title_base[:2].isdigit():
                 page_title_base = page_title_base[3:]
             page_title = page_title_base.replace('_', ' ').title()
 
-        except FileNotFoundError: # Mặc dù đã kiểm tra isfile, nhưng để an toàn
-            error_message = f"Tài liệu '{filepath}' không tìm thấy."
+        except FileNotFoundError:
+            error_message = f"Tài liệu '{filepath}' không tìm thấy tại đường dẫn đã giải quyết."
             logger.warning(f"Documentation: File not found at {real_requested_path} (đã kiểm tra isfile).")
-            os.abort(404)
+            abort(404)
         except Exception as e:
-            error_message = f"Lỗi khi đọc hoặc chuyển đổi tài liệu '{filepath}': {e}"
+            error_message = f"Lỗi khi đọc hoặc chuyển đổi tài liệu '{filepath}': {str(e)}"
             logger.error(f"Documentation: Error processing {real_requested_path}: {e}", exc_info=True)
-            content_html = f"<p class='text-danger'>Lỗi xử lý file Markdown: {escape(str(e))}</p>"
+            content_html = f"<div class='alert alert-danger'><strong>Lỗi xử lý file Markdown:</strong><pre>{escape(str(e))}</pre><p>Vui lòng kiểm tra cú pháp Markdown của tệp.</p></div>"
     
     elif os.path.isdir(real_requested_path):
-        # Nếu là thư mục, thử tìm README.md trong đó
-        readme_in_dir_path = os.path.join(real_requested_path, 'README.md')
-        if os.path.isfile(readme_in_dir_path):
-            # Chuyển hướng đến file README.md của thư mục đó
-            new_filepath = os.path.join(os.path.relpath(real_requested_path, real_docs_base_dir), 'README.md').replace(os.sep, '/')
-            logger.info(f"Documentation: Directory access, redirecting to README: {new_filepath}")
-            return redirect(url_for('.project_documentation_viewer', filepath=new_filepath))
+        readme_in_dir_path_relative = os.path.join(os.path.relpath(real_requested_path, real_docs_base_dir), 'README.md').replace(os.sep, '/')
+        readme_in_dir_path_absolute = os.path.join(real_requested_path, 'README.md')
+
+        if os.path.isfile(readme_in_dir_path_absolute):
+            logger.info(f"Documentation: Directory access for '{filepath}', redirecting to its README.md: '{readme_in_dir_path_relative}'")
+            return redirect(url_for('.project_documentation_viewer', filepath=readme_in_dir_path_relative))
         else:
-            error_message = f"Thư mục '{filepath}' không chứa file README.md mặc định."
-            content_html = f"<p class='text-info'>{error_message} Hãy chọn một file từ sidebar.</p>"
-            page_title = os.path.basename(real_requested_path).replace('_', ' ').title()
-            if len(page_title) > 2 and page_title[2] == ' ' and page_title[:2].isdigit(): # Đã có title() rồi
-                page_title = page_title[3:]
-
-
-    else: # Không phải file .md hợp lệ hoặc không phải thư mục
-        error_message = f"Đường dẫn tài liệu '{filepath}' không hợp lệ hoặc không tồn tại."
-        logger.warning(f"Documentation: Invalid path or not a .md file: {real_requested_path}")
-        os.abort(404)
+            # Lấy tên thư mục làm tiêu đề
+            dir_title_base = os.path.basename(real_requested_path)
+            if len(dir_title_base) > 2 and dir_title_base[2] == '_' and dir_title_base[:2].isdigit():
+                dir_title_base = dir_title_base[3:]
+            page_title = dir_title_base.replace('_', ' ').title()
+            
+            error_message = f"Thư mục '{page_title}' không chứa file README.md mặc định."
+            content_html = f"<div class='alert alert-info'>{error_message} Hãy chọn một tệp tài liệu từ thanh điều hướng bên trái.</div>"
+            logger.info(f"Documentation: Directory '{filepath}' accessed, no README.md found. Displaying info message.")
+            # Không abort(404) ở đây, để người dùng có thể thấy sidebar và chọn file khác
+    else: 
+        error_message = f"Đường dẫn tài liệu '{filepath}' không hợp lệ hoặc không phải là tệp Markdown (.md) hoặc thư mục tồn tại."
+        logger.warning(f"Documentation: Invalid path, not a .md file, or directory does not exist. Requested: '{filepath}', Resolved: '{real_requested_path}'")
+        abort(404)
 
     return render_template('admin_documentation_viewer.html',
                            title=page_title,
