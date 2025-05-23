@@ -97,13 +97,23 @@ document.addEventListener("DOMContentLoaded", function () {
         refreshButton.addEventListener('click', function () {
             const currentApp = APP_CONFIG.APP_NAME_FROM_FLASK || (appNameSelect ? appNameSelect.value : null);
             if (currentApp) {
-                console.log("MAIN_MAPPING: Refresh button clicked for app:", currentApp);
+                console.log("MAIN_MAPPING: Refresh button clicked for app:", currentApp); // Log này nên xuất hiện
                 if (typeof fetchAndRenderGraph === 'function') {
-                    fetchAndRenderGraph(currentApp);
+                    // Lấy lại các DOM element cần thiết
+                    const graphContainer = document.getElementById(APP_CONFIG.DOM_ELEMENT_IDS.graphContainer);
+                    const loadingIndicator = document.getElementById(APP_CONFIG.DOM_ELEMENT_IDS.loadingIndicator);
+
+                    if (graphContainer) { // Quan trọng: kiểm tra graphContainer tồn tại
+                        fetchAndRenderGraph(currentApp, graphContainer, loadingIndicator); // Gọi hàm với đủ tham số
+                    } else {
+                        console.error("MAIN_MAPPING: Graph container not found for refresh.");
+                        alert("Lỗi: Không tìm thấy vùng chứa đồ thị để làm mới.");
+                    }
                 } else {
                     console.error("MAIN_MAPPING: fetchAndRenderGraph is not available. Cytoscape manager might not have initialized correctly.");
                 }
             } else {
+                console.warn("MAIN_MAPPING: Refresh button clicked but no current app determined.");
                 alert("Vui lòng chọn một ứng dụng trước khi làm mới.");
             }
         });

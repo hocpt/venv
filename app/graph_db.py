@@ -1,6 +1,6 @@
 # hpt3/app/graph_db.py
 import traceback
-from neo4j import GraphDatabase, Driver, Session, Transaction, basic_auth
+from neo4j import GraphDatabase, Driver, Session, Transaction, basic_auth, EagerResult,Record
 # KHÔNG import current_app trực tiếp ở đây nếu không cần thiết trong các hàm context-safe
 from flask import g # Vẫn cần g để lưu driver
 # Import logging tiêu chuẩn
@@ -12,6 +12,11 @@ from neo4j.exceptions import ServiceUnavailable, CypherTypeError, CypherSyntaxEr
 from neo4j.spatial import Point
 from flask import current_app
 from . import database as db_pg
+from typing import Dict, List, Set, Tuple, Optional, Any
+
+# (Các import và định nghĩa khác trong file graph_db.py)
+
+# ... (các hàm khác)
 # Lấy logger cho module này
 log = logging.getLogger(__name__) # Dùng logger chuẩn
 
@@ -519,10 +524,7 @@ def merge_screen(screen_id: str, app_name: str, activity_name: str | None,
     except Exception as e:
         logger.error(f"Lỗi không mong muốn trong Neo4j Transaction (merge_screen cho {screen_id}): {type(e).__name__} - {e}", exc_info=True)
         return False
-# ... (các hàm get_driver, close_driver, init_app, execute_read, execute_write, merge_screen, etc. giữ nguyên) ...
 
-# Thêm/Sửa trong file htp6/app/graph_db.py
-# ... (imports và các hàm khác) ...
 
 def merge_transition(source_screen_id: str, target_screen_id: str, app_name: str,
                      action_details: dict, result_status: str, log_id: int | None) -> bool:
@@ -795,16 +797,14 @@ def get_transitions_from_screen(screen_id):
 
 
 def get_app_graph_data(app_name: str) -> dict | None:
-    """
-    Lấy dữ liệu nodes (Screen) và edges (TRANSITION) chuẩn hóa cho Cytoscape.js.
-    Đã sửa để trả về các thuộc tính cạnh riêng lẻ.
-    """
     logger = current_app.logger if current_app else log
     logger.info(f"Getting graph data for app: '{app_name}'")
     if not app_name: return {"nodes": [], "edges": []}
 
-    driver = get_driver()
-    if not driver: return None
+    driver = get_driver() # Sử dụng get_driver() hiện tại của bạn
+    if not driver:
+        logger.error(f"GRAPH_DB (get_app_graph_data): Neo4j driver not available for app '{app_name}'.")
+        return None # Hoặc {"nodes": [], "edges": []} để tránh lỗi frontend
 
     cy_elements = {"nodes": [], "edges": []}
     node_ids_found = set()
@@ -817,9 +817,7 @@ def get_app_graph_data(app_name: str) -> dict | None:
                 MATCH (n:Screen {app_name: $app_name})
                 WHERE n.screen_id IS NOT NULL
                 RETURN n.screen_id AS id,
-                       n.activity_name AS activity,
-                       n.status AS status,
-                       n.element_count AS element_count
+                       properties(n) as props  // Lấy tất cả thuộc tính của node
                 ORDER BY n.screen_id
             """
             logger.debug(f"Executing Node Query for app '{app_name}':\n{node_query}")
@@ -827,13 +825,18 @@ def get_app_graph_data(app_name: str) -> dict | None:
             processed_nodes = 0
             for record in nodes_result:
                 node_id = record["id"]
-                element_count = record["element_count"] if record["element_count"] is not None else 0
+                node_properties = dict(record["props"]) # Chuyển đổi sang dict
+                
+                # Tạo node_data từ properties, đảm bảo các key cần thiết có mặt
                 node_data = {
                     "id": node_id,
-                    "activity": record["activity"],
-                    "status": record["status"],
-                    "element_count": element_count,
-                    "label": node_id[:8] + '...' if node_id and len(node_id) > 8 else node_id
+                    "label": node_properties.get("screen_id", node_id)[:15] + '...' if node_properties.get("screen_id") and len(node_properties.get("screen_id")) > 15 else node_properties.get("screen_id", node_id),
+                    "status": node_properties.get("status"),
+                    "activity": node_properties.get("activity_name"), # Đảm bảo key khớp
+                    "element_count": node_properties.get("element_count", 0),
+                    "screenshot_path": node_properties.get("screenshot_path"),
+                    "app_name": node_properties.get("app_name") # Cần cho hiển thị screenshot
+                    # Thêm các thuộc tính khác bạn muốn hiển thị hoặc dùng ở frontend
                 }
                 node_data_clean = {k: v for k, v in node_data.items() if v is not None}
                 cy_elements["nodes"].append({"data": node_data_clean})
@@ -841,25 +844,24 @@ def get_app_graph_data(app_name: str) -> dict | None:
                 node_ids_found.add(node_id)
             logger.info(f"Processed {processed_nodes} nodes for app '{app_name}'.")
 
-            # 2. Lấy edges TRANSITION - === SỬA QUERY CẠNH ===
+
+            # 2. Lấy edges TRANSITION
             edge_query = """
                 MATCH (a:Screen {app_name: $app_name})-[r:TRANSITION]->(b:Screen {app_name: $app_name})
                 WHERE a.screen_id IS NOT NULL AND b.screen_id IS NOT NULL
                 RETURN a.screen_id AS source,
                        b.screen_id AS target,
-                       // Lấy các thuộc tính nguyên thủy trực tiếp từ cạnh 'r'
-                       r.actionType AS action_type,
+                       r.actionType AS action_type, // Đảm bảo tên thuộc tính khớp với trong Neo4j
                        r.macro_code AS macro_code,
-                       r.element_id AS element_id, // ID của element đã tương tác
+                       r.element_id AS element_id,
                        r.identifier_type AS identifier_type,
-                       r.element_text AS element_text, // Text của element (nếu có)
+                       r.element_text AS element_text,
                        r.status AS status,
                        r.attempt_count AS attempt_count,
                        r.success_count AS success_count,
-                       r.params_json_str AS params_json, // Lấy chuỗi JSON params
-                       elementId(r) AS neo4j_edge_id
+                       r.params_json_str AS params_json, // Đảm bảo tên thuộc tính khớp
+                       elementId(r) AS neo4j_edge_id  // Lấy ID nội bộ của Neo4j cho cạnh
             """
-            # ============================================
             logger.debug(f"Executing Edge Query for app '{app_name}':\n{edge_query}")
             edges_result = session.run(edge_query, app_name=app_name)
 
@@ -874,25 +876,23 @@ def get_app_graph_data(app_name: str) -> dict | None:
                     logger.warning(f"Skipping edge {record['neo4j_edge_id']} because source '{source_id}' or target '{target_id}' node was not found/valid.")
                     continue
 
-                edge_id = f"edge_{record['neo4j_edge_id']}" if record['neo4j_edge_id'] else f"edge_{source_id}_{target_id}_{edge_counter}"
+                edge_id_for_cytoscape = f"edge_{record['neo4j_edge_id']}" if record['neo4j_edge_id'] else f"edge_fallback_{source_id}_{target_id}_{edge_counter}"
 
-                # Tạo edge_data từ các thuộc tính đã lấy
                 edge_data = {
-                    "id": edge_id,
+                    "id": edge_id_for_cytoscape,
                     "source": source_id,
                     "target": target_id,
                     "action_type": record["action_type"],
                     "macro_code": record["macro_code"],
-                    "element_id": record["element_id"], # <<< Giờ đã có trực tiếp
+                    "element_id": record["element_id"],
                     "identifier_type": record["identifier_type"],
                     "element_text": record["element_text"],
                     "status": record["status"],
                     "attempt_count": record["attempt_count"],
                     "success_count": record["success_count"],
-                    "params_json": record["params_json"] # Truyền chuỗi JSON
-                    # Thêm các thuộc tính khác nếu cần
+                    "params_json": record["params_json"],
+                    "neo4j_edge_id": record["neo4j_edge_id"] # ✨✨ THÊM DÒNG NÀY ✨✨
                 }
-                # Loại bỏ các key có giá trị None trước khi gửi cho Cytoscape
                 edge_data_clean = {k: v for k, v in edge_data.items() if v is not None}
                 cy_elements["edges"].append({"data": edge_data_clean})
                 processed_edges += 1
@@ -1603,7 +1603,7 @@ def convert_unknown_to_defined_node_wrapper(
         return False, f"Lỗi hệ thống khi cập nhật Neo4j: {e}"
     
 
-    
+
 def update_transition_by_neo4j_id_tx(tx: Transaction, neo4j_edge_id: str, properties_to_set: dict) -> dict:
     """
     Cập nhật các thuộc tính của một cạnh TRANSITION dựa trên elementId() của nó.
@@ -1679,3 +1679,407 @@ def update_transition_by_neo4j_id_tx(tx: Transaction, neo4j_edge_id: str, proper
     except Exception as e:
         logger.error(f"GRAPH_DB: Lỗi khi thực thi Cypher để cập nhật transition ID {neo4j_edge_id}: {e}", exc_info=True)
         return {"success": False, "error": f"Lỗi cơ sở dữ liệu khi cập nhật transition: {str(e)}"}    
+
+
+
+def get_all_nodes_and_relationships_for_cytoscape(app_name_param: str) -> Dict[str, List[Dict]]:
+    """
+    Lấy tất cả các node (:Screen) và relationship (:TRANSITION) cho một app_name cụ thể
+    và định dạng chúng cho Cytoscape.js.
+
+    Args:
+        app_name_param: Tên của ứng dụng để lấy dữ liệu đồ thị.
+
+    Returns:
+        Một dictionary chứa hai list: 'nodes' và 'edges',
+        đã được định dạng cho Cytoscape.
+        Ví dụ:
+        {
+            "nodes": [
+                {"data": {"id": "node_elementId1", "name": "Screen Name 1", ...các thuộc tính khác...}},
+                ...
+            ],
+            "edges": [
+                {
+                    "data": {
+                        "id": "edge_elementId2",
+                        "source": "node_sourceNodeElementId",
+                        "target": "node_targetNodeElementId",
+                        "neo4j_edge_id": "elementId2", # ID Neo4j gốc của cạnh
+                        ...các thuộc tính khác của transition...
+                    }
+                },
+                ...
+            ]
+        }
+    """
+    driver: Optional[Driver] = current_app.neo4j_driver
+    if not driver:
+        current_app.logger.error("GRAPH_DB: Neo4j driver not initialized.")
+        return {"nodes": [], "edges": []}
+
+    cy_nodes: List[Dict[str, Any]] = []
+    cy_edges: List[Dict[str, Any]] = []
+    processed_nodes: Set[str] = set()
+    processed_edges: Set[str] = set()
+
+    try:
+        with driver.session(database=current_app.config.get("NEO4J_DATABASE", "neo4j")) as session:
+            # Truy vấn lấy tất cả Screen nodes và các TRANSITION relationships giữa chúng cho app_name cụ thể
+            # Sử dụng OPTIONAL MATCH để bao gồm cả các node không có relationship nào
+            query = """
+            MATCH (n:Screen {app_name: $app_name})
+            OPTIONAL MATCH (n)-[r:TRANSITION]->(m:Screen {app_name: $app_name})
+            WHERE m IS NOT NULL OR r IS NULL // Đảm bảo m tồn tại nếu r tồn tại, hoặc r không tồn tại
+            RETURN n, r, m
+            """
+            # print(f"GRAPH_DB: Executing Cypher query for app_name: {app_name_param}")
+            # print(f"GRAPH_DB: Query: {query}")
+
+            results: EagerResult = session.run(query, app_name=app_name_param)
+
+            for record in results:
+                n = record["n"]
+                r = record["r"]
+                m = record["m"] # Có thể là None nếu không có outgoing transition từ n hoặc n là node cô lập
+
+                # Xử lý Node n (node nguồn hoặc node cô lập)
+                if n and n.element_id not in processed_nodes:
+                    node_properties = dict(n.items()) # Lấy tất cả thuộc tính của node n
+                    # Đảm bảo các thuộc tính thời gian được chuyển đổi nếu cần (ví dụ sang ISO format string)
+                    for key, value in node_properties.items():
+                        if isinstance(value, datetime):
+                            node_properties[key] = value.isoformat()
+                        # Chuyển đổi các kiểu dữ liệu không phải JSON serializable nếu có
+                        elif not isinstance(value, (str, int, float, bool, list, dict, type(None))):
+                            node_properties[key] = str(value)
+
+
+                    # ID cho Cytoscape phải là duy nhất và thường là string
+                    cytoscape_node_id = f"node_{n.element_id}"
+                    node_data_for_cytoscape = {
+                        "id": cytoscape_node_id,
+                        "neo4j_node_id": n.element_id, # Lưu ID Neo4j gốc của node
+                        **node_properties
+                    }
+                    # Đảm bảo có trường 'name' hoặc 'label' cho Cytoscape hiển thị
+                    if 'name' not in node_data_for_cytoscape and 'screen_id' in node_data_for_cytoscape:
+                        node_data_for_cytoscape['name'] = node_data_for_cytoscape['screen_id']
+                    elif 'name' not in node_data_for_cytoscape and 'logical_pie_name' in node_data_for_cytoscape:
+                         node_data_for_cytoscape['name'] = node_data_for_cytoscape['logical_pie_name']
+
+
+                    cy_nodes.append({"data": node_data_for_cytoscape})
+                    processed_nodes.add(n.element_id)
+                    # current_app.logger.debug(f"GRAPH_DB: Added node {cytoscape_node_id} with data: {node_data_for_cytoscape}")
+
+
+                # Xử lý Node m (node đích), nếu tồn tại và chưa được xử lý
+                if m and m.element_id not in processed_nodes:
+                    node_properties_m = dict(m.items())
+                    for key, value in node_properties_m.items():
+                        if isinstance(value, datetime):
+                            node_properties_m[key] = value.isoformat()
+                        elif not isinstance(value, (str, int, float, bool, list, dict, type(None))):
+                            node_properties_m[key] = str(value)
+
+                    cytoscape_node_id_m = f"node_{m.element_id}"
+                    node_data_m_for_cytoscape = {
+                        "id": cytoscape_node_id_m,
+                        "neo4j_node_id": m.element_id,
+                        **node_properties_m
+                    }
+                    if 'name' not in node_data_m_for_cytoscape and 'screen_id' in node_data_m_for_cytoscape:
+                        node_data_m_for_cytoscape['name'] = node_data_m_for_cytoscape['screen_id']
+                    elif 'name' not in node_data_m_for_cytoscape and 'logical_pie_name' in node_data_m_for_cytoscape:
+                         node_data_m_for_cytoscape['name'] = node_data_m_for_cytoscape['logical_pie_name']
+
+
+                    cy_nodes.append({"data": node_data_m_for_cytoscape})
+                    processed_nodes.add(m.element_id)
+                    # current_app.logger.debug(f"GRAPH_DB: Added target node {cytoscape_node_id_m} with data: {node_data_m_for_cytoscape}")
+
+
+                # Xử lý Relationship r (cạnh)
+                if r:
+                    # ID của Neo4j cho một relationship là r.element_id
+                    # ID của Cytoscape cho một cạnh phải là duy nhất
+                    cytoscape_edge_id = f"edge_{r.element_id}"
+
+                    if cytoscape_edge_id not in processed_edges:
+                        edge_properties = dict(r.items()) # Lấy tất cả thuộc tính của relationship r
+
+                        # Đảm bảo các thuộc tính thời gian được chuyển đổi
+                        for key, value in edge_properties.items():
+                            if isinstance(value, datetime):
+                                edge_properties[key] = value.isoformat()
+                            elif not isinstance(value, (str, int, float, bool, list, dict, type(None))):
+                                edge_properties[key] = str(value)
+
+
+                        # Thêm 'neo4j_edge_id' một cách tường minh để frontend dễ dàng truy cập ID gốc của Neo4j
+                        # Đây chính là r.element_id
+                        edge_properties['neo4j_edge_id'] = r.element_id
+
+                        # 'source' và 'target' cho Cytoscape phải trỏ đến ID của các node Cytoscape
+                        source_node_cy_id = f"node_{r.start_node.element_id}"
+                        target_node_cy_id = f"node_{r.end_node.element_id}"
+
+                        edge_data_for_cytoscape = {
+                            "id": cytoscape_edge_id,      # ID duy nhất cho Cytoscape
+                            "source": source_node_cy_id,  # ID node nguồn của Cytoscape
+                            "target": target_node_cy_id,  # ID node đích của Cytoscape
+                            **edge_properties            # Bao gồm 'neo4j_edge_id' và các thuộc tính khác
+                        }
+                        
+                        # Ghi log để debug (có thể xóa hoặc comment lại sau khi debug xong)
+                        current_app.logger.debug(f"GRAPH_DB: Processing edge. r.element_id: {r.element_id}, type: {type(r.element_id)}")
+                        current_app.logger.debug(f"GRAPH_DB: edge_properties for Cytoscape edge {cytoscape_edge_id}: {edge_properties}")
+                        current_app.logger.debug(f"GRAPH_DB: final edge_data_for_cytoscape for edge {cytoscape_edge_id}: {edge_data_for_cytoscape}")
+
+                        cy_edges.append({"data": edge_data_for_cytoscape})
+                        processed_edges.add(cytoscape_edge_id)
+            
+            # current_app.logger.info(f"GRAPH_DB: Successfully fetched {len(cy_nodes)} nodes and {len(cy_edges)} edges for app: {app_name_param}")
+
+    except Neo4jError as e:
+        current_app.logger.error(f"GRAPH_DB: Neo4j query failed for app {app_name_param}: {e}", exc_info=True)
+        # Trả về cấu trúc rỗng nếu có lỗi để tránh lỗi ở frontend
+        return {"nodes": [], "edges": []}
+    except Exception as e:
+        current_app.logger.error(f"GRAPH_DB: An unexpected error occurred while fetching graph data for app {app_name_param}: {e}", exc_info=True)
+        return {"nodes": [], "edges": []}
+
+    return {"nodes": cy_nodes, "edges": cy_edges}
+
+def get_all_app_names() -> List[str]:
+    driver = get_driver() # << SỬA Ở ĐÂY: Gọi hàm get_driver() của module này
+    if not driver:
+        # get_driver() đã log lỗi nếu có, ở đây chỉ cần log thêm context nếu muốn
+        log.error("GRAPH_DB (get_all_app_names): Neo4j driver not available from get_driver().") # Dùng log chuẩn của module
+        return []
+
+    app_names_list: List[str] = []
+    try:
+        # current_app.config vẫn có thể được sử dụng ở đây nếu hàm này được gọi trong app context
+        db_name = current_app.config.get("NEO4J_DATABASE", "neo4j")
+        with driver.session(database=db_name) as session:
+            query = """
+            MATCH (s:Screen)
+            WHERE s.app_name IS NOT NULL AND s.app_name <> ''
+            RETURN DISTINCT s.app_name AS appName
+            ORDER BY appName ASC
+            """
+            results = session.run(query)
+            for record in results:
+                app_names_list.append(record["appName"])
+            log.info(f"GRAPH_DB: Successfully fetched app names: {app_names_list}")
+            return app_names_list
+    except RuntimeError: # Xảy ra nếu current_app.config không truy cập được (ví dụ: ngoài app context)
+        log.error("GRAPH_DB (get_all_app_names): Cannot access current_app.config. Ensure this is called within Flask context.")
+        return []
+    except Neo4jError as e:
+        log.error(f"GRAPH_DB: Neo4j query failed in get_all_app_names: {str(e)}", exc_info=True)
+    except Exception as e:
+        log.error(f"GRAPH_DB: Unexpected error in get_all_app_names: {str(e)}", exc_info=True)
+    return []
+
+def get_elements_for_screen_dropdown(screen_id: str):
+    if not screen_id:
+        current_app.logger.warning("GRAPH_DB: get_elements_for_screen_dropdown - screen_id không được cung cấp.")
+        return []
+
+    driver = get_driver()
+    if not driver:
+        current_app.logger.error("GRAPH_DB: Không thể lấy Neo4j driver trong get_elements_for_screen_dropdown.")
+        return []
+
+    query = """
+    MATCH (s:Screen {screen_id: $screen_id_param})-[:HAS_ELEMENT]->(e:Element)
+    WITH e
+    ORDER BY 
+        CASE WHEN e.resource_id IS NOT NULL AND e.resource_id <> '' THEN 0 ELSE 1 END, 
+        COALESCE(e.resource_id, e.element_id, e.text_content, e.class_name)
+    RETURN 
+        e.element_id AS value,          // element_id thực sự
+        e.resource_id AS prop_resource_id,
+        e.text_content AS prop_text_content,
+        e.class_name AS prop_class_name,
+        e.identifier_type AS prop_identifier_type // Lấy thêm identifier_type nếu có trên node Element
+    """
+    try:
+        db_name = current_app.config.get("NEO4J_DATABASE", "neo4j")
+        with driver.session(database=db_name) as session:
+            results = session.run(query, screen_id_param=screen_id)
+            elements_list = []
+            for record in results:
+                val_element_id = record["value"]
+                res_id = record["prop_resource_id"]
+                txt = record["prop_text_content"]
+                cls_name = record["prop_class_name"]
+                # Lấy identifier_type từ record, nếu không có thì để chuỗi rỗng hoặc một giá trị mặc định
+                identifier_type = record["prop_identifier_type"] or "" 
+
+                label_parts = []
+                primary_id_display = f"{res_id} [ResID]" if res_id else f"{val_element_id} [ElemID]"
+                label_parts.append(primary_id_display)
+
+                context_info = []
+                if txt:
+                    preview = (txt[:25] + '...') if len(txt) > 28 else txt
+                    context_info.append(f"\"{preview}\"")
+                if cls_name and not res_id : 
+                    context_info.append(f"<{cls_name}>")
+                
+                if context_info:
+                    label_parts.append(f"({', '.join(context_info)})")
+                
+                display_label = " ".join(label_parts)
+                
+                elements_list.append({
+                    "value": val_element_id, 
+                    "label": display_label.strip(),
+                    "actual_text": txt or "",  # Trả về text_content đầy đủ
+                    "identifier_type_from_db": identifier_type # Trả về identifier_type
+                })
+            
+            return elements_list
+    except Exception as e:
+        current_app.logger.error(f"GRAPH_DB: Lỗi khi truy vấn elements cho dropdown của screen {screen_id}: {e}", exc_info=True)
+        return []
+
+def delete_transition_by_neo4j_id(neo4j_edge_id: str) -> tuple[bool, str | None]:
+    """
+    Xóa một cạnh TRANSITION dựa trên elementId() của nó.
+    """
+    logger = current_app.logger
+    if not neo4j_edge_id:
+        return False, "Neo4j Edge ID không được cung cấp."
+
+    driver = get_driver()
+    if not driver:
+        logger.error("GRAPH_DB (delete_transition): Neo4j driver không khả dụng.")
+        return False, "Lỗi kết nối CSDL đồ thị."
+
+    cypher_query = """
+    MATCH ()-[r]->()
+    WHERE elementId(r) = $edge_id
+    DELETE r
+    RETURN count(r) AS deleted_count 
+    // Lưu ý: count(r) sau DELETE sẽ luôn là 0. 
+    // Để kiểm tra xem có gì được xóa không, bạn có thể cần một cách tiếp cận khác
+    // hoặc dựa vào việc query có chạy mà không lỗi không và không tìm thấy cạnh đó nữa.
+    // Cách tốt hơn là tách thành 2 query: MATCH để xem có tồn tại không, rồi DELETE.
+    // Hoặc, đơn giản là thử DELETE và nếu không có lỗi thì coi như thành công (nếu nó đã bị xóa trước đó cũng OK).
+    """
+    # Query chính xác hơn để kiểm tra sự tồn tại trước và sau khi xóa:
+    check_then_delete_query = """
+    MATCH ()-[r]->()
+    WHERE elementId(r) = $edge_id
+    WITH r, count(r) as initial_count
+    DETACH DELETE r // Sử dụng DETACH DELETE nếu r là node, chỉ DELETE cho relationship
+    RETURN initial_count // Trả về số lượng cạnh tìm thấy ban đầu
+    """
+    # Vì r là relationship, chỉ cần DELETE r
+    delete_query_final = """
+    MATCH ()-[r:TRANSITION]->() 
+    WHERE elementId(r) = $edge_id
+    WITH r // Đảm bảo r tồn tại trước khi xóa
+    DELETE r
+    RETURN true AS deleted // Trả về true nếu query chạy và tìm thấy r để xóa
+    """
+
+    params = {"edge_id": neo4j_edge_id}
+    
+    try:
+        db_name = current_app.config.get('NEO4J_DATABASE', 'neo4j')
+        with driver.session(database=db_name) as session:
+            # Kiểm tra xem cạnh có tồn tại không trước khi xóa
+            check_exists_result = session.run("MATCH ()-[r:TRANSITION]->() WHERE elementId(r) = $edge_id RETURN r", params)
+            if not check_exists_result.single():
+                logger.warning(f"GRAPH_DB: Không tìm thấy Transition với Neo4j ID '{neo4j_edge_id}' để xóa.")
+                return False, f"Transition với ID '{neo4j_edge_id}' không tồn tại."
+
+            # Nếu tồn tại, tiến hành xóa
+            result = session.run(delete_query_final, params)
+            # Neo4j không trả về summary trực tiếp cho delete trên một transaction.
+            # Nếu query chạy không lỗi, và check_exists ở trên đã xác nhận, ta coi là thành công.
+            # Hoặc, bạn có thể query lại để xem nó còn tồn tại không.
+            # Tạm thời, nếu không có exception, coi là thành công nếu check_exists đã qua.
+            
+            logger.info(f"GRAPH_DB: Đã thực thi lệnh xóa cho Transition Neo4j ID: {neo4j_edge_id}.")
+            return True, f"Đã gửi lệnh xóa cho transition ID {neo4j_edge_id}."
+            
+    except Exception as e:
+        logger.error(f"GRAPH_DB: Lỗi khi xóa transition Neo4j ID {neo4j_edge_id}: {e}", exc_info=True)
+        return False, f"Lỗi CSDL khi xóa transition: {str(e)}"
+def add_new_transition_logic(source_screen_id: str, target_screen_id: str, app_name: str, 
+                             action_properties: dict) -> tuple[bool, str | None, dict | None]:
+    """
+    Tạo một cạnh :TRANSITION mới hoàn toàn giữa hai Screen nodes.
+    action_properties chứa tất cả các thuộc tính cho cạnh mới.
+    """
+    logger = current_app.logger
+    if not all([source_screen_id, target_screen_id, app_name, action_properties, action_properties.get('actionType')]):
+        return False, "Thiếu thông tin bắt buộc (source, target, app_name, actionType).", None
+
+    driver = get_driver()
+    if not driver:
+        return False, "Neo4j driver không khả dụng.", None
+
+    # Chuẩn bị các thuộc tính cơ bản cho cạnh mới
+    props_to_create = action_properties.copy() # Sao chép để không thay đổi dict gốc
+    props_to_create['created_at'] = datetime.now(timezone.utc).isoformat()
+    props_to_create['updated_at'] = props_to_create['created_at']
+    # Đảm bảo các thuộc tính số có giá trị mặc định nếu không được cung cấp
+    props_to_create.setdefault('attempt_count', 0)
+    props_to_create.setdefault('success_count', 0)
+    props_to_create.setdefault('status', 'provisional')
+
+
+    # Xây dựng mệnh đề SET động cho các thuộc tính
+    set_clauses = []
+    params_for_cypher = {
+        "source_id": source_screen_id,
+        "target_id": target_screen_id,
+        "app_name_param": app_name,
+    }
+    for key, value in props_to_create.items():
+        if value is not None: # Chỉ SET các thuộc tính có giá trị
+            placeholder = f"prop_{key}" # Tạo placeholder duy nhất
+            set_clauses.append(f"r.{key} = ${placeholder}")
+            params_for_cypher[placeholder] = value
+    
+    if not set_clauses: # Phải có ít nhất actionType
+         return False, "Không có thuộc tính hợp lệ để tạo transition.", None
+
+    set_statement = ", ".join(set_clauses)
+
+    # Không dùng MERGE vì chúng ta muốn tạo một cạnh mới hoàn toàn,
+    # cho phép nhiều cạnh giống hệt nhau nếu người dùng cố ý (hoặc cần cơ chế kiểm tra trùng lặp riêng).
+    # Hoặc, nếu muốn tránh trùng lặp dựa trên một số key, có thể dùng MERGE với các key đó.
+    # Hiện tại, dùng CREATE để đơn giản.
+    cypher_query = f"""
+    MATCH (a:Screen {{screen_id: $source_id, app_name: $app_name_param}})
+    MATCH (b:Screen {{screen_id: $target_id, app_name: $app_name_param}})
+    CREATE (a)-[r:TRANSITION]->(b)
+    SET {set_statement}
+    RETURN elementId(r) AS neo4j_edge_id, properties(r) as new_edge_props
+    """
+    
+    try:
+        db_name = current_app.config.get('NEO4J_DATABASE', 'neo4j')
+        with driver.session(database=db_name) as session:
+            result = session.run(cypher_query, params_for_cypher)
+            record = result.single()
+            if record and record["neo4j_edge_id"]:
+                new_edge_info = dict(record["new_edge_props"])
+                new_edge_info["neo4j_edge_id"] = record["neo4j_edge_id"]
+                logger.info(f"GRAPH_DB: Tạo thành công transition mới từ '{source_screen_id}' đến '{target_screen_id}'. Neo4j ID: {record['neo4j_edge_id']}")
+                return True, "Tạo transition thành công.", new_edge_info
+            else:
+                logger.error(f"GRAPH_DB: Tạo transition mới thất bại (không có record trả về) từ '{source_screen_id}' đến '{target_screen_id}'.")
+                return False, "Tạo transition trong CSDL đồ thị thất bại (không có kết quả).", None
+    except Exception as e:
+        logger.error(f"GRAPH_DB: Lỗi khi tạo transition mới: {e}", exc_info=True)
+        return False, f"Lỗi server khi tạo transition: {str(e)}", None

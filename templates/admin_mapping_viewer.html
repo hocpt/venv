@@ -85,62 +85,172 @@
 {# MODAL SỬA TRANSITION #}
 <div class="modal fade" id="editTransitionModal" tabindex="-1" aria-labelledby="editTransitionModalLabel"
     aria-hidden="true">
-    {# ... Nội dung modal giữ nguyên như trước ... #}
-</div>
-{% endblock %}
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editTransitionModalLabel">Sửa Transition</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editTransitionForm"> {# <--- ID quan trọng #} {# Neo4j ID (ẩn hoặc chỉ đọc) #} <input
+                        type="hidden" id="editTransitionNeo4jId" name="neo4j_id">
 
-{% block scripts %}
-{{ super() }}
-<script>
-    window.templatePageConfig = {
-        appNameFromFlask: "{{ selected_app_name or '' }}",
-        csrfToken: "{{ csrf_token() if csrf_token else '' }}",
-        baseMappingViewerUrl: "{{ url_for('admin.admin_mapping_viewer') }}",
-        urlForAdminScreenElements: "{{ url_for('admin.admin_screen_elements', screen_id='__SCREEN_ID_PLACEHOLDER__') }}", // Đổi tên placeholder
-        apiBaseUrls: {
-            mappingData: "{{ url_for('admin.api_get_app_graph_data') }}",
-            // QUAN TRỌNG: Đảm bảo '__SCREEN_ID_PLACEHOLDER__' được bao gồm ở đây và đúng định dạng
-            screenElements: "{{ url_for('admin.api_get_screen_elements_for_mapping', screen_id='__SCREEN_ID_PLACEHOLDER__') }}",
-            updateTransition: "/admin/api/mapping/transition/update/"
-        },
-        domElementIds: {
-            graphContainer: 'cyGraphContainer',
-            loadingIndicator: 'loadingIndicator',
-            selectionDetailsPanel: 'selectionDetailsPanel',
-            detailsPanelTextContent: 'detailsPanelTextContent',
-            detailsPanelActionsArea: 'detailsPanelActionsArea',
-            detailsPanelScreenshotArea: 'detailsPanelScreenshotArea',
-            detailsPanelScreenshotContainer: 'detailsPanelScreenshotContainer',
-            detailsPanelScreenshotImage: 'detailsPanelScreenshotImage',
-            appSelectForm: 'appSelectForm',
-            appNameSelect: 'appNameSelect',
-            loadGraphButton: 'loadGraphButton',
-            refreshGraphButton: 'refreshGraphBtn',
-            editTransitionModal: 'editTransitionModal',
-            editTransitionForm: 'editTransitionForm',
-            saveTransitionChangesBtn: 'saveTransitionChangesBtn',
-            editTransitionErrorMessages: 'editTransitionErrorMessages',
-            editTransitionNeo4jIdInput: 'editTransitionNeo4jId',
-            editTransitionSourceNodeInput: 'editTransitionSourceNode',
-            editTransitionTargetNodeInput: 'editTransitionTargetNode',
-            editTransitionActionTypeSelect: 'editTransitionActionTypeSelect',
-            editTransitionElementIdInput: 'editTransitionElementIdInput',
-            editTransitionIdentifierTypeInput: 'editTransitionIdentifierTypeInput',
-            editTransitionElementTextInput: 'editTransitionElementTextInput',
-            editTransitionMacroCodeInput: 'editTransitionMacroCodeInput',
-            editTransitionParamsJsonTextarea: 'editTransitionParamsJsonTextarea',
-            editTransitionStatusSelect: 'editTransitionStatusSelect',
-            editTransitionAttemptCountInput: 'editTransitionAttemptCountInput',
-            editTransitionSuccessCountInput: 'editTransitionSuccessCountInput'
-        }
-    };
-</script>
-<script type="module" src="{{ url_for('static', filename='js/admin_mapping_viewer/config_mapping.js') }}"></script>
-<script type="module" src="{{ url_for('static', filename='js/admin_mapping_viewer/utils_mapping.js') }}"></script>
-<script type="module"
-    src="{{ url_for('static', filename='js/admin_mapping_viewer/modal_edit_transition.js') }}"></script>
-<script type="module"
-    src="{{ url_for('static', filename='js/admin_mapping_viewer/details_panel_manager.js') }}"></script>
-<script type="module" src="{{ url_for('static', filename='js/admin_mapping_viewer/cytoscape_manager.js') }}"></script>
-<script type="module" src="{{ url_for('static', filename='js/admin_mapping_viewer/main_mapping.js') }}"></script>
-{% endblock %}
+                        {# Source & Target Nodes (thường là chỉ đọc) #}
+                        <div class="mb-3 row">
+                            <div class="col">
+                                <label for="editTransitionSourceNode" class="form-label">Source Node</label>
+                                <input type="text" readonly class="form-control-plaintext" id="editTransitionSourceNode"
+                                    name="source_node">
+                            </div>
+                            <div class="col">
+                                <label for="editTransitionTargetNode" class="form-label">Target Node</label>
+                                <input type="text" class="form-control form-control-sm" id="editTransitionTargetNode"
+                                    name="target_node">
+                                {# TODO: Ideal: Thay thế bằng dropdown các screen_id hiện có #}
+                            </div>
+                        </div>
+
+                        {# Action Type #}
+                        <div class="mb-3">
+                            <label for="editTransitionActionTypeSelect" class="form-label">Loại Hành Động</label>
+                            <select class="form-select form-select-sm" id="editTransitionActionTypeSelect"
+                                name="action_type">
+                                {# Options sẽ được populate bởi JS #}
+                            </select>
+                        </div>
+
+                        {# Element ID #}
+                        <div class="mb-3">
+                            <label for="editTransitionElementIdInput" class="form-label">Element ID (tương tác trên
+                                Source Node)</label>
+                            <select class="form-select form-select-sm" id="editTransitionElementIdInput"
+                                name="element_id">
+                                <option value="">-- Chọn Element --</option> {# Hoặc "-- Đang tải..." #}
+                            </select>
+                        </div>
+
+                        {# Identifier Type #}
+                        <div class="mb-3" style="display: none;">
+                            <label for="editTransitionIdentifierTypeInput" class="form-label">Loại Định danh
+                                Element</label>
+                            <input type="text" class="form-control form-control-sm"
+                                id="editTransitionIdentifierTypeInput" name="identifier_type" readonly>
+                        </div>
+
+                        {# Element Text - Thêm style="display: none;" để ẩn #}
+                        <div class="mb-3" style="display: none;">
+                            <label for="editTransitionElementTextInput" class="form-label">Element Text</label>
+                            <input type="text" class="form-control form-control-sm" id="editTransitionElementTextInput"
+                                name="element_text" readonly>
+                        </div>
+
+                        {# Macro Code #}
+                        <div class="mb-3" id="macroCodeContainer"> {# Thêm ID cho div cha để dễ ẩn/hiện #}
+                            <label for="editTransitionMacroCodeInput" class="form-label">Macro Code</label>
+                            <select class="form-select form-select-sm" id="editTransitionMacroCodeInput"
+                                name="macro_code">
+                                <option value="">-- Chọn Macro Code --</option>
+                            </select>
+                        </div>
+
+                        {# Params JSON #}
+                        <div class="mb-3">
+                            <label for="editTransitionParamsJsonTextarea" class="form-label">Tham Số Hành Động
+                                (JSON)</label>
+                            <textarea class="form-control form-control-sm" id="editTransitionParamsJsonTextarea"
+                                name="params_json_str" rows="3"></textarea>
+                        </div>
+
+                        {# Status #}
+                        <div class="mb-3">
+                            <label for="editTransitionStatusSelect" class="form-label">Trạng Thái Transition</label>
+                            <select class="form-select form-select-sm" id="editTransitionStatusSelect" name="status">
+                                {# Options sẽ được populate bởi JS #}
+                            </select>
+                        </div>
+
+                        {# Attempt Count & Success Count #}
+                        <div class="row mb-3">
+                            <div class="col">
+                                <label for="editTransitionAttemptCountInput" class="form-label">Số lần thử</label>
+                                <input type="number" class="form-control form-control-sm"
+                                    id="editTransitionAttemptCountInput" name="attempt_count" min="0">
+                            </div>
+                            <div class="col">
+                                <label for="editTransitionSuccessCountInput" class="form-label">Số lần thành
+                                    công</label>
+                                <input type="number" class="form-control form-control-sm"
+                                    id="editTransitionSuccessCountInput" name="success_count" min="0">
+                            </div>
+                        </div>
+
+                        {# Vùng hiển thị lỗi của modal #}
+                        <div id="editTransitionErrorMessages" class="alert alert-danger mt-2" style="display: none;"
+                            role="alert"></div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Đóng</button>
+                <button type="submit" class="btn btn-primary btn-sm" id="saveTransitionChangesBtn"
+                    form="editTransitionForm">Lưu Thay Đổi</button> {# <--- ID quan trọng #} </div>
+            </div>
+        </div>
+    </div>
+    {% endblock %}
+
+    {% block scripts %}
+    {{ super() }}
+    <script>
+        window.templatePageConfig = {
+            appNameFromFlask: "{{ selected_app_name or '' }}",
+            csrfToken: "{{ csrf_token() if csrf_token else '' }}",
+            baseMappingViewerUrl: "{{ url_for('admin.admin_mapping_viewer') }}",
+            urlForAdminScreenElements: "{{ url_for('admin.admin_screen_elements', screen_id='__SCREEN_ID_PLACEHOLDER__') }}", // Đổi tên placeholder
+            apiBaseUrls: {
+                mappingData: "{{ url_for('admin.api_get_app_graph_data') }}",
+                // QUAN TRỌNG: Đảm bảo '__SCREEN_ID_PLACEHOLDER__' được bao gồm ở đây và đúng định dạng
+                screenElements: "{{ url_for('admin.api_get_screen_elements_for_mapping', screen_id='__SCREEN_ID_PLACEHOLDER__') }}",
+                updateTransition: "/admin/api/mapping/transition/update/"
+            },
+            domElementIds: {
+                graphContainer: 'cyGraphContainer',
+                loadingIndicator: 'loadingIndicator',
+                selectionDetailsPanel: 'selectionDetailsPanel',
+                detailsPanelTextContent: 'detailsPanelTextContent',
+                detailsPanelActionsArea: 'detailsPanelActionsArea',
+                detailsPanelScreenshotArea: 'detailsPanelScreenshotArea',
+                detailsPanelScreenshotContainer: 'detailsPanelScreenshotContainer',
+                detailsPanelScreenshotImage: 'detailsPanelScreenshotImage',
+                appSelectForm: 'appSelectForm',
+                appNameSelect: 'appNameSelect',
+                loadGraphButton: 'loadGraphButton',
+                refreshGraphButton: 'refreshGraphBtn',
+                editTransitionModal: 'editTransitionModal',
+                editTransitionForm: 'editTransitionForm',
+                saveTransitionChangesBtn: 'saveTransitionChangesBtn',
+                editTransitionErrorMessages: 'editTransitionErrorMessages',
+                editTransitionNeo4jIdInput: 'editTransitionNeo4jId',
+                editTransitionSourceNodeInput: 'editTransitionSourceNode',
+                editTransitionTargetNodeInput: 'editTransitionTargetNode',
+                editTransitionActionTypeSelect: 'editTransitionActionTypeSelect',
+                editTransitionElementIdInput: 'editTransitionElementIdInput',
+                editTransitionIdentifierTypeInput: 'editTransitionIdentifierTypeInput',
+                editTransitionElementTextInput: 'editTransitionElementTextInput',
+                editTransitionMacroCodeInput: 'editTransitionMacroCodeInput',
+                editTransitionParamsJsonTextarea: 'editTransitionParamsJsonTextarea',
+                editTransitionStatusSelect: 'editTransitionStatusSelect',
+                editTransitionAttemptCountInput: 'editTransitionAttemptCountInput',
+                editTransitionSuccessCountInput: 'editTransitionSuccessCountInput'
+            }
+        };
+    </script>
+    <script type="module" src="{{ url_for('static', filename='js/admin_mapping_viewer/config_mapping.js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='js/admin_mapping_viewer/utils_mapping.js') }}"></script>
+    <script type="module"
+        src="{{ url_for('static', filename='js/admin_mapping_viewer/modal_edit_transition.js') }}"></script>
+    <script type="module"
+        src="{{ url_for('static', filename='js/admin_mapping_viewer/details_panel_manager.js') }}"></script>
+    <script type="module"
+        src="{{ url_for('static', filename='js/admin_mapping_viewer/cytoscape_manager.js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='js/admin_mapping_viewer/main_mapping.js') }}"></script>
+    {% endblock %}

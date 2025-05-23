@@ -8164,7 +8164,32 @@ def create_new_pie_definition_from_node(
         if conn:
             conn.close()
 
-
+def get_all_macro_definitions_for_dropdown() -> list[dict]:
+    """
+    Lấy danh sách tất cả các macro_code và description từ bảng macro_definitions.
+    Trả về list các dict dạng {'value': macro_code, 'label': 'macro_code - description'}.
+    """
+    conn = get_db_connection()
+    if not conn:
+        current_app.logger.error("DB: Không thể kết nối CSDL (get_all_macro_definitions_for_dropdown).")
+        return []
+    
+    macros_list = []
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute("SELECT macro_code, description FROM macro_definitions ORDER BY macro_code ASC;")
+            rows = cur.fetchall()
+            for row in rows:
+                label = row['macro_code']
+                if row['description']:
+                    label += f" - {row['description'][:50]}" # Giới hạn độ dài description trong label
+                macros_list.append({'value': row['macro_code'], 'label': label})
+    except psycopg2.Error as e:
+        current_app.logger.error(f"DB: Lỗi khi lấy danh sách macro definitions: {e}", exc_info=True)
+    finally:
+        if conn:
+            conn.close()
+    return macros_list
 
 
 

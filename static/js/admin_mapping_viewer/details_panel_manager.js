@@ -1,8 +1,7 @@
 // static/js/admin_mapping_viewer/details_panel_manager.js
-import { APP_CONFIG } from './config_mapping.js';
-import { escapeHtml, sendApiRequest as sendApiRequestFromUtils } from './utils_mapping.js';  // Giả sử escapeHtml ở utils
+import { APP_CONFIG } from './config_mapping.js'; // Giả sử escapeHtml ở utils
 import { openEditTransitionModal } from './modal_edit_transition.js'; // Import hàm mở modal
-
+import { escapeHtml, sendApiRequest } from './utils_mapping.js';
 // DOM Elements của Panel Chi Tiết
 let panelTextContentDiv, panelActionsAreaDiv, panelScreenshotAreaDiv,
     panelScreenshotContainer, panelScreenshotImage;
@@ -35,7 +34,7 @@ function getAndCheckDetailsPanelDOMElements() {
  */
 export function initDetailsPanelManager() {
     console.log("DETAILS_PANEL: initDetailsPanelManager called.");
-    getDetailsPanelDOMElements();
+    getAndCheckDetailsPanelDOMElements();
     if (!panelTextContentDiv || !panelActionsAreaDiv || !panelScreenshotAreaDiv || !panelScreenshotContainer || !panelScreenshotImage) {
         console.error("DETAILS_PANEL: Một hoặc nhiều DOM elements của panel chi tiết không tìm thấy. Kiểm tra ID trong HTML và config_mapping.js DOM_ELEMENT_IDS.");
     } else {
@@ -64,26 +63,214 @@ export function displayNodeDetails(nodeData) {
     if (!panelTextContentDiv || !panelActionsAreaDiv || !panelScreenshotAreaDiv || !panelScreenshotImage || !panelScreenshotContainer) {
         console.error("DETAILS_PANEL: displayNodeDetails - Vẫn thiếu một số DOM elements cần thiết.");
         return;
+    } else {
+        panelActionsAreaDiv.innerHTML = ''; // Xóa tất cả các nút hành động cũ trước khi thêm mới
+        console.log("DETAILS_PANEL: panelActionsAreaDiv được xóa nội dung."); // Log để kiểm tra
     }
 
     console.log("DETAILS_PANEL: Displaying Node Details for nodeData:", JSON.parse(JSON.stringify(nodeData)));
 
     panelActionsAreaDiv.innerHTML = '';
+
+
     panelScreenshotAreaDiv.style.display = 'none';
     panelScreenshotImage.src = '';
     panelScreenshotImage.style.display = 'none';
     panelScreenshotContainer.innerHTML = '';
+    const createTransitionButton = document.createElement('button');
+    createTransitionButton.type = 'button';
+    createTransitionButton.className = 'btn btn-sm btn-success mt-2 ms-2'; // ms-2 để cách nút Xem Elements
+    createTransitionButton.innerHTML = '<i class="fas fa-plus-circle me-1"></i> Tạo Transition Mới';
 
+    const deleteNodeButton = document.createElement('button');
+    deleteNodeButton.type = 'button';
+    deleteNodeButton.className = 'btn btn-sm btn-danger mt-2 ms-2'; // Hoặc màu khác
+    deleteNodeButton.innerHTML = '<i class="fas fa-trash-alt me-1"></i> Xóa Node Này';
+
+    deleteNodeButton.addEventListener('click', async function () {
+        if (confirm(`BẠN CÓ CHẮC CHẮN MUỐN XÓA NODE "${nodeData.id}" (App: ${nodeData.app_name}) KHÔNG? \nHành động này sẽ xóa node, tất cả elements và các transitions liên quan đến nó. KHÔNG THỂ HOÀN TÁC!`)) {
+            deleteNodeButton.disabled = true;
+            deleteNodeButton.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Đang xóa node...';
+            try {
+                // API URL để xóa node
+                // Cần app_name để đảm bảo xóa đúng node nếu screen_id không phải là duy nhất toàn cục
+                const apiUrl = `/admin/api/mapping/management/nodes/${encodeURIComponent(nodeData.id)}/delete`;
+
+                const payload = { app_name: nodeData.app_name }; // Gửi app_name trong body
+
+                console.log(`DETAILS_PANEL: Gửi yêu cầu DELETE đến: ${apiUrl} với payload:`, payload);
+                const response = await sendApiRequest(apiUrl, 'POST', payload); // Dùng POST và gửi app_name trong body để khớp với route Flask đã có
+
+                if (response.success) {
+                    console.log("DETAILS_PANEL: Xóa node thành công!", response.message || '');
+                    // Xóa node khỏi đồ thị Cytoscape hoặc tải lại toàn bộ đồ thị
+                    if (typeof window.removeNodeFromCytoscapeGraph === 'function') {
+                        window.removeNodeFromCytoscapeGraph(nodeData.id); // nodeData.id là ID của Cytoscape node
+                    } else {
+                        console.warn("DETAILS_PANEL: Hàm removeNodeFromCytoscapeGraph không tìm thấy. Cần tải lại đồ thị thủ công.");
+                        if (typeof window.refreshCytoscapeGraph === 'function') {
+                            window.refreshCytoscapeGraph();
+                        } else {
+                            alert("Node đã được xóa. Vui lòng làm mới đồ thị.");
+                        }
+                    }
+                    showDefaultDetailsMessage();
+                } else {
+                    console.error("DETAILS_PANEL: Lỗi khi xóa node từ server:", response.message || 'Lỗi không xác định.');
+                    alert(`Lỗi khi xóa node: ${response.message || 'Lỗi không xác định.'}`);
+                    deleteNodeButton.disabled = false;
+                    deleteNodeButton.innerHTML = '<i class="fas fa-trash-alt me-1"></i> Xóa Node Này';
+                }
+            } catch (error) {
+                console.error("DETAILS_PANEL: Lỗi client khi gửi yêu cầu xóa node:", error);
+                alert(`Lỗi client khi xóa node: ${error.message || String(error)}`);
+                deleteNodeButton.disabled = false;
+                deleteNodeButton.innerHTML = '<i class="fas fa-trash-alt me-1"></i> Xóa Node Này';
+            }
+        }
+    });
+    createTransitionButton.addEventListener('click', function () {
+        console.log("DETAILS_PANEL: Nút 'Tạo Transition Mới' được click cho Node:", JSON.parse(JSON.stringify(nodeData)));
+        // Dữ liệu cơ bản cho một transition mới
+        const newTransitionData = {
+            source: nodeData.id, // Source node là node đang được chọn
+            target: '', // Target sẽ được chọn trong modal
+            action_type: '', // Sẽ được chọn trong modal
+            element_id: '', // Sẽ được chọn trong modal (nếu cần)
+            identifier_type: '',
+            element_text: '',
+            macro_code: '',
+            params_json: '{}', // Mặc định là JSON rỗng
+            status: 'provisional', // Trạng thái mặc định cho transition mới
+            attempt_count: 0,
+            success_count: 0,
+            // Không có neo4j_edge_id vì đây là transition mới
+        };
+
+        // Mở modal (có thể là modal Sửa Transition hiện tại, nhưng với dữ liệu mới và ở chế độ "thêm mới")
+        // Bạn cần điều chỉnh openEditTransitionModal để nó biết đang ở chế độ "thêm" hay "sửa"
+        // Hoặc tạo một hàm/modal riêng cho việc thêm mới.
+        // Tạm thời, chúng ta sẽ giả định openEditTransitionModal có thể xử lý việc này.
+        openEditTransitionModal(newTransitionData, true); // Tham số thứ hai (isCreating = true) để báo hiệu là tạo mới
+    });
     let textDetailsHtml = `<h5>Chi tiết Node (Màn hình)</h5> <ul class="list-group list-group-flush"> <li class="list-group-item"><strong>ID (Screen):</strong> <code>${escapeHtml(nodeData.id)}</code></li> <li class="list-group-item"><strong>Nhãn (Label):</strong> ${escapeHtml(nodeData.label || nodeData.id)}</li> <li class="list-group-item"><strong>App Name:</strong> <code>${escapeHtml(nodeData.app_name || 'N/A')}</code></li> <li class="list-group-item"><strong>Activity:</strong> ${escapeHtml(nodeData.activity || 'N/A')}</li> <li class="list-group-item"><strong>Trạng thái:</strong> <span class="badge bg-info">${escapeHtml(nodeData.status || 'N/A')}</span></li> <li class="list-group-item"><strong>Số Element (ước tính):</strong> ${nodeData.element_count !== undefined ? nodeData.element_count : 'N/A'}</li> <li class="list-group-item"><strong>Kích thước gốc (W x H):</strong> ${escapeHtml(nodeData.original_width || '?')} x ${escapeHtml(nodeData.original_height || '?')}</li> </ul>`;
+
     panelTextContentDiv.innerHTML = textDetailsHtml;
 
-    const screenIdForLink = nodeData.id;
-    if (screenIdForLink && APP_CONFIG.URL_FOR_ADMIN_SCREEN_ELEMENTS && APP_CONFIG.URL_FOR_ADMIN_SCREEN_ELEMENTS.includes('__SCREEN_ID_PLACEHOLDER__')) {
-        const elementPageUrl = APP_CONFIG.URL_FOR_ADMIN_SCREEN_ELEMENTS.replace('__SCREEN_ID_PLACEHOLDER__', encodeURIComponent(screenIdForLink));
-        panelActionsAreaDiv.innerHTML = `<div class="mt-3"><a href="${elementPageUrl}" class="btn btn-sm btn-outline-primary" target="_blank"><i class="fas fa-search me-1"></i> Xem/Phân loại Elements (Trang riêng)</a></div>`;
+    // Thêm nút này vào panelActionsAreaDiv, có thể cần sắp xếp lại vị trí các nút
+    if (panelActionsAreaDiv) {
+        console.log("DETAILS_PANEL: Đã thêm nút hoc");
+
+
+        // Nút 1: "Xem/Phân loại Elements"
+        const screenIdForLink = nodeData.id;
+        if (screenIdForLink && APP_CONFIG.URL_FOR_ADMIN_SCREEN_ELEMENTS && APP_CONFIG.URL_FOR_ADMIN_SCREEN_ELEMENTS.includes('__SCREEN_ID_PLACEHOLDER__')) {
+            const elementPageUrl = APP_CONFIG.URL_FOR_ADMIN_SCREEN_ELEMENTS.replace('__SCREEN_ID_PLACEHOLDER__', encodeURIComponent(screenIdForLink));
+
+            const viewElementsContainer = document.createElement('div'); // Tạo div bọc ngoài nếu muốn các nút cách đều nhau
+            viewElementsContainer.className = 'd-inline-block me-2'; // Thêm class Bootstrap để cách nút bên phải
+
+            const viewElementsLink = document.createElement('a');
+            viewElementsLink.href = elementPageUrl;
+            viewElementsLink.className = 'btn btn-sm btn-outline-primary mt-2';
+            viewElementsLink.target = '_blank';
+            viewElementsLink.innerHTML = '<i class="fas fa-search me-1"></i> Xem Elements';
+
+            viewElementsContainer.appendChild(viewElementsLink);
+            panelActionsAreaDiv.appendChild(viewElementsContainer);
+            console.log("DETAILS_PANEL: Đã thêm nút 'Xem Elements'.");
+        } else {
+            console.warn("DETAILS_PANEL: Không thể tạo link 'Xem Elements'. Kiểm tra URL_FOR_ADMIN_SCREEN_ELEMENTS và screenIdForLink.");
+        }
+
+        // Nút 2: "Tạo Transition Mới"
+        if (nodeData.id) { // Chỉ thêm nếu có nodeData.id
+            const createTransitionButton = document.createElement('button');
+            createTransitionButton.type = 'button';
+            createTransitionButton.className = 'btn btn-sm btn-success mt-2 me-2'; // Thêm me-2
+            createTransitionButton.innerHTML = '<i class="fas fa-plus-circle me-1"></i> Tạo Transition';
+
+            createTransitionButton.addEventListener('click', function () {
+                console.log("DETAILS_PANEL: Nút 'Tạo Transition Mới' được click cho Node:", JSON.parse(JSON.stringify(nodeData)));
+                const newTransitionData = {
+                    source: nodeData.id,
+                    target: '',
+                    action_type: '',
+                    element_id: '',
+                    identifier_type: '',
+                    element_text: '',
+                    macro_code: '',
+                    params_json: '{}',
+                    status: 'provisional',
+                    attempt_count: 0,
+                    success_count: 0,
+                    app_name: nodeData.app_name
+                };
+                openEditTransitionModal(newTransitionData, true); // true = isCreating
+            });
+            panelActionsAreaDiv.appendChild(createTransitionButton);
+            console.log("DETAILS_PANEL: Đã thêm nút 'Tạo Transition'.");
+            console.log("DETAILS_PANEL: Đã appendChild createTransitionButton. Children của panelActionsAreaDiv:", panelActionsAreaDiv.children.length, panelActionsAreaDiv.innerHTML);
+        } else { console.warn("DETAILS_PANEL: nodeData.id không tồn tại, không thêm nút 'Tạo Transition'."); }
+
+        // Nút 3: "Xóa Node"
+        if (nodeData.id && nodeData.app_name) { // Cần cả id và app_name để xóa
+            const deleteNodeButton = document.createElement('button');
+            deleteNodeButton.type = 'button';
+            deleteNodeButton.className = 'btn btn-sm btn-danger mt-2'; // Bỏ me-2 nếu đây là nút cuối cùng hoặc thêm nếu còn nút khác
+            deleteNodeButton.innerHTML = '<i class="fas fa-trash-alt me-1"></i> Xóa Node';
+
+            deleteNodeButton.addEventListener('click', async function () {
+                if (confirm(`BẠN CÓ CHẮC CHẮN MUỐN XÓA NODE "${nodeData.id}" (App: ${nodeData.app_name}) KHÔNG? \nHành động này sẽ xóa node, tất cả elements và các transitions liên quan đến nó. KHÔNG THỂ HOÀN TÁC!`)) {
+                    deleteNodeButton.disabled = true;
+                    deleteNodeButton.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Đang xóa...';
+                    try {
+                        const apiUrl = `/admin/api/mapping/management/nodes/${encodeURIComponent(nodeData.id)}/delete`;
+                        const payload = { app_name: nodeData.app_name };
+
+                        const response = await sendApiRequest(apiUrl, 'POST', payload);
+
+                        if (response.success) {
+                            console.log("DETAILS_PANEL: Xóa node thành công!", response.message || '');
+                            if (typeof window.removeNodeFromCytoscapeGraph === 'function') {
+                                window.removeNodeFromCytoscapeGraph(nodeData.id);
+                            } else if (typeof window.refreshCytoscapeGraph === 'function') {
+                                window.refreshCytoscapeGraph();
+                            } else {
+                                alert("Node đã được xóa. Vui lòng làm mới đồ thị.");
+                            }
+                            showDefaultDetailsMessage();
+                        } else {
+                            alert(`Lỗi khi xóa node: ${response.message || response.error || 'Lỗi không xác định.'}`);
+                            deleteNodeButton.disabled = false;
+                            deleteNodeButton.innerHTML = '<i class="fas fa-trash-alt me-1"></i> Xóa Node';
+                        }
+                    } catch (error) {
+                        console.error("DETAILS_PANEL: Lỗi client khi gửi yêu cầu xóa node:", error);
+                        alert(`Lỗi client khi xóa node: ${error.message || String(error)}`);
+                        deleteNodeButton.disabled = false;
+                        deleteNodeButton.innerHTML = '<i class="fas fa-trash-alt me-1"></i> Xóa Node';
+                    }
+                }
+            });
+            panelActionsAreaDiv.appendChild(deleteNodeButton);
+            console.log("DETAILS_PANEL: Đã thêm nút 'Xóa Node'.");
+        } else {
+            console.warn("DETAILS_PANEL: nodeData.id hoặc nodeData.app_name không tồn tại, không thêm nút 'Xóa Node'.");
+        }
+        console.log("DETAILS_PANEL: Đã hoàn tất việc thêm các nút vào panelActionsAreaDiv.");
+
+        console.log("DETAILS_PANEL: panelActionsAreaDiv object:", panelActionsAreaDiv);
     } else {
-        console.warn("DETAILS_PANEL: Không thể tạo link 'Xem Elements'. URL_FOR_ADMIN_SCREEN_ELEMENTS:", APP_CONFIG.URL_FOR_ADMIN_SCREEN_ELEMENTS, "screenIdForLink:", screenIdForLink);
+        console.error("DETAILS_PANEL: panelActionsAreaDiv không tồn tại ở thời điểm thêm nút, các nút sẽ không xuất hiện.");
     }
+    console.log("DETAILS_PANEL: Nội dung cuối cùng của panelActionsAreaDiv.innerHTML:", panelActionsAreaDiv.innerHTML);
+
+
+
+
+
+
 
     console.log("DETAILS_PANEL: Bắt đầu xử lý ảnh. URL ảnh:", nodeData.screenshot_url,
         "Original Width:", nodeData.original_width,
@@ -156,7 +343,7 @@ export function displayNodeDetails(nodeData) {
                     const elementsApiUrl = baseUrlForElements.replace('__SCREEN_ID_PLACEHOLDER__', encodeURIComponent(screenIdToFetch));
                     console.log("DETAILS_PANEL: Final constructed elementsApiUrl:", elementsApiUrl);
 
-                    sendApiRequestFromUtils(elementsApiUrl, 'GET')
+                    sendApiRequest(elementsApiUrl, 'GET')
                         .then(data => {
                             console.log("DETAILS_PANEL: Dữ liệu elements nhận được từ API:", JSON.parse(JSON.stringify(data)));
                             if (data.success && Array.isArray(data.elements)) {
@@ -254,7 +441,9 @@ export function displayEdgeDetails(edgeData) {
     console.log("DETAILS_PANEL: Displaying Edge Details:", edgeData);
 
     panelScreenshotAreaDiv.style.display = 'none'; // Ẩn khu vực ảnh
-    panelActionsAreaDiv.innerHTML = ''; // Xóa các nút hành động cũ
+    panelActionsAreaDiv.innerHTML = '';
+
+    // Xóa các nút hành động cũ
 
     // Hiển thị thông tin chi tiết của cạnh
     let edgeDetailsHtml = `<h5>Chi tiết Cạnh (Transition)</h5><ul class="list-group list-group-flush">`;
@@ -298,6 +487,57 @@ export function displayEdgeDetails(edgeData) {
         console.log("DETAILS_PANEL: Đã thêm nút 'Sửa Transition'.");
     } else {
         console.warn("DETAILS_PANEL: Không thể thêm nút 'Sửa Transition' vì thiếu neo4j_edge_id.");
+    }
+    // THÊM NÚT XÓA TRANSITION
+    if (edgeData.neo4j_edge_id) {
+        const deleteButton = document.createElement('button');
+        deleteButton.type = 'button';
+        deleteButton.className = 'btn btn-sm btn-outline-danger mt-2';
+        deleteButton.innerHTML = '<i class="fas fa-trash-alt me-1"></i> Xóa Transition';
+        deleteButton.addEventListener('click', async function () {
+            if (confirm(`Bạn có chắc chắn muốn xóa transition này (Neo4j ID: ${edgeData.neo4j_edge_id}) không? Hành động này không thể hoàn tác.`)) {
+                // Vô hiệu hóa nút để tránh click nhiều lần
+                deleteButton.disabled = true;
+                deleteButton.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Đang xóa...';
+
+                try {
+                    const apiUrl = `/admin/api/mapping/transition/delete/${encodeURIComponent(edgeData.neo4j_edge_id)}`;
+
+                    console.log(`DETAILS_PANEL: Gửi yêu cầu DELETE đến: ${apiUrl}`);
+                    const response = await sendApiRequest(apiUrl, 'DELETE'); // CSRF token được xử lý trong sendApiRequest
+
+                    if (response.success) {
+                        // Không dùng alert nữa
+                        console.log("DETAILS_PANEL: Xóa transition thành công!", response.message || '');
+
+                        // Gọi hàm để xóa cạnh khỏi đồ thị Cytoscape
+                        // Hàm này cần được truyền từ main_mapping.js qua initDetailsPanelManager
+                        // hoặc thông qua một event bus / global function (window.removeEdge...)
+                        if (typeof window.removeEdgeFromCytoscapeGraph === 'function') {
+                            window.removeEdgeFromCytoscapeGraph(edgeData.id); // edgeData.id là ID của Cytoscape
+                        } else {
+                            console.warn("DETAILS_PANEL: Hàm removeEdgeFromCytoscapeGraph không tìm thấy trên window. Cần tải lại đồ thị thủ công.");
+                        }
+                        showDefaultDetailsMessage(); // Hiển thị lại thông báo mặc định
+                    } else {
+                        console.error("DETAILS_PANEL: Lỗi khi xóa transition từ server:", response.error || 'Lỗi không xác định.');
+                        alert(`Lỗi khi xóa transition: ${response.error || 'Lỗi không xác định.'}`);
+                    }
+                } catch (error) {
+                    console.error("DETAILS_PANEL: Lỗi client khi gửi yêu cầu xóa transition:", error);
+                    alert(`Lỗi client khi xóa transition: ${error.message || String(error)}`);
+                } finally {
+                    // Kích hoạt lại nút sau khi xử lý xong (nếu không thành công)
+                    // Nếu thành công thì panel sẽ bị xóa/thay đổi nên không cần kích hoạt lại
+                    if (deleteButton.parentElement) { // Kiểm tra xem nút còn trong DOM không
+                        deleteButton.disabled = false;
+                        deleteButton.innerHTML = '<i class="fas fa-trash-alt me-1"></i> Xóa Transition';
+                    }
+                }
+            }
+        });
+        panelActionsAreaDiv.appendChild(deleteButton);
+        // console.log("DETAILS_PANEL: Đã thêm nút 'Xóa Transition'."); // Đã có log tương tự ở trên
     }
 }
 

@@ -105,14 +105,30 @@ Hệ thống cung cấp các giao diện admin để quản lý và tương tác
 
 ### 4.1. Admin Mapping Viewer (`/admin/mapping/<app_name>`)
 
-* **Mục đích:** Trực quan hóa đồ thị các `Screen Nodes` và `Transitions` cho một ứng dụng cụ thể.
+* **Mục đích:** Trực quan hóa đồ thị các `Screen Nodes` và `Transitions` cho một ứng dụng cụ thể, cho phép quản lý trực tiếp các thành phần của bản đồ.
 * **Chức năng:**
-    * Hiển thị đồ thị tương tác sử dụng Cytoscape.js.
-    * Cho phép xem thông tin chi tiết của từng Node (Screen) và Edge (Transition) khi nhấp vào.
-    * Hiển thị ảnh chụp màn hình của Node đang chọn.
-    * Hiển thị các elements của Node đang chọn (lấy từ API `/admin/api/screen_elements_for_mapping/{screen_id}`).
-    * Cho phép sửa thông tin Transition (ví dụ: `actionType`, `element_id`, `status`, `params_json_str`) thông qua modal và API `/admin/api/mapping/transition/update/{neo4j_edge_id}`.
-    * (Trong tương lai) Có thể cho phép thêm Node/Edge thủ công hoặc khởi tạo khám phá từ đây.
+    * **Chọn Ứng Dụng:** Cho phép người dùng chọn một `app_name` từ danh sách để hiển thị bản đồ tương ứng.
+    * **Hiển thị Đồ thị Tương tác:** Sử dụng thư viện Cytoscape.js để vẽ đồ thị các màn hình (nodes) và các chuyển tiếp giữa chúng (edges).
+        * Nút "Làm mới Đồ thị" cho phép tải lại dữ liệu đồ thị hiện tại.
+    * **Panel Chi Tiết Động:**
+        * Khi nhấp vào một **Node (Màn hình)**:
+            * Hiển thị thông tin chi tiết của Node: `screen_id`, `app_name`, `activity_name`, `status`, số lượng elements ước tính, kích thước gốc, `node_classification` (nếu có), `logical_pie_name` (nếu node đã được định nghĩa bằng PIE).
+            * Hiển thị ảnh chụp màn hình (`screenshot_url`) của Node.
+            * Tải và hiển thị danh sách các UI Elements của Node đó (từ API `/admin/api/screen_elements_for_mapping/{screen_id}`), kèm theo khả năng vẽ bounding box của chúng lên ảnh chụp.
+            * **Nút "Xem/Phân loại Elements":** Liên kết đến trang chi tiết `/admin/screen/{screen_id}/elements` để quản lý sâu hơn về elements.
+            * **Nút "Tạo Transition Mới":** Mở modal cho phép người dùng định nghĩa một transition mới đi ra từ Node này. Người dùng có thể chọn Target Node, Loại Hành Động, Element ID (từ danh sách elements của Source Node), Macro Code (nếu Loại Hành Động là `run_macro`, chọn từ danh sách macro đã định nghĩa), và các tham số JSON. Transition mới sẽ được lưu với trạng thái mặc định (ví dụ: `provisional`).
+            * **Nút "Xóa Node":** Cho phép admin xóa Node hiện tại khỏi đồ thị Neo4j (kèm theo các elements và transitions liên quan của nó) sau khi xác nhận.
+        * Khi nhấp vào một **Edge (Transition)**:
+            * Hiển thị thông tin chi tiết của Edge: ID (Cytoscape và Neo4j), Source, Target, Loại Hành Động, Element ID (đã tương tác), Loại Định danh Element, Element Text (tại thời điểm tương tác), Macro Code, Tham số JSON, Trạng thái, Số lần thử/thành công.
+            * **Nút "Sửa Transition":** Mở modal cho phép chỉnh sửa các thuộc tính của Transition đã chọn (ví dụ: `actionType`, `element_id` từ dropdown, `macro_code` từ dropdown, `status`, `params_json_str`).
+            * **Nút "Xóa Transition":** Cho phép admin xóa Transition hiện tại khỏi đồ thị Neo4j sau khi xác nhận.
+    * **Modal Sửa/Tạo Transition:**
+        * Tự động điền thông tin hiện có của transition (khi sửa) hoặc các giá trị mặc định (khi tạo mới).
+        * Dropdown "Element ID (tương tác)" được điền tự động với danh sách các elements của Source Node (lấy từ API `/admin/api/screen/{source_screen_id}/elements_for_dropdown`).
+        * Dropdown "Loại Hành Động" sẽ tự động điều chỉnh các trường hiển thị/bắt buộc khác (ví dụ: khi chọn `run_macro`, trường "Macro Code" sẽ là dropdown lấy từ API `/admin/api/macros/list`).
+        * Các trường "Loại Định danh Element" và "Element Text" được cập nhật tự động dựa trên "Element ID" đã chọn và được ẩn khỏi người dùng để tiết kiệm không gian (giá trị vẫn được lưu nếu cần).
+        * Lưu thay đổi (cập nhật hoặc tạo mới) thông qua API backend (`/admin/api/mapping/transition/update/{neo4j_edge_id}` hoặc `/admin/api/mapping/transition/create`).
+    * **Cập nhật Đồ thị:** Sau khi tạo, sửa, hoặc xóa transition/node, đồ thị Cytoscape được cập nhật để phản ánh thay đổi (xóa/thêm cạnh/node một cách động hoặc tải lại toàn bộ đồ thị).
 
 ### 4.2. Admin Screen Elements Viewer (`/admin/screen/<screen_id>/elements`)
 

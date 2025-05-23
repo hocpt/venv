@@ -2,6 +2,7 @@
 import os
 import traceback
 from typing import Counter
+from venv import logger
 from flask import Blueprint, Flask, config, render_template, request, redirect, url_for, flash,current_app ,jsonify
 from datetime import datetime, timedelta, timezone 
 import psycopg2
@@ -7002,7 +7003,7 @@ def admin_screen_elements(screen_id):
         if filename_from_neo4j and app_name:
             # Tạo URL để hiển thị (như cũ)
             try:
-                screenshot_url = url_for('serve_app_specific_screenshot', filename=filename_from_neo4j, _external=False)
+                screenshot_url = url_for('serve_screenshot_for_app', app_name=app_name, filename=filename_from_neo4j, _external=False)
                 logger.info(f"[admin_screen_elements] Đã tạo URL screenshot: '{screenshot_url}'")
             except Exception as url_err:
                 logger.error(f"[admin_screen_elements] Lỗi tạo URL screenshot: {url_err}", exc_info=True)
@@ -7351,7 +7352,7 @@ def api_get_app_graph_data():
                        n.height AS height        
                 ORDER BY n.screen_id
             """
-            logger.debug(f"API_MAPPING_DATA: Executing Node Query for app '{app_name_from_request}':\n{node_query}")
+            #logger.debug(f"API_MAPPING_DATA: Executing Node Query for app '{app_name_from_request}':\n{node_query}")
             # Truyền app_name_from_request vào query
             nodes_result = session.run(node_query, app_name_param_for_query=app_name_from_request)
 
@@ -7413,7 +7414,6 @@ def api_get_app_graph_data():
 
             edge_counter_for_id = 0 
             for record in edges_result:
-                # ... (xử lý cạnh như cũ)
                 edge_counter_for_id += 1
                 source_id = record["source"]
                 target_id = record["target"]
@@ -7421,11 +7421,25 @@ def api_get_app_graph_data():
                 if source_id not in node_ids_found_in_query or target_id not in node_ids_found_in_query:
                     logger.warning(f"API_MAPPING_DATA: Bỏ qua cạnh có ID Neo4j '{record['neo4j_edge_id']}' vì node nguồn '{source_id}' hoặc đích '{target_id}' không hợp lệ/không được tìm thấy.")
                     continue
-                edge_id = f"edge_{record['neo4j_edge_id']}" if record['neo4j_edge_id'] else f"edge_auto_{source_id}_{target_id}_{edge_counter_for_id}"
-                edge_data = {"id": edge_id, "source": source_id, "target": target_id}
+                
+                # ID cho Cytoscape
+                edge_id_for_cytoscape = f"edge_{record['neo4j_edge_id']}" if record['neo4j_edge_id'] else f"edge_auto_{source_id}_{target_id}_{edge_counter_for_id}"
+                
+                # Khởi tạo edge_data với các trường cơ bản
+                edge_data = {
+                    "id": edge_id_for_cytoscape, 
+                    "source": source_id, 
+                    "target": target_id
+                }
+                
+                # Thêm tất cả các trường khác từ record vào edge_data,
+                # bao gồm cả neo4j_edge_id
                 for key in record.keys():
-                    if key not in ["source", "target", "neo4j_edge_id"] and record[key] is not None:
+                    # Chỉ loại trừ 'source' và 'target' vì chúng đã được xử lý,
+                    # và chỉ thêm nếu giá trị không None.
+                    if key not in ["source", "target"] and record[key] is not None:
                         edge_data[key] = record[key]
+                
                 edges_list_for_cytoscape.append({"data": edge_data})
 
 
@@ -7442,30 +7456,33 @@ def api_get_app_graph_data():
     logger.info(f"API_MAPPING_DATA: Trả về dữ liệu đồ thị thành công cho app '{app_name_from_request}'.")
     return jsonify(final_graph_data)
 
-@admin_bp.route('/mapping/')
-@admin_bp.route('/mapping/<path:app_name>')
-# @admin_required
-def admin_mapping_viewer(app_name=None):
-    """Hiển thị trang xem đồ thị mapping."""
-    title = "App Mapping Viewer"
-    available_apps = [] # Danh sách các app đã được map
+@admin_bp.route('/mapping/', defaults={'app_name': None}, methods=['GET']) # Chỉ cần GET nếu không xử lý POST
+@admin_bp.route('/mapping/<path:app_name>', methods=['GET'])
+def admin_mapping_viewer(app_name):
+    query_app_name = request.args.get('app_name')
 
-    # (Tùy chọn) Lấy danh sách các app_name đã có trong Neo4j để tạo dropdown chọn app
-    if graph_db:
-        try:
-            available_apps = graph_db.get_distinct_app_names() or [] # Cần tạo hàm này trong graph_db.py
-        except Exception as e:
-             current_app.logger.warning(f"Could not fetch distinct app names: {e}")
+    if query_app_name and not app_name:
+        current_app.logger.info(f"ADMIN_MAPPING_VIEWER: Redirecting from query URL (?app_name={query_app_name}) to path URL.")
+        return redirect(url_for('admin.admin_mapping_viewer', app_name=query_app_name))
 
-    if app_name:
-        title = f"Mapping for: {app_name}"
+    selected_app_name = app_name
+    all_app_names_from_nodes = [] # Khởi tạo là một list rỗng
 
-    # Render template mới, truyền app_name và danh sách app vào
+    try:
+        # Đây là dòng quan trọng lấy danh sách tên ứng dụng
+        all_app_names_from_nodes = graph_db.get_all_app_names() #
+    except Exception as e:
+        current_app.logger.error(f"ADMIN_MAPPING_VIEWER: Failed to get app names from graph_db: {str(e)}", exc_info=True)
+        # Bạn có thể muốn thông báo lỗi cho người dùng ở đây, ví dụ qua flash message
+        # flash(f"Lỗi khi tải danh sách ứng dụng: {str(e)}", "danger")
+
+    # Log để kiểm tra giá trị của all_app_names_from_nodes
+    current_app.logger.debug(f"ADMIN_MAPPING_VIEWER: Selected app: '{selected_app_name}', Available apps for dropdown: {all_app_names_from_nodes}")
+
     return render_template('admin_mapping_viewer.html',
-                           title=title,
-                           selected_app_name=app_name, # App đang được chọn (có thể None)
-                           available_apps=available_apps)
-
+                           selected_app_name=selected_app_name,
+                           available_apps=all_app_names_from_nodes, # Biến này được truyền vào template
+                           title="Trình xem Bản đồ Ứng dụng" if not selected_app_name else f"Bản đồ: {selected_app_name}")
 
 # === API MỚI ĐỂ LƯU CLASSIFICATION VÀO POSTGRESQL ===
 @admin_bp.route('/api/element/classify', methods=['POST'])
@@ -7894,7 +7911,7 @@ def view_node_management():
             if node_status in defined_statuses and not node_to_render.get('logical_pie_name'):
                 try:
                     # Giả sử db_postgres là alias cho module database.py của PostgreSQL
-                    pie_def = db_postgres.get_screen_definition_by_defined_id(node_to_render.get('screen_id'), node_to_render.get('app_name'))
+                    pie_def = db.get_screen_definition_by_defined_id(node_to_render.get('screen_id'), node_to_render.get('app_name'))
                     if pie_def:
                         node_to_render['logical_pie_name'] = pie_def.get('logical_screen_name')
                         logger.debug(f"ADMIN_ROUTES: Lấy được PIE name '{node_to_render['logical_pie_name']}' cho defined node '{node_to_render.get('screen_id')}'")
@@ -8800,5 +8817,133 @@ def project_documentation_viewer(filepath):
                            sidebar_structure=sidebar_structure,
                            current_filepath=filepath.replace('\\', '/'), 
                            error_message=error_message)
+
+@admin_bp.route('/api/screen/<string:screen_id>/elements_for_dropdown', methods=['GET'])
+def api_get_screen_elements_for_dropdown(screen_id):
+    """
+    API endpoint để lấy danh sách elements của một screen_id cụ thể,
+    được định dạng cho việc sử dụng trong dropdown.
+    """
+    if not screen_id:
+        return jsonify({"error": "Screen ID là bắt buộc"}), 400
+    
+    current_app_name = request.args.get('app_name') # Lấy app_name nếu cần cho query
+                                                    # Nếu screen_id đã là duy nhất toàn cục thì có thể không cần app_name
+
+    try:
+        # logger.debug(f"API: Yêu cầu elements cho dropdown của screen_id: {screen_id}, app_name: {current_app_name}")
+        # elements = get_elements_for_screen_dropdown(screen_id, app_name=current_app_name) # Nếu hàm graph_db cần app_name
+        elements = graph_db.get_elements_for_screen_dropdown(screen_id)
+        # logger.debug(f"API: Tìm thấy {len(elements)} elements cho screen_id: {screen_id}")
+        return jsonify(elements)
+    except Exception as e:
+        logger.error(f"API: Lỗi khi lấy elements cho dropdown của screen_id {screen_id}: {e}", exc_info=True)
+        return jsonify({"error": "Không thể lấy danh sách screen elements"}), 500
+
+@admin_bp.route('/api/macros/list', methods=['GET'])
+def api_get_macros_list():
+    """
+    API endpoint để lấy danh sách tất cả các macro code đã định nghĩa.
+    """
+    try:
+        macros = db.get_all_macro_definitions_for_dropdown()
+        # current_app.logger.debug(f"API: Trả về {len(macros)} macro definitions cho dropdown.")
+        return jsonify(macros)
+    except Exception as e:
+        current_app.logger.error(f"API: Lỗi khi lấy danh sách macros: {e}", exc_info=True)
+        return jsonify({"error": "Không thể lấy danh sách macros"}), 500
+
+@admin_bp.route('/api/mapping/transition/delete/<path:neo4j_edge_id>', methods=['DELETE'])
+def api_delete_transition(neo4j_edge_id):
+    logger = current_app.logger
+    logger.info(f"API: Yêu cầu xóa Transition Neo4j ID: {neo4j_edge_id}")
+
+    if not neo4j_edge_id:
+        return jsonify({"success": False, "error": "Thiếu ID của transition Neo4j."}), 400
+
+    if not graph_db:
+        logger.error("API Delete Transition: GraphDB module chưa sẵn sàng.")
+        return jsonify({"success": False, "error": "Lỗi cấu hình server (GraphDB)"}), 500
+
+    try:
+        # Gọi hàm trong graph_db.py để xóa cạnh
+        # Hàm này cần trả về (bool_success, message_or_error_string)
+        success, message = graph_db.delete_transition_by_neo4j_id(neo4j_edge_id)
+
+        if success:
+            logger.info(f"API Delete Transition: Xóa thành công transition Neo4j ID {neo4j_edge_id}.")
+            return jsonify({"success": True, "message": message or f"Đã xóa transition ID {neo4j_edge_id}."})
+        else:
+            logger.error(f"API Delete Transition: Xóa thất bại transition Neo4j ID {neo4j_edge_id}. Lỗi: {message}")
+            # Phân biệt lỗi không tìm thấy (404) với lỗi server (500)
+            status_code = 404 if "không tìm thấy" in (message or "").lower() else 500
+            return jsonify({"success": False, "error": message or "Xóa transition thất bại."}), status_code
+
+    except Exception as e:
+        logger.error(f"API Delete Transition: Lỗi không mong muốn cho ID {neo4j_edge_id}: {e}", exc_info=True)
+        return jsonify({"success": False, "error": f"Lỗi server nội bộ: {str(e)}"}), 500
+
+
+@admin_bp.route('/api/mapping/transition/create', methods=['POST'])
+def api_create_transition():
+    logger = current_app.logger
+    logger.info("API: Yêu cầu tạo Transition mới")
+
+    if not request.is_json:
+        return jsonify({"success": False, "error": "Yêu cầu phải là JSON"}), 400
+
+    data = request.get_json()
+    logger.debug(f"API Create Transition: Dữ liệu nhận được: {data}")
+
+    app_name = data.get('app_name')
+    source_node_id = data.get('source_node_id')
+    target_node_id = data.get('target_node_id')
+    action_type = data.get('action_type')
+    
+    # Validate các trường bắt buộc
+    if not all([app_name, source_node_id, target_node_id, action_type]):
+        return jsonify({"success": False, "error": "Thiếu các trường bắt buộc: app_name, source_node_id, target_node_id, action_type."}), 400
+
+    # Chuẩn bị action_details từ data
+    action_details_for_graphdb = {
+        'actionType': action_type,
+        'element_id': data.get('element_id'),
+        'identifier_type': data.get('identifier_type'),
+        'element_text': data.get('element_text'),
+        'macro_code': data.get('macro_code'),
+        'params_json_str': data.get('params_json_str'), # Đây đã là chuỗi JSON từ client
+        'status': data.get('status', 'provisional'),
+        'attempt_count': data.get('attempt_count', 0),
+        'success_count': data.get('success_count', 0)
+        # Thêm các thuộc tính khác nếu cần cho hàm graph_db.add_new_transition_logic
+    }
+    # Loại bỏ các giá trị None để không ghi đè không cần thiết
+    action_details_for_graphdb = {k: v for k, v in action_details_for_graphdb.items() if v is not None}
+
+
+    if not graph_db:
+        # ... (xử lý lỗi graph_db không sẵn sàng)
+        return jsonify({"success": False, "error": "Lỗi cấu hình server (GraphDB)"}), 500
+
+    try:
+        # Gọi hàm trong graph_db.py để tạo cạnh mới
+        # Hàm này cần trả về (success_bool, message_or_error, optional_new_edge_id)
+        success, message, new_edge_info = graph_db.add_new_transition_logic(
+            source_screen_id=source_node_id,
+            target_screen_id=target_node_id,
+            app_name=app_name,
+            action_properties=action_details_for_graphdb # Truyền dict các thuộc tính
+        )
+
+        if success:
+            logger.info(f"API Create Transition: Tạo thành công transition từ '{source_node_id}' đến '{target_node_id}'. Info: {new_edge_info}")
+            return jsonify({"success": True, "message": message or "Tạo transition thành công.", "new_transition_info": new_edge_info})
+        else:
+            logger.error(f"API Create Transition: Tạo thất bại. Lỗi: {message}")
+            return jsonify({"success": False, "error": message or "Tạo transition thất bại."}), 500 # Hoặc 400 nếu lỗi do client
+
+    except Exception as e:
+        logger.error(f"API Create Transition: Lỗi không mong muốn: {e}", exc_info=True)
+        return jsonify({"success": False, "error": f"Lỗi server nội bộ: {str(e)}"}), 500
 
 

@@ -81,7 +81,7 @@
     padding-bottom: 0.5rem;
     flex-shrink: 0;
     /* Ngăn co lại quá mức khi ảnh lớn */
-    max-height: 30vh;
+    max-height: none;
     /* Giới hạn chiều cao phần text, cho phép cuộn nếu cần */
     overflow-y: auto;
 }
@@ -91,6 +91,10 @@
     flex-shrink: 0;
 }
 
+#detailsPanelScreenshotArea,
+#detailsPanelActionsArea {
+    flex-shrink: 0;
+}
 
 #selectionDetailsPanel h5 {
     font-size: 1.1em;

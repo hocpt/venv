@@ -4,8 +4,6 @@ import { sendApiRequest, escapeHtml } from './utils_mapping.js'; // escapeHtml �
 import { displayNodeDetails, displayEdgeDetails, showDefaultDetailsMessage } from './details_panel_manager.js';
 
 let cy = null;
-// Không khai báo graphContainerElement và loadingIndicatorElement ở đây nữa ở cấp module
-// Chúng sẽ được lấy và sử dụng cục bộ trong init hoặc truyền qua tham số.
 let currentAppName = null;
 
 export function initCytoscapeManager(appNameToLoad) {
@@ -180,4 +178,35 @@ export function updateEdgeInGraph(neo4jEdgeId, updatedData) {
     }
 }
 
-// Có thể thêm các hàm khác như removeEdgeFromGraph, addNodeToGraph, v.v. nếu cần
+export function removeNodeFromCytoscapeGraph(cytoscapeNodeId) {
+    if (!cy) {
+        console.warn("CYTOSCAPE_MANAGER: Cytoscape instance is null, cannot remove node.");
+        return;
+    }
+    const nodeToRemove = cy.getElementById(cytoscapeNodeId);
+    if (nodeToRemove.length > 0) {
+        cy.remove(nodeToRemove);
+        console.log(`CYTOSCAPE_MANAGER: Removed node with ID '${cytoscapeNodeId}' and its connected edges from graph.`);
+    } else {
+        console.warn(`CYTOSCAPE_MANAGER: Node with ID '${cytoscapeNodeId}' not found in graph to remove.`);
+    }
+}
+
+// Gán vào window (đặt SAU khi định nghĩa hàm)
+if (typeof window.removeEdgeFromCytoscapeGraph === 'undefined') { // Đã có từ trước
+    window.removeEdgeFromCytoscapeGraph = removeNodeFromCytoscapeGraph;
+}
+if (typeof window.removeNodeFromCytoscapeGraph === 'undefined') {
+    window.removeNodeFromCytoscapeGraph = removeNodeFromCytoscapeGraph;
+}
+if (typeof window.refreshCytoscapeGraph === 'undefined') {
+    window.refreshCytoscapeGraph = function () {
+        if (currentAppName && typeof fetchAndRenderGraph === 'function') {
+            const graphContainer = document.getElementById(APP_CONFIG.DOM_ELEMENT_IDS.graphContainer);
+            const loadingIndicator = document.getElementById(APP_CONFIG.DOM_ELEMENT_IDS.loadingIndicator);
+            if (graphContainer) {
+                fetchAndRenderGraph(currentAppName, graphContainer, loadingIndicator);
+            }
+        }
+    };
+}
